@@ -25,6 +25,7 @@ from birdy.store import Store
 log = logging.getLogger(__name__)
 
 RETRY_DELAYS = (5.0, 15.0, 45.0)
+NO_RETRY_STATUSES = frozenset({400, 401, 403})  # bad request / bad token / blocked bot: retrying cannot help
 TELEGRAM_API = "https://api.telegram.org"
 
 
@@ -187,6 +188,9 @@ class TelegramNotifier:
         self._live = live
         self._store = store
         self._transport = transport
+        tg = live.get().telegram  # chat_id/base_url are restart-only, like the token in the transport
+        self._chat_id = tg.chat_id
+        self._base_url = tg.base_url
         self._policy = policy or AlertPolicy()
         self._queue: queue.Queue[Alert] = queue.Queue(maxsize=maxsize)
         self._stop = threading.Event()
@@ -217,8 +221,7 @@ class TelegramNotifier:
 
     def send_test(self) -> None:
         """Synchronous; raises TelegramError to the caller (the settings page shows it)."""
-        cfg = self._live.get()
-        self._transport.send_text(cfg.telegram.chat_id, f"birdy test alert from {cfg.site.name}")
+        self._transport.send_text(self._chat_id, f"birdy test alert from {self._live.get().site.name}")
 
     def start(self) -> None:
         self._thread.start()
@@ -239,9 +242,8 @@ class TelegramNotifier:
                 log.exception("alert delivery crashed for capture %d; dropping", alert.capture_id)
 
     def _deliver(self, alert: Alert) -> None:
-        cfg = self._live.get()
-        chat_id = cfg.telegram.chat_id
-        caption = caption_for(alert, cfg.telegram.base_url)
+        chat_id = self._chat_id
+        caption = caption_for(alert, self._base_url)
         last: Exception | None = None
         for attempt, delay in enumerate((0.0, *RETRY_DELAYS), start=1):
             if delay:
@@ -259,4 +261,6 @@ class TelegramNotifier:
             except (TelegramError, OSError) as e:
                 last = e
                 log.warning("alert send failed (attempt %d): %s", attempt, e)
-        log.error("alert dropped after %d attempts: %s", 1 + len(RETRY_DELAYS), last)
+                if isinstance(e, TelegramError) and e.status in NO_RETRY_STATUSES:
+                    break
+        log.error("alert dropped after %d attempt(s): %s", attempt, last)

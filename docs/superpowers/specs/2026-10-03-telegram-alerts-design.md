@@ -134,5 +134,13 @@ cooldown_minutes = 30      # live-tunable, >= 0
 - CLI: `telegram-chat-id` with a fake `getUpdates` response prints ids; none → exit 1.
 - Pi: deploy; token + chat id already known (chat id 1115872433); enable; test button; show the phone a hoopoe → photo alert.
 
+## Implementation notes (as merged)
+
+- `TelegramNotifier(..., sleep=None)`: the default sleep is the stop event's `wait`, so `stop()` interrupts a retry back-off. Queued alerts are dropped on shutdown.
+- Every transport failure (HTTP error, timeout, DNS, invalid URL, bad JSON) is wrapped as `TelegramError` with the token redacted; `send_test` therefore raises only `TelegramError`.
+- Telegram 400/401/403 are not retried: they mean a bad chat id, a revoked token or a blocked bot, which a retry can't fix.
+- `Alert.reason` is only ever `"watchlist"` or `"new"`; the test button sends a text message directly and never builds an `Alert`.
+- `chat_id` and `base_url` are captured in `TelegramNotifier.__init__` (restart-only, like the token); `enabled` is checked per alert, so `enabled = false` applies live while `enabled = true` needs a restart.
+
 ## Out of scope
 Multiple recipients/groups, per-species cooldowns, quiet hours (the daylight gate already silences nights), alert history page, inline buttons/commands on the bot, other channels (email, push).

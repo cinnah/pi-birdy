@@ -145,8 +145,9 @@ def test_fetch_chat_ids_parses_updates():
 # --- notifier -------------------------------------------------------------
 
 class FakeTransport:
-    def __init__(self, fail_times: int = 0, missing_photo: bool = False):
+    def __init__(self, fail_times: int = 0, missing_photo: bool = False, fail_status: int = 502):
         self.fail_times = fail_times
+        self.fail_status = fail_status
         self.missing_photo = missing_photo
         self.photos: list[tuple[str, Path, str]] = []
         self.texts: list[tuple[str, str]] = []
@@ -154,7 +155,7 @@ class FakeTransport:
     def send_photo(self, chat_id, photo, caption):
         if self.fail_times:
             self.fail_times -= 1
-            raise TelegramError("Bad Gateway", 502)
+            raise TelegramError("Bad Gateway", self.fail_status)
         if self.missing_photo:
             raise FileNotFoundError(photo)
         self.photos.append((chat_id, photo, caption))
@@ -253,6 +254,23 @@ def test_retries_then_drops(live, config, store, caplog):
             assert wait_until(lambda: "alert dropped" in caplog.text)
         assert sleeps == [5.0, 15.0, 45.0]
         assert t.photos == []
+    finally:
+        n.stop()
+
+
+@pytest.mark.parametrize("status", [400, 401, 403])
+def test_permanent_errors_are_not_retried(live, config, store, caplog, status):
+    live.replace(enabled_config(config))
+    sleeps = []
+    t = FakeTransport(fail_times=4, fail_status=status)
+    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n.start()
+    try:
+        with caplog.at_level(logging.WARNING):
+            n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+            assert wait_until(lambda: "alert dropped" in caplog.text)
+        assert sleeps == []
+        assert t.fail_times == 3  # exactly one attempt
     finally:
         n.stop()
 
