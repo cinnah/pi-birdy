@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
 import time
@@ -85,12 +86,19 @@ def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int) -> None
     log.info("captured %s (motion %d)", rel_path, score)
 
 
-def _build_tunables(cfg: Config) -> tuple[MotionDetector, DaylightGate]:
+def _tunable_key(cfg: Config) -> tuple:
+    """The config sections the detector and gate are built from."""
+    return (cfg.motion, cfg.site, cfg.daylight)
+
+
+def _build_tunables(cfg: Config, lores_size: tuple[int, int]) -> tuple[MotionDetector, DaylightGate]:
+    # `lores_size` is the process's pinned camera size, not cfg.camera.lores_size:
+    # the detector must match the stream the running session actually delivers.
     # MotionDetector's default warmup_frames (10) suppresses triggers while
     # auto-exposure settles after the camera session starts, and again for ~1 s
     # after a settings change rebuilds the detector.
     detector = MotionDetector(
-        frame_size=cfg.camera.lores_size,
+        frame_size=lores_size,
         roi=cfg.motion.roi,
         pixel_threshold=cfg.motion.pixel_threshold,
         min_area=cfg.motion.min_area,
@@ -110,16 +118,28 @@ def run_capture(
 ) -> None:
     global _low_disk_warned
     paused_logged = False
+    # Camera settings are fixed for the process — the classifier's crop scaling was
+    # built from them too; the watcher warns that a restart is required.
+    camera = live.get().camera
     version = live.version
-    config = live.get()  # camera settings are read once per session
-    detector, gate = _build_tunables(config)
+    config = live.get()
+    detector, gate = _build_tunables(config, camera.lores_size)
+    built_from = _tunable_key(config)
 
     def refresh_tunables() -> None:
-        nonlocal version, detector, gate
-        if live.version != version:
-            version = live.version
-            detector, gate = _build_tunables(live.get())
+        nonlocal version, detector, gate, built_from
+        if live.version == version:
+            return
+        version = live.version
+        cfg = live.get()
+        key = _tunable_key(cfg)
+        if key == built_from:
+            # Only classifier/retention/etc. changed: keep the warmed-up detector.
             log.info("settings applied (v%d)", version)
+            return
+        detector, gate = _build_tunables(cfg, camera.lores_size)
+        built_from = key
+        log.info("settings applied (v%d) (detector rebuilt)", version)
 
     while not stop.is_set():
         refresh_tunables()
@@ -136,9 +156,11 @@ def run_capture(
 
         # Read version before the snapshot: a replace() landing between the two
         # reads then triggers a (redundant) rebuild rather than being skipped.
+        # A fresh detector per session: its background model is stale after a pause.
         version = live.version
-        config = live.get()
-        detector, gate = _build_tunables(config)
+        config = dataclasses.replace(live.get(), camera=camera)
+        detector, gate = _build_tunables(config, camera.lores_size)
+        built_from = _tunable_key(config)
         try:
             with camera_session(config) as picam2:
                 state.update(state="capturing")

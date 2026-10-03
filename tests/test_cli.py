@@ -1,14 +1,24 @@
+import dataclasses
+import signal
+import socket
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from birdy.cli import build_parser
+from birdy.cli import build_parser, cmd_run
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
@@ -104,7 +114,8 @@ def test_run_wires_live_config_and_exits_without_camera(tmp_path):
         pytest.skip("model missing")
     cfg = tmp_path / "birdy.toml"
     cfg.write_text(
-        '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n[storage]\ndata_dir = "data"\n[web]\nport = 8791\n'
+        '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n[storage]\ndata_dir = "data"\n'
+        f'[web]\nport = {_free_port()}\n'
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
     )
@@ -116,3 +127,49 @@ def test_run_wires_live_config_and_exits_without_camera(tmp_path):
     assert "birdy starting" in proc.stderr
     assert "picamera2" in proc.stderr
     assert "Traceback" not in proc.stderr.split("camera session failed")[0]  # no errors before the expected one
+
+
+def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
+    """In-process: every live-aware component gets the same LiveConfig and the web app is up."""
+    from birdy import capture, pipeline, retention, watcher
+    from birdy.config import WebConfig
+    from birdy.live import LiveConfig
+
+    port = _free_port()
+    config = dataclasses.replace(config, web=WebConfig(host="127.0.0.1", port=port))
+    seen: dict[str, object] = {}
+
+    def record(name, init, live_index):
+        def wrapper(self, *a, **kw):
+            seen[name] = a[live_index]
+            return init(self, *a, **kw)
+        return wrapper
+
+    # Pipeline(store, classifier, live); RetentionJob(store, live); ConfigWatcher(path, live)
+    monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline.Pipeline.__init__, 2))
+    monkeypatch.setattr(retention.RetentionJob, "__init__", record("retention", retention.RetentionJob.__init__, 1))
+    monkeypatch.setattr(watcher.ConfigWatcher, "__init__", record("watcher", watcher.ConfigWatcher.__init__, 1))
+    monkeypatch.setattr("birdy.cli._classifier", lambda cfg: object())
+
+    def fake_run_capture(live, store, pipeline_, state, stop):
+        seen["capture"] = live
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=5) as resp:
+            seen["status_http"] = resp.status
+            seen["status_body"] = resp.read()
+
+    monkeypatch.setattr(capture, "run_capture", fake_run_capture)
+
+    handlers = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        rc = cmd_run(config, config_path)
+    finally:
+        for s, h in handlers.items():
+            signal.signal(s, h)
+
+    assert rc == 0
+    assert seen["status_http"] == 200
+    assert b"motion_score" in seen["status_body"]
+    lives = [seen[k] for k in ("pipeline", "retention", "watcher", "capture")]
+    assert isinstance(lives[0], LiveConfig)
+    assert all(v is lives[0] for v in lives), seen
+    assert lives[0].get() is config
