@@ -50,10 +50,14 @@ def test_classify_command_prints_prediction(tmp_path):
         '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n'
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
+        f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
+        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
     )
     proc = _run_cli("--config", str(cfg), "classify", str(bird))
     assert proc.returncode == 0, proc.stderr
     assert "bird=True" in proc.stdout
+    assert "gate (ImageNet):" in proc.stdout
+    assert "species (iNat):" in proc.stdout
 
 
 def test_bad_config_exits_2(tmp_path):
@@ -118,6 +122,8 @@ def test_run_wires_live_config_and_exits_without_camera(tmp_path):
         f'[web]\nport = {_free_port()}\n'
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
+        f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
+        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
     )
     proc = subprocess.run(
         [sys.executable, "-m", "birdy.cli", "--config", str(cfg), "run"],
@@ -149,7 +155,7 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline.Pipeline.__init__, 2))
     monkeypatch.setattr(retention.RetentionJob, "__init__", record("retention", retention.RetentionJob.__init__, 1))
     monkeypatch.setattr(watcher.ConfigWatcher, "__init__", record("watcher", watcher.ConfigWatcher.__init__, 1))
-    monkeypatch.setattr("birdy.cli._classifier", lambda cfg: object())
+    monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: object())
 
     def fake_run_capture(live, store, pipeline_, state, stop):
         seen["capture"] = live

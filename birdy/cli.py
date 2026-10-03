@@ -11,8 +11,10 @@ import time
 import tomllib
 from pathlib import Path
 
-from birdy.classifier import ImageNetBirdClassifier
+from birdy.classifier import CropLoader, ImageNetBirdClassifier, TwoStageClassifier
 from birdy.config import Config, ConfigError, load_config
+from birdy.live import LiveConfig
+from birdy.species import InatBirdClassifier
 from birdy.store import Store
 
 log = logging.getLogger("birdy")
@@ -33,21 +35,22 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _classifier(config: Config) -> ImageNetBirdClassifier:
-    return ImageNetBirdClassifier(
+def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
+    gate = ImageNetBirdClassifier(
         config.classifier.model,
         config.classifier.labels,
         config.classifier.bird_classes,
         threshold=config.classifier.threshold,
         lores_size=config.camera.lores_size,
     )
+    species = InatBirdClassifier(config.species.model, config.species.labels)
+    return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size)
 
 
 def cmd_run(config: Config, config_path: Path) -> int:
     import uvicorn
 
     from birdy.capture import run_capture
-    from birdy.live import LiveConfig
     from birdy.pipeline import Pipeline
     from birdy.retention import RetentionJob
     from birdy.state import RuntimeState
@@ -60,7 +63,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     store.set_site(config.site.name, config.site.lat, config.site.lon)
     state = RuntimeState()
 
-    pipeline = Pipeline(store, _classifier(config), live)
+    pipeline = Pipeline(store, _classifier(config, live), live)
     pipeline.start()
     retention = RetentionJob(store, live)
     retention.start()
@@ -127,11 +130,17 @@ def cmd_roi(config: Config, out: str) -> int:
 
 
 def cmd_classify(config: Config, image: str) -> int:
-    clf = _classifier(config)
-    pred = clf.classify(Path(image), roi_bbox=None)
-    print(f"bird={pred.is_bird} p_bird={pred.confidence:.3f}")
-    for label, prob in clf.top_k(Path(image), roi_bbox=None, k=5):
+    live = LiveConfig(config)
+    clf = _classifier(config, live)
+    img = CropLoader(config.camera.lores_size).load(Path(image), None)
+    pred, top = clf.classify_image(img)
+    print(f"bird={pred.is_bird} p_bird={pred.confidence:.3f} species={pred.species or '-'}")
+    print("gate (ImageNet):")
+    for label, prob in clf.gate.top_k(Path(image), None, k=5):
         print(f"  {prob:.3f}  {label}")
+    print("species (iNat):")
+    for label, prob in top:
+        print(f"  {prob:.3f}  {label.common} ({label.latin})")
     return 0
 
 
@@ -161,12 +170,18 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         print(f"config error: {args.config}: {e}", file=sys.stderr)
         return 2
-    if args.command == "run":
-        return cmd_run(config, Path(args.config))
+    try:
+        if args.command == "run":
+            return cmd_run(config, Path(args.config))
+        if args.command == "classify":
+            return cmd_classify(config, args.image)
+    except (ValueError, OSError) as e:
+        # A missing or corrupt model file fails while the classifier is built. Exit 2 like
+        # a config error so systemd does not restart-loop on something only a human can fix.
+        print(f"model error: {e}", file=sys.stderr)
+        return 2
     if args.command == "roi":
         return cmd_roi(config, args.out)
-    if args.command == "classify":
-        return cmd_classify(config, args.image)
     if args.command == "purge":
         return cmd_purge(config)
     return 2

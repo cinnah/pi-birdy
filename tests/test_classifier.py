@@ -94,7 +94,7 @@ class TestRealModel:
 
     @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
     def test_real_model_probabilities_sum_to_one(self, clf):
-        probs = clf._probs(FIXTURES / "bird.jpg", None)
+        probs = clf._probs(clf._crops.load(FIXTURES / "bird.jpg", None))
         assert probs.shape == (1001,)
         assert probs.min() >= 0 and probs.max() <= 1
         assert float(probs.sum()) == pytest.approx(1.0, abs=1e-3)
@@ -138,3 +138,8 @@ class TestRealModel:
         assert p_default.is_bird is True
         assert p_strict.is_bird is False
         assert p_default.confidence == p_strict.confidence
+
+    @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
+    def test_predict_on_decoded_image(self, clf):
+        img = cv2.cvtColor(cv2.imread(str(FIXTURES / "bird.jpg")), cv2.COLOR_BGR2RGB)
+        assert clf.predict(img) > 0.5

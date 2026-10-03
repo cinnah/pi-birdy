@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -10,7 +11,10 @@ from typing import Protocol
 import cv2
 import numpy as np
 
+from birdy.live import LiveConfig
 from birdy.motion import BBox
+from birdy.species import InatBirdClassifier, SpeciesLabel
+from birdy.tflite import load_interpreter
 
 log = logging.getLogger(__name__)
 
@@ -25,14 +29,6 @@ class Prediction:
 
 class Classifier(Protocol):
     def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction: ...
-
-
-def _load_interpreter(model_path: Path):
-    try:
-        from ai_edge_litert.interpreter import Interpreter
-    except ImportError:  # older Pi installs
-        from tflite_runtime.interpreter import Interpreter
-    return Interpreter(model_path=str(model_path))
 
 
 def load_bird_indices(path: Path) -> frozenset[int]:
@@ -75,6 +71,31 @@ def crop_to_bbox(img: np.ndarray, bbox: BBox, lores_size: tuple[int, int], pad: 
     return img[y0:y1, x0:x1]
 
 
+class CropLoader:
+    """Decode a still and crop it to the ROI bbox (lores coords -> main coords), as RGB."""
+
+    def __init__(self, lores_size: tuple[int, int], pad: float = 0.1) -> None:
+        self._lores_size = lores_size
+        self._pad = pad
+        self._warned_bbox: BBox | None = None
+
+    def load(self, image_path: Path, roi_bbox: BBox | None) -> np.ndarray:
+        img = cv2.imread(str(image_path))
+        if img is None:
+            raise ValueError(f"cannot read image {image_path}")
+        if roi_bbox is not None:
+            crop = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad)
+            if crop.size == 0:
+                # A bad ROI must not turn every capture into an error, so fall back to the
+                # full frame. Warn once per distinct bbox: the ROI is live-tunable.
+                if roi_bbox != self._warned_bbox:
+                    log.warning("ROI %s yields an empty crop; using the full frame", roi_bbox)
+                    self._warned_bbox = roi_bbox
+            else:
+                img = crop
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
 class ImageNetBirdClassifier:
     def __init__(
         self,
@@ -85,7 +106,7 @@ class ImageNetBirdClassifier:
         lores_size: tuple[int, int],
         pad: float = 0.1,
     ) -> None:
-        self._interp = _load_interpreter(model_path)
+        self._interp = load_interpreter(model_path)
         self._interp.allocate_tensors()
         self._input = self._interp.get_input_details()[0]
         self._output = self._interp.get_output_details()[0]
@@ -93,27 +114,10 @@ class ImageNetBirdClassifier:
         self._labels = Path(labels_path).read_text().splitlines() if Path(labels_path).exists() else []
         self._bird_indices = load_bird_indices(bird_classes_path)
         self._threshold = threshold
-        self._lores_size = lores_size
-        self._pad = pad
-        self._warned_bbox: BBox | None = None
+        self._crops = CropLoader(lores_size, pad)
 
-    def _probs(self, image_path: Path, roi_bbox: BBox | None) -> np.ndarray:
-        img = cv2.imread(str(image_path))
-        if img is None:
-            raise ValueError(f"cannot read image {image_path}")
-        if roi_bbox is not None:
-            crop = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad)
-            if crop.size == 0:
-                # A bad ROI must not turn every capture into an error, so fall
-                # back to the full frame. Warn once per distinct bbox: the ROI is
-                # live-tunable, so a new bad one deserves its own warning.
-                if roi_bbox != self._warned_bbox:
-                    log.warning("ROI %s yields an empty crop; using the full frame", roi_bbox)
-                    self._warned_bbox = roi_bbox
-            else:
-                img = crop
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (self._in_w, self._in_h), interpolation=cv2.INTER_AREA)
+    def _probs(self, img_rgb: np.ndarray) -> np.ndarray:
+        img = cv2.resize(img_rgb, (self._in_w, self._in_h), interpolation=cv2.INTER_AREA)
 
         if self._input["dtype"] == np.uint8:
             tensor = img[np.newaxis].astype(np.uint8)
@@ -132,13 +136,76 @@ class ImageNetBirdClassifier:
         # output dequantizes to logits (scale ~0.099, zero point 58).
         return _softmax(out)
 
+    def predict(self, img_rgb: np.ndarray) -> float:
+        """P(bird) for an already-decoded RGB image."""
+        return bird_probability(self._probs(img_rgb), self._bird_indices)
+
     def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction:
         """`threshold` overrides the constructor default so it can be tuned live."""
         t = self._threshold if threshold is None else threshold
-        conf = bird_probability(self._probs(image_path, roi_bbox), self._bird_indices)
+        conf = self.predict(self._crops.load(image_path, roi_bbox))
         return Prediction(is_bird=conf >= t, confidence=conf)
 
     def top_k(self, image_path: Path, roi_bbox: BBox | None, k: int = 5) -> list[tuple[str, float]]:
-        probs = self._probs(image_path, roi_bbox)
+        probs = self._probs(self._crops.load(image_path, roi_bbox))
         order = np.argsort(probs)[::-1][:k]
         return [(self._labels[i] if i < len(self._labels) else str(i), float(probs[i])) for i in order]
+
+
+class TwoStageClassifier:
+    """Gate (bird / not-bird) + species on the same decoded crop. Implements `Classifier`.
+
+    Rules (thresholds from `live`): a species is reported when its probability meets
+    `species.threshold`; a gate-rejected frame is *rescued* (is_bird=True) when the
+    species probability meets the higher `species.rescue_threshold`.
+    """
+
+    def __init__(
+        self,
+        gate: ImageNetBirdClassifier,
+        species: InatBirdClassifier,
+        live: LiveConfig,
+        lores_size: tuple[int, int],
+        pad: float = 0.1,
+    ) -> None:
+        self.gate = gate
+        self.species = species
+        self._live = live
+        self._crops = CropLoader(lores_size, pad)
+        self._species_errors: set[str] = set()
+        # TFLite interpreters are not thread-safe; the pipeline and the web thread share this object.
+        self._lock = threading.Lock()
+
+    def classify_image(
+        self, img_rgb: np.ndarray, threshold: float | None = None
+    ) -> tuple[Prediction, list[tuple[SpeciesLabel, float]]]:
+        cfg = self._live.get()
+        t_gate = cfg.classifier.threshold if threshold is None else threshold
+        t_sp, t_rescue = cfg.species.threshold, cfg.species.rescue_threshold
+
+        with self._lock:
+            p_bird = self.gate.predict(img_rgb)
+            try:
+                top = self.species.top(img_rgb, k=5)
+            except Exception as e:
+                key = f"{type(e).__name__}: {e}"
+                if key not in self._species_errors:  # log each distinct failure once, not per capture
+                    log.exception("species model failed (%s); continuing with the gate only", key)
+                    self._species_errors.add(key)
+                top = []
+        label, p_sp = top[0] if top else (None, 0.0)
+
+        species = label.common if label is not None and p_sp >= t_sp else None
+        rescued = p_bird < t_gate and p_sp >= t_rescue
+        is_bird = p_bird >= t_gate or rescued
+        confidence = max(p_bird, p_sp) if rescued else p_bird
+        pred = Prediction(
+            is_bird=is_bird,
+            confidence=confidence,
+            species=species,
+            species_confidence=p_sp if species is not None else None,
+        )
+        return pred, top
+
+    def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction:
+        return self.classify_image(self._crops.load(image_path, roi_bbox), threshold)[0]
