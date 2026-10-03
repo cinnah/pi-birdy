@@ -122,3 +122,29 @@ def test_last_capture_at(store):
 
 def test_disk_free_is_positive(store):
     assert store.disk_free_bytes() > 0
+
+
+def test_add_capture_with_unreadable_photo_still_inserts(store):
+    abs_path, rel_path = store.photo_path_for(T0)
+    abs_path.write_bytes(b"not a jpeg")
+    cid = store.add_capture(T0, rel_path, 200)
+    c = store.get(cid)
+    assert c.status == "pending" and c.thumb_path is None
+
+
+def test_unknown_filter_raises_key_error(store):
+    with pytest.raises(KeyError):
+        store.list_captures("cats")
+    with pytest.raises(KeyError):
+        store.count("cats")
+
+
+def test_purge_keeps_pending_and_error_rows(store):
+    old = T0 - timedelta(days=10)
+    pending = add(store, old)
+    errored = add(store, old + timedelta(minutes=1))
+    store.mark_error(errored)
+
+    assert store.purge_non_birds(older_than_days=7, now=T0) == 0
+    assert store.get(pending).status == "pending"
+    assert store.get(errored).status == "error"

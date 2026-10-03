@@ -133,7 +133,9 @@ class Store:
         thumb = cv2.resize(img, (THUMB_WIDTH, max(1, round(h * THUMB_WIDTH / w))), interpolation=cv2.INTER_AREA)
         out = self.thumbs_dir / rel_path
         out.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(out), thumb, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not cv2.imwrite(str(out), thumb, [cv2.IMWRITE_JPEG_QUALITY, 80]):
+            log.warning("could not write thumbnail %s", out)
+            return None
         return rel_path
 
     def add_capture(self, captured_at: datetime, rel_path: Path, motion_score: int) -> int:
@@ -198,11 +200,12 @@ class Store:
             ).fetchall()
         deleted = 0
         for row in rows:
+            # Row first: an orphan file is harmless, a row without its file is a broken tile.
+            with self._lock, self._conn:
+                self._conn.execute("DELETE FROM captures WHERE id = ?", (row["id"],))
             for p in (self.photos_dir / row["path"], self.thumbs_dir / row["thumb_path"] if row["thumb_path"] else None):
                 if p is not None:
                     p.unlink(missing_ok=True)
-            with self._lock, self._conn:
-                self._conn.execute("DELETE FROM captures WHERE id = ?", (row["id"],))
             deleted += 1
         return deleted
 
