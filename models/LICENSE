@@ -1,0 +1,2 @@
+mobilenet_v2_1.0_224_quant.tflite and imagenet_labels.txt: TensorFlow hosted
+models, Apache License 2.0 - https://www.apache.org/licenses/LICENSE-2.0

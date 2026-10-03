@@ -49,6 +49,14 @@ def test_crop_to_bbox_clamps_to_image():
     assert out.shape[:2] == (240, 320)
 
 
+def test_crop_to_bbox_negative_end_clamps():
+    img = np.zeros((240, 320, 3), dtype=np.uint8)
+    out = crop_to_bbox(img, BBox(x=-50, y=-50, w=10, h=10), lores_size=(320, 240), pad=0.1)
+    assert out.size == 0
+    assert out.shape[:2] == (0, 0)
+
+
+# Requires the downloaded model; only used by the skipif'd TestRealModel class below.
 @pytest.fixture(scope="module")
 def clf():
     return ImageNetBirdClassifier(MODEL, LABELS, BIRD_CLASSES, threshold=0.5, lores_size=(320, 240))
@@ -83,3 +91,37 @@ class TestRealModel:
         p.write_bytes(b"not a jpeg")
         with pytest.raises(ValueError):
             clf.classify(p, roi_bbox=None)
+
+    @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
+    def test_real_model_probabilities_sum_to_one(self, clf):
+        probs = clf._probs(FIXTURES / "bird.jpg", None)
+        assert probs.shape == (1001,)
+        assert probs.min() >= 0 and probs.max() <= 1
+        assert float(probs.sum()) == pytest.approx(1.0, abs=1e-3)
+
+    @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
+    def test_roi_crop_end_to_end(self, clf, monkeypatch):
+        shapes = []
+        orig = clf._interp.set_tensor
+
+        def recording(index, tensor):
+            shapes.append(tensor.shape)
+            return orig(index, tensor)
+
+        monkeypatch.setattr(clf._interp, "set_tensor", recording)
+        p = clf.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(80, 60, 160, 120))
+        assert p.is_bird
+        assert shapes == [(1, 224, 224, 3)]
+
+    @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
+    def test_degenerate_bbox_falls_back_to_full_frame(self, caplog):
+        fresh = ImageNetBirdClassifier(MODEL, LABELS, BIRD_CLASSES, threshold=0.5, lores_size=(320, 240))
+        full = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=None)
+        with caplog.at_level("WARNING", logger="birdy.classifier"):
+            zero = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(10, 10, 0, 0))
+            outside = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(1000, 1000, 50, 50))
+        assert zero.is_bird and outside.is_bird
+        assert zero.confidence == pytest.approx(full.confidence)
+        assert outside.confidence == pytest.approx(full.confidence)
+        warnings = [r for r in caplog.records if r.name == "birdy.classifier" and r.levelname == "WARNING"]
+        assert len(warnings) == 1  # warned once per instance, not per call

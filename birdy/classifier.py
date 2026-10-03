@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -10,6 +11,8 @@ import cv2
 import numpy as np
 
 from birdy.motion import BBox
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -55,18 +58,6 @@ def _softmax(x: np.ndarray) -> np.ndarray:
     return e / e.sum()
 
 
-def _as_probabilities(out: np.ndarray) -> np.ndarray:
-    """Return a probability distribution whether the model emits softmax or raw logits.
-
-    The hosted mobilenet_v2_1.0_224_quant model has no softmax layer: its output
-    dequantizes to logits (scale ~0.099, zero point 58). A softmax model's output
-    already sums to ~1 and is non-negative, so leave that alone.
-    """
-    if out.min() >= 0 and abs(float(out.sum()) - 1.0) < 0.05:
-        return out
-    return _softmax(out)
-
-
 def crop_to_bbox(img: np.ndarray, bbox: BBox, lores_size: tuple[int, int], pad: float) -> np.ndarray:
     """Crop `img` (main-stream size) to `bbox` given in lores coordinates, padded by `pad` fraction."""
     img_h, img_w = img.shape[:2]
@@ -76,8 +67,11 @@ def crop_to_bbox(img: np.ndarray, bbox: BBox, lores_size: tuple[int, int], pad: 
     y0 = (bbox.y - bbox.h * pad) * sy
     x1 = (bbox.x + bbox.w * (1 + pad)) * sx
     y1 = (bbox.y + bbox.h * (1 + pad)) * sy
+    # Clamp both ends into [0, size] so a bbox outside the frame yields an empty
+    # crop rather than a negative index that wraps the slice.
     x0, y0 = max(0, int(x0)), max(0, int(y0))
-    x1, y1 = min(img_w, int(round(x1))), min(img_h, int(round(y1)))
+    x1 = max(0, min(img_w, int(round(x1))))
+    y1 = max(0, min(img_h, int(round(y1))))
     return img[y0:y1, x0:x1]
 
 
@@ -101,13 +95,22 @@ class ImageNetBirdClassifier:
         self._threshold = threshold
         self._lores_size = lores_size
         self._pad = pad
+        self._warned_empty_crop = False
 
     def _probs(self, image_path: Path, roi_bbox: BBox | None) -> np.ndarray:
         img = cv2.imread(str(image_path))
         if img is None:
             raise ValueError(f"cannot read image {image_path}")
         if roi_bbox is not None:
-            img = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad)
+            crop = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad)
+            if crop.size == 0:
+                # The ROI is fixed for the whole run; a bad one must not turn
+                # every capture into an error, so fall back to the full frame.
+                if not self._warned_empty_crop:
+                    log.warning("ROI %s yields an empty crop; using the full frame", roi_bbox)
+                    self._warned_empty_crop = True
+            else:
+                img = crop
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (self._in_w, self._in_h), interpolation=cv2.INTER_AREA)
 
@@ -124,7 +127,9 @@ class ImageNetBirdClassifier:
             out = (out.astype(np.float32) - zero_point) * scale
         else:
             out = out.astype(np.float32)
-        return _as_probabilities(out)
+        # The hosted mobilenet_v2_1.0_224_quant model has no softmax layer: its
+        # output dequantizes to logits (scale ~0.099, zero point 58).
+        return _softmax(out)
 
     def classify(self, image_path: Path, roi_bbox: BBox | None) -> Prediction:
         conf = bird_probability(self._probs(image_path, roi_bbox), self._bird_indices)
