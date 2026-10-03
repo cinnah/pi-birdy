@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Birdy: a Raspberry Pi 4 + Camera Module v2.1 behind a window photographs birds at a feeder, filters non-bird motion with a local TFLite model, stores photos + metadata in SQLite, and serves a LAN-only review page.
 
-The authoritative design is `docs/superpowers/specs/2026-10-03-capture-core-design.md` (approved, sub-project 1 of 5), together with `docs/superpowers/specs/2026-10-03-settings-page-design.md` for the settings page and live reload (sub-project 1b). Read it before implementing anything; module interfaces, config keys, DB schema and defaults are all specified there. Later sub-projects (species ID, publishing, multi-site, e-ink) are out of scope unless asked.
+The authoritative design is `docs/superpowers/specs/2026-10-03-capture-core-design.md` (approved, sub-project 1 of 5), together with `docs/superpowers/specs/2026-10-03-settings-page-design.md` for the settings page and live reload (sub-project 1b) and `docs/superpowers/specs/2026-10-03-species-recognition-design.md` for species ID (sub-project 2). Read them before implementing anything; module interfaces, config keys, DB schema and defaults are all specified there. Later sub-projects (publishing, multi-site, e-ink) are out of scope unless asked.
 
 ## Commands
 
@@ -27,7 +27,7 @@ ssh -t yassine@birdy.local 'cd ~/pi-birdy && deploy/install.sh'   # -t required:
 # Pi (via ssh, from ~/pi-birdy - --config defaults to ./birdy.toml)
 deploy/install.sh               # one-time: apt deps, venv, birdy.toml, systemd unit (run via ssh -t)
 .venv/bin/birdy run             # what the service runs
-.venv/bin/birdy classify <file> # run the classifier on a single image
+.venv/bin/birdy classify <file> # gate + species verdict, then both models' top-5
 .venv/bin/birdy purge           # run the retention job now
 journalctl -u birdy -f          # logs
 # Tuning: ROI and thresholds at http://birdy.local:8000/settings (live frame, click-to-draw
@@ -50,11 +50,13 @@ config watcher (5 s stat of birdy.toml) ──▶ LiveConfig ◀── web POST 
 
 - `birdy/capture.py` is the **only** module that imports `picamera2`. Everything else must import and test on the Mac. Keep it that way; put any new camera-touching code there.
 - `birdy/motion.py` is a pure-numpy/OpenCV detector (ROI mask → running background → diff → threshold → cooldown) so it can be tested with synthetic 320×240 frames. No camera code in it.
-- `birdy/classifier.py` exposes a `Classifier` protocol returning `Prediction(is_bird, confidence, species, species_confidence)`. The current implementation aggregates ImageNet bird classes from MobileNetV2; a species model will later sit behind the same interface. The `species*` fields exist in the schema now and stay `NULL`.
+- `birdy/classifier.py` exposes a `Classifier` protocol returning `Prediction(is_bird, confidence, species, species_confidence)`. The implementation is `TwoStageClassifier`: an ImageNet gate (`ImageNetBirdClassifier.predict` → P(bird), summed over ImageNet bird classes from MobileNetV2) plus `InatBirdClassifier` (`birdy/species.py`, 965 iNat bird species), both run on one decoded crop (`CropLoader`). Species is reported when its probability ≥ `species.threshold`; a gate-rejected frame is *rescued* (`is_bird=True`, `confidence = max(gate, species)`) when species ≥ `species.rescue_threshold`.
+- The pipeline worker and the web upload box share **one** `TwoStageClassifier` (built in `cmd_run`); it serialises inference under its own lock because TFLite interpreters aren't thread-safe. Don't build a second one for the web.
+- `species_checked` marks rows the species model has seen. Each pipeline sweep backfills up to 50 older `done` rows (`_backfill_species`): it never demotes a bird to non-bird, never flips a `done` row to `error` on failure (it marks it checked instead), yields as soon as a live event is queued, and logs one summary line per sweep.
 - `birdy/store.py` owns the single write connection (locked, `check_same_thread=False`); capture, pipeline and retention all write through it. The web thread reads through the same locked connection. The only other writer is the one-shot `birdy purge` CLI, which is safe under WAL.
 - Nothing is dropped on overload: capture inserts the row as `status='pending'` before enqueueing, and the pipeline's 5-minute backlog sweep reclassifies anything still pending.
 - Retention deletes `is_bird = 0` and `status = 'error'` rows older than `retention.non_bird_days`; bird photos are never auto-deleted.
-- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg`, `/roi.png` (ROI overlay; still served, `birdy roi` points to it while the service holds the camera) and the `/settings` page; `POST /settings` is its only write (to `birdy.toml`, never to the DB).
+- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg`, `/roi.png` (ROI overlay; still served, `birdy roi` points to it while the service holds the camera) the `/settings` page, `/species` (per-species summary + an upload box that `POST /classify`s a photo and shows both models' verdict; nothing is stored), a species dropdown filter on `/`, and `last_species` in `/status`. `POST /settings` is its only write (to `birdy.toml`, never to the DB).
 - `birdy/live.py` — `LiveConfig` holds the current `Config` + a version. Tunables (`motion.*`, `classifier.threshold`, site/daylight, retention) are read through `live.get()` on use; the capture loop rebuilds its detector/gate when `live.version` changes (and `motion`, `site.lat/lon` or `daylight` differ). Camera/web/storage/model keys are read once at startup — changing them needs a restart (the watcher logs a warning).
 - `birdy/settings.py` + `birdy/watcher.py` — the `/settings` page validates and atomically rewrites `birdy.toml` (comments are lost; `birdy.toml.example` keeps the docs) and applies it live; `ConfigWatcher` reloads the file when it's edited over SSH (invalid edits are logged and ignored until restart).
 - A settings-page save writes the running config: it overwrites SSH edits made in the last few seconds that the watcher hasn't applied yet, and drops comments and unknown keys.
@@ -69,5 +71,8 @@ config watcher (5 s stat of birdy.toml) ──▶ LiveConfig ◀── web POST 
 - `captured_at` is stored as **UTC** ISO 8601 (so string `<` comparisons are chronological) and converted to local time in the template. Photo *paths* use local time.
 - Models in `models/` are checked in with their license and labels; `imagenet_bird_classes.txt` is the source of truth for which class indices count as "bird".
 - The hosted MobileNetV2 TFLite model outputs **logits** (no softmax layer); `ImageNetBirdClassifier` applies softmax itself. Don't "fix" the dequantized sum ≠ 1.
+- The iNat species model's output is the opposite: already softmax-scaled (uint8 at 1/256). **Never re-softmax it**; its probabilities sum to ~0.8–0.95 because quantisation truncates the long tail.
+- Both models must get the **same RGB** array (`CropLoader` converts once). Feeding BGR silently degrades results — a blue tit comes out as a hummingbird.
+- `birdy classify <file>` prints the final verdict with the raw gate probability (and whether species rescued it), then both models' top-5 — the first thing to run when a capture looks misclassified.
 - `MotionDetector` suppresses triggers for its first `warmup_frames` (default 10) so camera auto-exposure settling at session start doesn't produce junk captures.
 - Adding a tunable key: `config.py` dataclass + validation, `birdy.toml.example`, `settings.py` (`SettingsPatch`, `config_to_dict`, `apply_patch`, `FIELD_KEYS`, `parse_settings_form`), `settings.html` form row, and the consumer must read it via `live.get()`. `test_config_to_dict_covers_every_field` fails if `config_to_dict` is forgotten.

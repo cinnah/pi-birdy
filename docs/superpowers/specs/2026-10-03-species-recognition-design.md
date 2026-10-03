@@ -36,7 +36,7 @@ pipeline ──classify(path, bbox, threshold)──▶ TwoStageClassifier
 ### `birdy/species.py` — `InatBirdClassifier`
 - `InatBirdClassifier(model_path, labels_path)`; loads the interpreter once (same `_load_interpreter` as the gate, moved to a tiny `birdy/tflite.py` so both modules share it).
 - Labels: each line is `Latin name (Common Name)` or `background`. Parsed into `SpeciesLabel(latin, common)`; `background` has `latin="background"`, `common="background"`.
-- `predict(img_rgb: np.ndarray) -> list[tuple[SpeciesLabel, float]]`: resize to the model input (224×224, INTER_AREA), run, dequantize with the output's `(scale, zero_point)`; **no softmax** (the output is already a distribution, sum ≈ 1); return all classes sorted by probability, descending.
+- `predict(img_rgb: np.ndarray) -> list[tuple[SpeciesLabel, float]]`: resize to the model input (224×224, INTER_AREA), run, dequantize with the output's `(scale, zero_point)`; **no softmax** (the output is already softmax-scaled at 1/256; uint8 quantisation truncates the long tail, so the probabilities sum to ~0.8–0.95, not ≈ 1 — never re-softmax); return all classes sorted by probability, descending.
 - `top(img_rgb, k=5, skip_background=True)` convenience.
 - Pure function `parse_label(line) -> SpeciesLabel` for testing.
 
@@ -73,7 +73,11 @@ Validation: both thresholds in [0, 1]; `rescue_threshold >= threshold`. `thresho
 
 ### Pipeline
 - Unchanged for live captures.
-- The existing 5-minute sweep (and the startup sweep) additionally drains `species_backlog(50)` by calling `process(id, path)` on each row; `process` writes through `update_classification`, which sets `species_checked = 1`. On exception, `mark_species_checked(id)` + log. A rescued row becomes `is_bird = 1` and is then exempt from retention.
+- The existing 5-minute sweep (and the startup sweep) additionally drains `species_backlog(50)` through a dedicated `_backfill_species(capture)` (not `process`): it classifies the photo and writes through `update_classification`, which sets `species_checked = 1`.
+- Backfill never demotes: a row already judged a bird stays `is_bird = 1` with its old confidence even if the gate now disagrees; a non-bird row that the species model rescues becomes `is_bird = 1` (and is then exempt from retention).
+- On exception it calls `mark_species_checked(id)` + logs; a failure never flips a `done` row to `error`.
+- It yields to live captures: between backlog rows it stops as soon as a live event is queued, so the backlog never delays a fresh capture; the rest waits for the next sweep.
+- Each sweep that processed rows logs one summary line: `backfill: N rows, N with species, N rescued, N remaining`.
 
 ### Web
 - `GET /`: species `<select>` next to the filter links, options from `species_summary()` ("All species" + each name with its count); `?species=<name>` filters; unknown name → 400 (same style as the filter check).
@@ -98,7 +102,7 @@ Validation: both thresholds in [0, 1]; `rescue_threshold >= threshold`. `thresho
 Per capture ≈ one JPEG decode (~150 ms) + gate (~60 ms) + species (~100 ms) ≈ 0.3 s, inside the 3 s cooldown. Backfill ≤ 50 rows per sweep tick.
 
 ## Testing (Mac)
-- `species.py`: `parse_label` (normal, `background`, no parentheses); real model: blue-tit fixture (the Pi's phone-screen capture, cropped, checked into `tests/fixtures/blue_tit.jpg`) → top common name "Eurasian Blue Tit"; `cat.jpg` → top prob < 0.5; probabilities within [0, 1] and sum within 0.05 of 1 with no re-softmax; `skip_background` works.
+- `species.py`: `parse_label` (normal, `background`, no parentheses, nested parentheses in the common name); real model: blue-tit fixture (the Pi's phone-screen capture, cropped, checked into `tests/fixtures/blue_tit.jpg`) → top common name "Eurasian Blue Tit"; `cat.jpg` → top prob < 0.5; probabilities within [0, 1], `0.5 ≤ sum ≤ 1.01` and `max > 0.5` with no re-softmax (quantisation truncates the tail, so the sum is ~0.8–0.95); `skip_background` works.
 - `TwoStageClassifier` with fake gate/species (configurable returns): bird+species; bird+unknown (species `None`); rescue at ≥ 0.7 with `confidence = max`; no rescue at 0.6; species exception → gate result kept, `species None`; `threshold=` override still honoured for the gate.
 - `classifier.py`: existing tests unchanged; `load_crop` fallback test moved from the classifier.
 - Store: migration on a fresh DB and on a DB created by the previous schema (create the old table by hand, open `Store`, assert the column exists; open again → no error); `species_backlog`, `mark_species_checked`, `species_summary` (count/first/last/best), species filter + count, `last_species`.

@@ -24,6 +24,12 @@ def test_parse_label_background():
     assert parse_label("background") == SpeciesLabel("background", "background")
 
 
+def test_parse_label_nested_parentheses():
+    assert parse_label("Circus cyaneus hudsonius (Northern Harrier (American))") == SpeciesLabel(
+        "Circus cyaneus hudsonius", "Northern Harrier (American)"
+    )
+
+
 def test_parse_label_without_parentheses_and_whitespace():
     assert parse_label("  Passer domesticus \n") == SpeciesLabel("Passer domesticus", "Passer domesticus")
 
