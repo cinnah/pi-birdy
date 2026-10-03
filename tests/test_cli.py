@@ -152,10 +152,26 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
         return wrapper
 
     # Pipeline(store, classifier, live); RetentionJob(store, live); ConfigWatcher(path, live)
-    monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline.Pipeline.__init__, 2))
     monkeypatch.setattr(retention.RetentionJob, "__init__", record("retention", retention.RetentionJob.__init__, 1))
     monkeypatch.setattr(watcher.ConfigWatcher, "__init__", record("watcher", watcher.ConfigWatcher.__init__, 1))
-    monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: object())
+    clf = object()
+    monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
+    real_init = pipeline.Pipeline.__init__
+
+    def pipeline_init(self, store, classifier, live):
+        seen["pipeline_classifier"] = classifier
+        return real_init(self, store, classifier, live)
+
+    monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
+
+    from birdy.web import app as web_app
+    real_create_app = web_app.create_app
+
+    def create_app(*a, **kw):
+        seen["web_classifier"] = kw.get("classifier")
+        return real_create_app(*a, **kw)
+
+    monkeypatch.setattr(web_app, "create_app", create_app)
 
     def fake_run_capture(live, store, pipeline_, state, stop):
         seen["capture"] = live
@@ -179,3 +195,6 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     assert isinstance(lives[0], LiveConfig)
     assert all(v is lives[0] for v in lives), seen
     assert lives[0].get() is config
+    # The pipeline and the upload box share one classifier (and therefore its lock).
+    assert seen["pipeline_classifier"] is clf
+    assert seen["web_classifier"] is clf

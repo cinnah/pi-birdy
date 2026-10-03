@@ -63,14 +63,17 @@ def cmd_run(config: Config, config_path: Path) -> int:
     store.set_site(config.site.name, config.site.lat, config.site.lon)
     state = RuntimeState()
 
-    pipeline = Pipeline(store, _classifier(config, live), live)
+    # One classifier for the pipeline worker and the web upload box: it serialises inference
+    # under its own lock (TFLite interpreters are not thread-safe).
+    clf = _classifier(config, live)
+    pipeline = Pipeline(store, clf, live)
     pipeline.start()
     retention = RetentionJob(store, live)
     retention.start()
     watcher = ConfigWatcher(config_path, live)
     watcher.start()
 
-    app = create_app(store, state, live, config_path, queue_depth=pipeline.queue_depth)
+    app = create_app(store, state, live, config_path, queue_depth=pipeline.queue_depth, classifier=clf)
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
     web_thread = threading.Thread(target=server.run, name="web", daemon=True)
     web_thread.start()
@@ -133,8 +136,14 @@ def cmd_classify(config: Config, image: str) -> int:
     live = LiveConfig(config)
     clf = _classifier(config, live)
     img = CropLoader(config.camera.lores_size).load(Path(image), None)
+    p_gate = clf.gate.predict(img)
     pred, top = clf.classify_image(img)
-    print(f"bird={pred.is_bird} p_bird={pred.confidence:.3f} species={pred.species or '-'}")
+    threshold = config.classifier.threshold
+    rescued = ", rescued by species" if pred.is_bird and p_gate < threshold else ""
+    print(
+        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}{rescued}) "
+        f"species={pred.species or '-'}"
+    )
     print("gate (ImageNet):")
     for label, prob in clf.gate.top_k(Path(image), None, k=5):
         print(f"  {prob:.3f}  {label}")
