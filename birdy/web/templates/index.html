@@ -5,17 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>birdy</title>
 <style>
-  :root { --bg: #fafaf7; --fg: #222; --muted: #777; --card: #fff; --line: #ddd; --bird: #2a7; --junk: #c66; }
+  :root { color-scheme: light dark; --bg: #fafaf7; --fg: #222; --muted: #777; --card: #fff; --line: #ddd; --bird: #2a7; --junk: #c66; }
   @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #eee; --muted: #999; --card: #222; --line: #333; } }
   body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
   header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: baseline; margin-bottom: 16px; }
   h1 { font-size: 20px; margin: 0; }
   .status span { margin-right: 16px; color: var(--muted); }
   .status b { color: var(--fg); }
+  a { color: var(--fg); }
   nav a { margin-right: 12px; } nav a.active { font-weight: bold; text-decoration: none; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
   .tile { background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
   .tile img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+  .nothumb { aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
   .meta { padding: 6px 8px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
   .tag { font-weight: bold; } .tag.bird { color: var(--bird); } .tag.junk { color: var(--junk); }
   .pager { margin-top: 16px; } .pager a, .pager span { margin-right: 12px; }
@@ -27,9 +29,11 @@
   <div class="status">
     <span>state <b>{{ status.state }}</b></span>
     <span>motion <b>{{ status.motion_score }}</b></span>
+    <span>queue <b>{{ status.queue_depth }}</b></span>
     <span>pending <b>{{ status.pending_count }}</b></span>
     <span>disk free <b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
     <span>last capture <b>{{ status.last_capture_at | local_time }}</b></span>
+    <span>up <b>{{ status.uptime_seconds }}s</b></span>
     <span><a href="/roi.png">roi</a></span>
   </div>
 </header>
@@ -44,7 +48,7 @@
 <div class="grid">
   {% for c in captures %}
   <a class="tile" href="/photos/{{ c.path }}">
-    {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="" loading="lazy">{% endif %}
+    {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
     <div class="meta">
       <span>{{ c.captured_at | local_time }}</span>
       <span>

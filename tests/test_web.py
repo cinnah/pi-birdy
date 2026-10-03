@@ -98,3 +98,34 @@ def test_roi_png_renders_frame(client, state):
     r = client.get("/roi.png")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
     assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_page_clamps_to_last_page(client, store):
+    for i in range(60):
+        add(store, i, True)
+    r = client.get("/?page=999")
+    assert r.status_code == 200
+    assert "page 2 / 2" in r.text
+    assert r.text.count('class="tile"') == 10
+
+
+def test_page_zero_on_empty_store(client):
+    r = client.get("/?page=0")
+    assert r.status_code == 200
+    assert "page 1 / 1" in r.text
+    assert "No captures yet." in r.text
+
+
+def test_status_line_shows_local_time(client, store):
+    add(store, 0, True)
+    r = client.get("/")
+    assert T0.astimezone().strftime("%Y-%m-%d %H:%M:%S") in r.text
+
+
+def test_pending_tile_renders(client, store):
+    abs_path, rel = store.photo_path_for(T0)
+    cv2.imwrite(str(abs_path), np.full((60, 80, 3), 90, np.uint8))
+    store.add_capture(T0, rel, 100)
+    r = client.get("/")
+    assert r.status_code == 200
+    assert ">pending<" in r.text

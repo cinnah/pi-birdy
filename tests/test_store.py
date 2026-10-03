@@ -148,3 +148,11 @@ def test_purge_keeps_pending_and_error_rows(store):
     assert store.purge_non_birds(older_than_days=7, now=T0) == 0
     assert store.get(pending).status == "pending"
     assert store.get(errored).status == "error"
+
+
+def test_count_pending(store):
+    a = add(store, T0)
+    add(store, T0 + timedelta(minutes=1))
+    add(store, T0 + timedelta(minutes=2))
+    store.update_classification(a, True, 0.9, None, None)
+    assert store.count_pending() == 2

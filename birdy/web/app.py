@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -20,11 +20,17 @@ PAGE_SIZE = 50
 
 
 def _local_time(dt: datetime | str | None) -> str:
-    """Render a UTC-aware datetime (or its ISO string) in the Pi's local time."""
+    """Render a datetime (or its ISO string) in the Pi's local time.
+
+    Naive datetimes are assumed to be UTC, matching how the store records times.
+    None renders as a dash.
+    """
     if dt is None:
         return "–"
     if isinstance(dt, str):
         dt = datetime.fromisoformat(dt)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -46,7 +52,7 @@ def create_app(
         last = store.last_capture_at()
         snap.update(
             queue_depth=queue_depth(),
-            pending_count=len(store.pending()),
+            pending_count=store.count_pending(),
             disk_free_bytes=store.disk_free_bytes(),
             last_capture_at=None if last is None else last.isoformat(),
         )

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS captures (
 );
 CREATE INDEX IF NOT EXISTS captures_captured_at ON captures(captured_at DESC);
 CREATE INDEX IF NOT EXISTS captures_is_bird ON captures(is_bird, captured_at DESC);
+CREATE INDEX IF NOT EXISTS captures_status ON captures(status);
 """
 
 FILTERS = {
@@ -183,6 +184,10 @@ class Store:
         with self._lock:
             rows = self._conn.execute("SELECT * FROM captures WHERE status = 'pending' ORDER BY id").fetchall()
         return [_row_to_capture(r) for r in rows]
+
+    def count_pending(self) -> int:
+        with self._lock:
+            return int(self._conn.execute("SELECT COUNT(*) FROM captures WHERE status = 'pending'").fetchone()[0])
 
     def last_capture_at(self) -> datetime | None:
         with self._lock:
