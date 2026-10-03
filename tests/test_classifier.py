@@ -125,3 +125,11 @@ class TestRealModel:
         assert outside.confidence == pytest.approx(full.confidence)
         warnings = [r for r in caplog.records if r.name == "birdy.classifier" and r.levelname == "WARNING"]
         assert len(warnings) == 1  # warned once per instance, not per call
+
+    @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
+    def test_threshold_override(self, clf):
+        p_default = clf.classify(FIXTURES / "bird.jpg", roi_bbox=None)
+        p_strict = clf.classify(FIXTURES / "bird.jpg", roi_bbox=None, threshold=0.9999)
+        assert p_default.is_bird is True
+        assert p_strict.is_bird is False
+        assert p_default.confidence == p_strict.confidence

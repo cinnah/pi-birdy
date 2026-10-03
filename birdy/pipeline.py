@@ -11,7 +11,8 @@ from datetime import datetime
 from pathlib import Path
 
 from birdy.classifier import Classifier
-from birdy.motion import BBox
+from birdy.live import LiveConfig
+from birdy.motion import roi_bbox
 from birdy.store import Store
 
 log = logging.getLogger(__name__)
@@ -30,13 +31,13 @@ class Pipeline:
         self,
         store: Store,
         classifier: Classifier,
-        roi_bbox: BBox | None,
+        live: LiveConfig,
         maxsize: int = 50,
         sweep_interval: float = 300.0,
     ) -> None:
         self._store = store
         self._classifier = classifier
-        self._roi_bbox = roi_bbox
+        self._live = live
         self._queue: queue.Queue[MotionEvent] = queue.Queue(maxsize=maxsize)
         self._sweep_interval = sweep_interval
         self._stop = threading.Event()
@@ -63,8 +64,9 @@ class Pipeline:
         return self._queue.qsize()
 
     def process(self, capture_id: int, path: Path) -> None:
+        cfg = self._live.get()
         try:
-            pred = self._classifier.classify(path, self._roi_bbox)
+            pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
         except Exception:
             log.exception("classification failed for %s", path)
             try:

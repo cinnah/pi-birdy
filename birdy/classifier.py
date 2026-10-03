@@ -24,7 +24,7 @@ class Prediction:
 
 
 class Classifier(Protocol):
-    def classify(self, image_path: Path, roi_bbox: BBox | None) -> Prediction: ...
+    def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction: ...
 
 
 def _load_interpreter(model_path: Path):
@@ -131,9 +131,11 @@ class ImageNetBirdClassifier:
         # output dequantizes to logits (scale ~0.099, zero point 58).
         return _softmax(out)
 
-    def classify(self, image_path: Path, roi_bbox: BBox | None) -> Prediction:
+    def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction:
+        """`threshold` overrides the constructor default so it can be tuned live."""
+        t = self._threshold if threshold is None else threshold
         conf = bird_probability(self._probs(image_path, roi_bbox), self._bird_indices)
-        return Prediction(is_bird=conf >= self._threshold, confidence=conf)
+        return Prediction(is_bird=conf >= t, confidence=conf)
 
     def top_k(self, image_path: Path, roi_bbox: BBox | None, k: int = 5) -> list[tuple[str, float]]:
         probs = self._probs(image_path, roi_bbox)

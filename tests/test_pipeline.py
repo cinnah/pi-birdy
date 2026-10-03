@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from birdy.classifier import Prediction
-from birdy.motion import BBox
 from birdy.pipeline import MotionEvent, Pipeline
 from birdy.store import Store
 
@@ -19,9 +18,13 @@ class FakeClassifier:
     def __init__(self, fail_on: set[str] = ()):
         self.fail_on = set(fail_on)
         self.calls: list[Path] = []
+        self.bboxes: list = []
+        self.thresholds: list = []
 
-    def classify(self, image_path, roi_bbox):
+    def classify(self, image_path, roi_bbox, threshold=None):
         self.calls.append(image_path)
+        self.bboxes.append(roi_bbox)
+        self.thresholds.append(threshold)
         if image_path.name in self.fail_on:
             raise RuntimeError("boom")
         return Prediction(is_bird=True, confidence=0.9)
@@ -49,9 +52,9 @@ def wait_until(pred, timeout=3.0):
     return False
 
 
-def test_worker_classifies_submitted_event(store):
+def test_worker_classifies_submitted_event(store, live):
     clf = FakeClassifier()
-    p = Pipeline(store, clf, roi_bbox=BBox(0, 0, 10, 10))
+    p = Pipeline(store, clf, live)
     p.start()
     try:
         ev = add(store, 0)
@@ -64,8 +67,8 @@ def test_worker_classifies_submitted_event(store):
         p.stop()
 
 
-def test_classifier_error_marks_row_error_and_continues(store):
-    p = Pipeline(store, FakeClassifier(fail_on={"100000_000.jpg"}), roi_bbox=None)
+def test_classifier_error_marks_row_error_and_continues(store, live):
+    p = Pipeline(store, FakeClassifier(fail_on={"100000_000.jpg"}), live)
     p.start()
     try:
         bad = add(store, 0)
@@ -78,16 +81,16 @@ def test_classifier_error_marks_row_error_and_continues(store):
         p.stop()
 
 
-def test_submit_returns_false_when_full(store):
-    p = Pipeline(store, FakeClassifier(), roi_bbox=None, maxsize=1)
+def test_submit_returns_false_when_full(store, live):
+    p = Pipeline(store, FakeClassifier(), live, maxsize=1)
     # not started: nothing drains the queue
     assert p.submit(add(store, 0)) is True
     assert p.submit(add(store, 1)) is False
     assert p.queue_depth() == 1
 
 
-def test_sweep_classifies_pending_rows(store):
-    p = Pipeline(store, FakeClassifier(), roi_bbox=None)
+def test_sweep_classifies_pending_rows(store, live):
+    p = Pipeline(store, FakeClassifier(), live)
     add(store, 0)
     add(store, 1)
     assert len(store.pending()) == 2
@@ -96,8 +99,8 @@ def test_sweep_classifies_pending_rows(store):
     assert store.count("birds") == 2
 
 
-def test_periodic_sweep_runs(store):
-    p = Pipeline(store, FakeClassifier(), roi_bbox=None, sweep_interval=0.1)
+def test_periodic_sweep_runs(store, live):
+    p = Pipeline(store, FakeClassifier(), live, sweep_interval=0.1)
     add(store, 0)
     p.start()
     try:
@@ -106,7 +109,7 @@ def test_periodic_sweep_runs(store):
         p.stop()
 
 
-def test_store_error_does_not_kill_worker(store, monkeypatch):
+def test_store_error_does_not_kill_worker(store, live, monkeypatch):
     real_update = store.update_classification
     calls = {"n": 0}
 
@@ -117,7 +120,7 @@ def test_store_error_does_not_kill_worker(store, monkeypatch):
         return real_update(*args, **kwargs)
 
     monkeypatch.setattr(store, "update_classification", flaky_update)
-    p = Pipeline(store, FakeClassifier(), roi_bbox=None)
+    p = Pipeline(store, FakeClassifier(), live)
     p.start()
     try:
         first = add(store, 0)
@@ -131,9 +134,9 @@ def test_store_error_does_not_kill_worker(store, monkeypatch):
         p.stop()
 
 
-def test_queued_event_already_classified_is_skipped(store):
+def test_queued_event_already_classified_is_skipped(store, live):
     clf = FakeClassifier()
-    p = Pipeline(store, clf, roi_bbox=None)
+    p = Pipeline(store, clf, live)
     ev = add(store, 0)
     store.update_classification(ev.capture_id, False, 0.1, None, None)
     p.submit(ev)
@@ -149,7 +152,7 @@ def test_queued_event_already_classified_is_skipped(store):
     assert c.status == "done" and c.is_bird is False
 
 
-def test_store_get_error_in_worker_does_not_kill_thread(store, monkeypatch):
+def test_store_get_error_in_worker_does_not_kill_thread(store, live, monkeypatch):
     import threading
 
     real_get = store.get
@@ -164,7 +167,7 @@ def test_store_get_error_in_worker_does_not_kill_thread(store, monkeypatch):
 
     monkeypatch.setattr(store, "get", flaky_get)
     clf = FakeClassifier()
-    p = Pipeline(store, clf, roi_bbox=None)
+    p = Pipeline(store, clf, live)
     p.start()
     try:
         first = add(store, 0)
@@ -179,16 +182,16 @@ def test_store_get_error_in_worker_does_not_kill_thread(store, monkeypatch):
 
 
 class SlowClassifier(FakeClassifier):
-    def classify(self, image_path, roi_bbox):
+    def classify(self, image_path, roi_bbox, threshold=None):
         time.sleep(0.3)
-        return super().classify(image_path, roi_bbox)
+        return super().classify(image_path, roi_bbox, threshold)
 
 
-def test_sweep_stops_promptly(store):
+def test_sweep_stops_promptly(store, live):
     for i in range(10):
         add(store, i)
     clf = SlowClassifier()
-    p = Pipeline(store, clf, roi_bbox=None)
+    p = Pipeline(store, clf, live)
     p.start()  # startup sweep begins after the first empty queue tick
     assert wait_until(lambda: len(clf.calls) >= 1)
     time.sleep(0.1)
@@ -197,3 +200,27 @@ def test_sweep_stops_promptly(store):
     assert time.monotonic() - t < 1.0
     assert not p._thread.is_alive()
     assert 1 <= len(clf.calls) < 10
+
+
+def test_roi_and_threshold_come_from_live_config(store, live, config):
+    import dataclasses
+
+    from birdy.motion import roi_bbox
+
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, live)
+    ev1 = add(store, 0)
+    p.process(ev1.capture_id, ev1.path)
+    assert clf.bboxes[-1] == roi_bbox(config.motion.roi)
+    assert clf.thresholds[-1] == 0.5
+
+    new = dataclasses.replace(
+        config,
+        motion=dataclasses.replace(config.motion, roi=((0, 0), (10, 0), (10, 10))),
+        classifier=dataclasses.replace(config.classifier, threshold=0.9),
+    )
+    live.replace(new)
+    ev2 = add(store, 1)
+    p.process(ev2.capture_id, ev2.path)
+    assert clf.bboxes[-1] == roi_bbox(new.motion.roi)
+    assert clf.thresholds[-1] == 0.9
