@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import queue
 import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -125,6 +125,9 @@ def _telegram_call(token: str, method: str, body: bytes, content_type: str, urlo
         raise TelegramError(desc or f"HTTP {e.code}", e.code) from None
     except urllib.error.URLError as e:
         raise TelegramError(f"network error: {e.reason}") from None
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        # Timeouts, socket errors, truncated responses, non-JSON bodies: all one error type for callers.
+        raise TelegramError(f"network error: {type(e).__name__}: {e}") from None
     if not payload.get("ok"):
         raise TelegramError(str(payload.get("description", "unknown error")))
     return payload
@@ -169,15 +172,15 @@ class TelegramNotifier:
         transport: TelegramTransport,
         policy: AlertPolicy | None = None,
         maxsize: int = 20,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], object] | None = None,
     ) -> None:
         self._live = live
         self._store = store
         self._transport = transport
         self._policy = policy or AlertPolicy()
         self._queue: queue.Queue[Alert] = queue.Queue(maxsize=maxsize)
-        self._sleep = sleep
         self._stop = threading.Event()
+        self._sleep = sleep or self._stop.wait  # Event.wait: a retry sleep ends early on stop()
         self._thread = threading.Thread(target=self._run, name="telegram", daemon=True)
 
     def consider(
@@ -203,7 +206,7 @@ class TelegramNotifier:
         return reason
 
     def send_test(self) -> None:
-        """Synchronous; raises TelegramError/OSError to the caller (the settings page shows it)."""
+        """Synchronous; raises TelegramError to the caller (the settings page shows it)."""
         cfg = self._live.get()
         self._transport.send_text(cfg.telegram.chat_id, f"birdy test alert from {cfg.site.name}")
 
@@ -233,6 +236,9 @@ class TelegramNotifier:
         for attempt, delay in enumerate((0.0, *RETRY_DELAYS), start=1):
             if delay:
                 self._sleep(delay)
+                if self._stop.is_set():
+                    log.debug("stopping; dropping alert for capture %d mid-retry", alert.capture_id)
+                    return
             try:
                 try:
                     self._transport.send_photo(chat_id, alert.photo_path, caption)

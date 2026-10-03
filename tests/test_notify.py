@@ -314,3 +314,104 @@ def test_send_test_uses_site_name_and_propagates_errors(live, config, store):
 
     with pytest.raises(TelegramError):
         TelegramNotifier(live, store, Bad()).send_test()
+
+
+# --- review follow-ups: every transport failure is a TelegramError ------------
+
+def _http_error(code: int, body: bytes):
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError("https://api.telegram.org/botT/x", code, "err", {}, io.BytesIO(body))
+
+
+def test_http_error_with_json_body_gives_description_and_status():
+    def urlopen(req, timeout):
+        raise _http_error(400, b'{"ok": false, "description": "Bad Request: chat not found"}')
+
+    with pytest.raises(TelegramError) as ei:
+        HttpTelegramTransport("TOKEN123", urlopen=urlopen).send_text("42", "hi")
+    assert ei.value.description == "Bad Request: chat not found" and ei.value.status == 400
+    assert "TOKEN123" not in str(ei.value)
+
+
+def test_url_error_is_telegram_error():
+    import urllib.error
+
+    def urlopen(req, timeout):
+        raise urllib.error.URLError("Name or service not known")
+
+    with pytest.raises(TelegramError, match="network error"):
+        HttpTelegramTransport("T", urlopen=urlopen).send_text("42", "hi")
+
+
+def test_timeout_is_telegram_error():
+    def urlopen(req, timeout):
+        raise TimeoutError("timed out")
+
+    with pytest.raises(TelegramError, match="TimeoutError"):
+        HttpTelegramTransport("T", urlopen=urlopen).send_text("42", "hi")
+
+
+def test_non_json_200_is_telegram_error():
+    class Html(FakeResponse):
+        def read(self):
+            return b"<html>502 Bad Gateway</html>"
+
+    with pytest.raises(TelegramError, match="network error"):
+        HttpTelegramTransport("T", urlopen=lambda req, timeout: Html({})).send_text("42", "hi")
+
+
+def test_multipart_body_details(tmp_path):
+    photo = tmp_path / "p.jpg"
+    photo.write_bytes(b"\xff\xd8JPEGDATA")
+    seen = {}
+
+    def urlopen(req, timeout):
+        seen["body"], seen["ctype"] = req.data, req.get_header("Content-type")
+        return FakeResponse({"ok": True})
+
+    HttpTelegramTransport("T", urlopen=urlopen).send_photo("42", photo, "🐦 Blue Tit · new species!")
+    body = seen["body"]
+    boundary = seen["ctype"].split("boundary=", 1)[1].encode()
+    assert "🐦 Blue Tit · new species!".encode("utf-8") in body
+    assert b'name="photo"; filename="p.jpg"\r\nContent-Type: image/jpeg\r\n\r\n\xff\xd8JPEGDATA\r\n' in body
+    assert body.endswith(b"--" + boundary + b"--\r\n")
+
+
+def test_text_fallback_failure_retries(live, config, store):
+    live.replace(enabled_config(config))
+    sleeps = []
+
+    class TextFlaky(FakeTransport):
+        def __init__(self):
+            super().__init__(missing_photo=True)
+            self.text_fail = 1
+
+        def send_text(self, chat_id, text):
+            if self.text_fail:
+                self.text_fail -= 1
+                raise TelegramError("Too Many Requests", 429)
+            super().send_text(chat_id, text)
+
+    t = TextFlaky()
+    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n.start()
+    try:
+        n.consider(1, Path("gone.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        assert wait_until(lambda: t.texts)
+        assert sleeps == [5.0] and t.photos == []
+    finally:
+        n.stop()
+
+
+def test_stop_interrupts_retry_sleep(live, config, store):
+    live.replace(enabled_config(config))
+    t = FakeTransport(fail_times=1)
+    n = TelegramNotifier(live, store, t)  # default sleep: Event.wait, so stop() cuts the 5 s backoff short
+    n.start()
+    n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+    t0 = time.monotonic()
+    n.stop()
+    assert time.monotonic() - t0 < 1.0
+    assert not n._thread.is_alive() and t.photos == []
