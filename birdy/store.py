@@ -197,11 +197,17 @@ class Store:
     # --- maintenance ------------------------------------------------------
 
     def purge_non_birds(self, older_than_days: int, now: datetime | None = None) -> int:
+        """Delete non-bird and errored captures older than the cutoff (rows + files).
+
+        `pending` rows are kept (the sweep will classify them); birds are never purged.
+        """
         now = now or datetime.now(timezone.utc)
         cutoff = _to_db_time(now - timedelta(days=older_than_days))
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, path, thumb_path FROM captures WHERE is_bird = 0 AND captured_at < ?", (cutoff,)
+                "SELECT id, path, thumb_path FROM captures"
+                " WHERE (is_bird = 0 OR status = 'error') AND captured_at < ?",
+                (cutoff,),
             ).fetchall()
         deleted = 0
         for row in rows:

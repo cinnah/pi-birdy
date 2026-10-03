@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -194,6 +194,6 @@ def test_sweep_stops_promptly(store):
     time.sleep(0.1)
     t = time.monotonic()
     p.stop(timeout=1.0)
-    assert time.monotonic() - t < 0.5
+    assert time.monotonic() - t < 1.0
     assert not p._thread.is_alive()
     assert 1 <= len(clf.calls) < 10

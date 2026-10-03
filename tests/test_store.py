@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import cv2
@@ -139,15 +139,18 @@ def test_unknown_filter_raises_key_error(store):
         store.count("cats")
 
 
-def test_purge_keeps_pending_and_error_rows(store):
+def test_purge_keeps_pending_and_deletes_old_error_rows(store):
     old = T0 - timedelta(days=10)
     pending = add(store, old)
     errored = add(store, old + timedelta(minutes=1))
     store.mark_error(errored)
+    recent_error = add(store, T0 - timedelta(days=1))
+    store.mark_error(recent_error)
 
-    assert store.purge_non_birds(older_than_days=7, now=T0) == 0
+    assert store.purge_non_birds(older_than_days=7, now=T0) == 1
     assert store.get(pending).status == "pending"
-    assert store.get(errored).status == "error"
+    assert store.get(errored) is None
+    assert store.get(recent_error).status == "error"
 
 
 def test_count_pending(store):

@@ -22,6 +22,11 @@ log = logging.getLogger(__name__)
 FRAME_INTERVAL = 0.1  # ~10 fps analysis
 GATE_RECHECK = 60.0
 MAX_CONSECUTIVE_FRAME_ERRORS = 50  # ~5 s at FRAME_INTERVAL
+# False triggers at a 3 s cooldown can write several GB/day and non-birds are kept
+# for 7 days, so stop capturing before the card fills rather than wedge the Pi.
+MIN_FREE_BYTES = 500 * 1024 * 1024
+
+_low_disk_warned = False  # reset at each camera session start
 
 
 @contextmanager
@@ -63,12 +68,18 @@ def grab_lores_frame(config: Config):
         return lores_grey(picam2, config.camera.lores_size)
 
 
-def _capture_still(picam2, store: Store, pipeline: Pipeline, state: RuntimeState, score: int) -> None:
+def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int) -> None:
+    global _low_disk_warned
+    free = store.disk_free_bytes()
+    if free < MIN_FREE_BYTES:
+        if not _low_disk_warned:
+            log.warning("disk free %d MB < %d MB; skipping captures", free // 2**20, MIN_FREE_BYTES // 2**20)
+            _low_disk_warned = True
+        return
     now = datetime.now().astimezone()
     abs_path, rel_path = store.photo_path_for(now)
     picam2.capture_file(str(abs_path))
     capture_id = store.add_capture(now, rel_path, score)
-    state.update(last_capture_at=now)
     pipeline.submit(MotionEvent(capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score))
     log.info("captured %s (motion %d)", rel_path, score)
 
@@ -81,6 +92,7 @@ def run_capture(
     gate: DaylightGate,
     stop: threading.Event,
 ) -> None:
+    global _low_disk_warned
     paused_logged = False
     while not stop.is_set():
         if not gate.is_active(datetime.now().astimezone()):
@@ -107,6 +119,7 @@ def run_capture(
         try:
             with camera_session(config) as picam2:
                 state.update(state="capturing")
+                _low_disk_warned = False
                 last_gate_check = time.monotonic()
                 consecutive_errors = 0
                 while not stop.is_set():
@@ -122,7 +135,7 @@ def run_capture(
                         # RuntimeState.lores_frame() copies on read.
                         state.update(motion_score=result.score, latest_lores=frame)
                         if result.triggered:
-                            _capture_still(picam2, store, pipeline, state, result.score)
+                            _capture_still(picam2, store, pipeline, result.score)
                         consecutive_errors = 0
                     except Exception:
                         consecutive_errors += 1

@@ -34,3 +34,7 @@ birdy = ["web/templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::starlette.exceptions.StarletteDeprecationWarning:fastapi.testclient",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning:starlette.testclient",
+]
