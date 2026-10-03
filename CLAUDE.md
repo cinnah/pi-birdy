@@ -14,10 +14,10 @@ Development happens on the Mac; the Pi (`yassine@birdy.local`, SSH key auth) onl
 
 ```bash
 # Mac
-python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
-pytest                          # full suite (runs entirely on the Mac)
-pytest tests/test_motion.py     # one module
-pytest tests/test_motion.py -k "cooldown"   # one test
+/opt/homebrew/bin/python3.11 -m venv .venv && .venv/bin/pip install -e ".[dev]"   # 3.11 is the closest Homebrew match to the Pi's 3.13
+.venv/bin/pytest                          # full suite (runs entirely on the Mac)
+.venv/bin/pytest tests/test_motion.py     # one module
+.venv/bin/pytest tests/test_motion.py -k "cooldown"   # one test
 deploy/deploy.sh                # rsync to the Pi + restart the systemd service
 
 # Pi (via ssh)
@@ -53,6 +53,9 @@ web (FastAPI, read-only) ────────────┘      retention 
 - Config is `birdy.toml` (gitignored). Every key must be documented in `birdy.toml.example`; add new keys to both the dataclass in `config.py` and the example file.
 - ROI polygon coordinates are in **lores** (320×240) space. The classifier scales that bbox to main-stream coordinates before cropping.
 - `picamera2` and OpenCV come from apt on the Pi, so the Pi venv is created with `--system-site-packages`. Do not add them as pip dependencies in `pyproject.toml`.
+- The Pi runs Raspberry Pi OS Trixie (Debian 13, Python 3.13, NumPy 2.x, OpenCV 4.10 from apt). Never pin `numpy` in `pyproject.toml`: with `--system-site-packages` the apt NumPy must satisfy it, or pip installs a second NumPy that breaks the apt `cv2`. `opencv-python-headless` is a dev-only extra for the Mac.
 - Photos live at `data/photos/YYYY/MM/DD/HHMMSS_mmm.jpg` with thumbs mirrored under `data/thumbs/`; paths in the DB are relative to those roots. `data/`, `.venv/` and `birdy.toml` are excluded from deploy rsync.
-- Timestamps are ISO 8601 local time with offset.
+- `captured_at` is stored as **UTC** ISO 8601 (so string `<` comparisons are chronological) and converted to local time in the template. Photo *paths* use local time.
 - Models in `models/` are checked in with their license and labels; `imagenet_bird_classes.txt` is the source of truth for which class indices count as "bird".
+- The hosted MobileNetV2 TFLite model outputs **logits** (no softmax layer); `ImageNetBirdClassifier` applies softmax itself. Don't "fix" the dequantized sum ≠ 1.
+- `MotionDetector` suppresses triggers for its first `warmup_frames` (default 10) so camera auto-exposure settling at session start doesn't produce junk captures.

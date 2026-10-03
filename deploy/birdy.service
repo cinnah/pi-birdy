@@ -1,0 +1,13 @@
+[Unit]
+Description=Birdy bird feeder camera
+After=network-online.target
+
+[Service]
+User=yassine
+WorkingDirectory=/home/yassine/pi-birdy
+ExecStart=/home/yassine/pi-birdy/.venv/bin/birdy --config /home/yassine/pi-birdy/birdy.toml run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
