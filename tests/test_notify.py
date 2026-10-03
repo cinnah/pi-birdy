@@ -1,0 +1,316 @@
+import dataclasses
+import json
+import logging
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+
+from birdy.classifier import Prediction
+from birdy.notify import (
+    Alert, AlertPolicy, HttpTelegramTransport, TelegramError, TelegramNotifier, TelegramSettings,
+    caption_for, fetch_chat_ids,
+)
+
+NOW = datetime(2026, 10, 3, 14, 32, tzinfo=timezone.utc)
+SET = TelegramSettings(watchlist=("Eurasian Hoopoe", " blue tit "), alert_new_species=True, cooldown_minutes=30)
+
+
+# --- policy ---------------------------------------------------------------
+
+def test_watchlist_hit_case_insensitive():
+    p = AlertPolicy()
+    assert p.decide("Blue Tit", False, SET, NOW) == "watchlist"
+    assert p.decide("eurasian hoopoe", False, SET, NOW) == "watchlist"
+
+
+def test_not_watchlisted_not_new_is_none():
+    assert AlertPolicy().decide("Robin", False, SET, NOW) is None
+
+
+def test_new_species_alerts_once_and_bypasses_cooldown():
+    p = AlertPolicy()
+    assert p.decide("Blue Tit", True, SET, NOW) == "new"
+    assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=1)) is None  # cooldown from the "new" alert
+    p2 = AlertPolicy()
+    assert p2.decide("Blue Tit", False, SET, NOW) == "watchlist"
+    assert p2.decide("Blue Tit", True, SET, NOW + timedelta(minutes=1)) == "new"  # new ignores cooldown
+
+
+def test_new_species_disabled():
+    s = dataclasses.replace(SET, alert_new_species=False)
+    assert AlertPolicy().decide("Robin", True, s, NOW) is None
+    assert AlertPolicy().decide("Blue Tit", True, s, NOW) == "watchlist"
+
+
+def test_cooldown_suppresses_then_reallows():
+    p = AlertPolicy()
+    assert p.decide("Blue Tit", False, SET, NOW) == "watchlist"
+    assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=29)) is None
+    assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=30)) == "watchlist"
+
+
+def test_cooldown_zero_never_suppresses():
+    s = dataclasses.replace(SET, cooldown_minutes=0)
+    p = AlertPolicy()
+    assert p.decide("Blue Tit", False, s, NOW) == "watchlist"
+    assert p.decide("Blue Tit", False, s, NOW) == "watchlist"
+
+
+def test_cooldown_is_per_species():
+    p = AlertPolicy()
+    assert p.decide("Blue Tit", False, SET, NOW) == "watchlist"
+    assert p.decide("Eurasian Hoopoe", False, SET, NOW) == "watchlist"
+
+
+# --- caption --------------------------------------------------------------
+
+def test_caption_format():
+    a = Alert(1, Path("x.jpg"), "Eurasian Blue Tit", 0.823, NOW, "new")
+    text = caption_for(a, "http://birdy.local:8000")
+    first, link = text.split("\n")
+    assert first.startswith("🐦 Eurasian Blue Tit (82%) · ")
+    assert first.endswith(" · new species!")
+    assert link == "http://birdy.local:8000/?species=Eurasian%20Blue%20Tit"
+    assert "new species" not in caption_for(dataclasses.replace(a, reason="watchlist"), "http://x")
+
+
+# --- transport ------------------------------------------------------------
+
+class FakeResponse:
+    def __init__(self, payload: dict):
+        self._body = json.dumps(payload).encode()
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_http_transport_send_photo_multipart(tmp_path):
+    photo = tmp_path / "p.jpg"
+    photo.write_bytes(b"\xff\xd8JPEGDATA")
+    seen = {}
+
+    def urlopen(req, timeout):
+        seen["url"] = req.full_url
+        seen["ctype"] = req.get_header("Content-type")
+        seen["body"] = req.data
+        seen["timeout"] = timeout
+        return FakeResponse({"ok": True, "result": {}})
+
+    t = HttpTelegramTransport("TOKEN123", urlopen=urlopen)
+    t.send_photo("42", photo, "hello")
+    assert seen["url"].endswith("/botTOKEN123/sendPhoto") and seen["timeout"] == 20.0
+    assert seen["ctype"].startswith("multipart/form-data; boundary=")
+    body = seen["body"]
+    assert b'name="chat_id"\r\n\r\n42\r\n' in body
+    assert b'name="caption"\r\n\r\nhello\r\n' in body
+    assert b'name="photo"; filename="p.jpg"' in body and b"JPEGDATA" in body
+
+
+def test_http_transport_send_text_and_error_hides_token():
+    def urlopen(req, timeout):
+        return FakeResponse({"ok": False, "description": "Unauthorized"})
+
+    t = HttpTelegramTransport("TOKEN123", urlopen=urlopen)
+    with pytest.raises(TelegramError) as ei:
+        t.send_text("42", "hi")
+    assert "Unauthorized" in str(ei.value) and "TOKEN123" not in str(ei.value)
+
+
+def test_http_transport_missing_photo_raises_file_not_found(tmp_path):
+    t = HttpTelegramTransport("T", urlopen=lambda req, timeout: FakeResponse({"ok": True}))
+    with pytest.raises(FileNotFoundError):
+        t.send_photo("42", tmp_path / "missing.jpg", "x")
+
+
+def test_fetch_chat_ids_parses_updates():
+    payload = {"ok": True, "result": [
+        {"message": {"chat": {"id": 11, "first_name": "Yazz"}, "text": "/start"}},
+        {"message": {"chat": {"id": 11, "first_name": "Yazz"}, "text": "test"}},
+        {"edited_message": {"chat": {"id": 99}}},
+    ]}
+    chats = fetch_chat_ids("T", urlopen=lambda req, timeout: FakeResponse(payload))
+    assert chats == [(11, "Yazz", "test")]
+
+
+# --- notifier -------------------------------------------------------------
+
+class FakeTransport:
+    def __init__(self, fail_times: int = 0, missing_photo: bool = False):
+        self.fail_times = fail_times
+        self.missing_photo = missing_photo
+        self.photos: list[tuple[str, Path, str]] = []
+        self.texts: list[tuple[str, str]] = []
+
+    def send_photo(self, chat_id, photo, caption):
+        if self.fail_times:
+            self.fail_times -= 1
+            raise TelegramError("Bad Gateway", 502)
+        if self.missing_photo:
+            raise FileNotFoundError(photo)
+        self.photos.append((chat_id, photo, caption))
+
+    def send_text(self, chat_id, text):
+        self.texts.append((chat_id, text))
+
+
+def enabled_config(config, **tg):
+    base = dict(enabled=True, bot_token="T", chat_id="42", watchlist=("Blue Tit",), alert_new_species=True, cooldown_minutes=30)
+    base.update(tg)
+    return dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, **base))
+
+
+@pytest.fixture
+def store(tmp_path):
+    from birdy.store import Store
+
+    return Store(tmp_path / "data")
+
+
+def add_bird(store, species, when=NOW):
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), np.zeros((60, 80, 3), np.uint8))
+    cid = store.add_capture(when, rel, 100)
+    store.update_classification(cid, True, 0.9, species, 0.8)
+    return cid, abs_path
+
+
+def wait_until(pred, timeout=3.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if pred():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_consider_ignores_non_birds_unknown_species_and_disabled(live, config, store):
+    n = TelegramNotifier(live, store, FakeTransport())
+    pred = Prediction(True, 0.9, "Blue Tit", 0.8)
+    assert n.consider(1, Path("x"), pred, NOW) is None  # telegram disabled in the default config
+    live.replace(enabled_config(config))
+    assert n.consider(1, Path("x"), Prediction(False, 0.1, "Blue Tit", 0.8), NOW) is None
+    assert n.consider(1, Path("x"), Prediction(True, 0.9, None, None), NOW) is None
+
+
+def test_consider_queues_and_worker_sends_photo(live, config, store):
+    live.replace(enabled_config(config))
+    cid, path = add_bird(store, "Blue Tit")
+    t = FakeTransport()
+    n = TelegramNotifier(live, store, t)
+    n.start()
+    try:
+        assert n.consider(cid, path, Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW) == "new"  # first ever Blue Tit
+        assert wait_until(lambda: t.photos)
+        chat, photo, caption = t.photos[0]
+        assert chat == "42" and photo == path
+        assert caption.startswith("🐦 Blue Tit (80%)") and "new species!" in caption
+        assert "/?species=Blue%20Tit" in caption
+    finally:
+        n.stop()
+
+
+def test_first_seen_uses_store_count(live, config, store):
+    live.replace(enabled_config(config, watchlist=()))
+    cid1, p1 = add_bird(store, "Robin")
+    n = TelegramNotifier(live, store, FakeTransport())
+    assert n.consider(cid1, p1, Prediction(True, 0.9, "Robin", 0.8), NOW, now=NOW) == "new"
+    cid2, p2 = add_bird(store, "Robin", NOW + timedelta(minutes=1))
+    assert n.consider(cid2, p2, Prediction(True, 0.9, "Robin", 0.8), NOW, now=NOW + timedelta(hours=2)) is None
+
+
+def test_missing_photo_falls_back_to_text(live, config, store):
+    live.replace(enabled_config(config))
+    t = FakeTransport(missing_photo=True)
+    n = TelegramNotifier(live, store, t)
+    n.start()
+    try:
+        n.consider(1, Path("gone.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        assert wait_until(lambda: t.texts)
+        assert t.texts[0][1].startswith("🐦 Blue Tit")
+    finally:
+        n.stop()
+
+
+def test_retries_then_drops(live, config, store, caplog):
+    live.replace(enabled_config(config))
+    sleeps = []
+    t = FakeTransport(fail_times=4)
+    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n.start()
+    try:
+        with caplog.at_level(logging.WARNING):
+            n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+            assert wait_until(lambda: "alert dropped" in caplog.text)
+        assert sleeps == [5.0, 15.0, 45.0]
+        assert t.photos == []
+    finally:
+        n.stop()
+
+
+def test_retry_succeeds_on_second_attempt(live, config, store):
+    live.replace(enabled_config(config))
+    sleeps = []
+    t = FakeTransport(fail_times=1)
+    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n.start()
+    try:
+        n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        assert wait_until(lambda: t.photos)
+        assert sleeps == [5.0]
+    finally:
+        n.stop()
+
+
+def test_queue_full_drops_with_warning(live, config, store, caplog):
+    live.replace(enabled_config(config, cooldown_minutes=0))
+    n = TelegramNotifier(live, store, FakeTransport(), maxsize=1)  # not started: nothing drains
+    with caplog.at_level(logging.WARNING):
+        assert n.consider(1, Path("a"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW) == "watchlist"
+        assert n.consider(2, Path("b"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW) is None
+    assert "queue full" in caplog.text
+
+
+def test_worker_survives_transport_crash(live, config, store):
+    live.replace(enabled_config(config, cooldown_minutes=0))
+
+    class Crashy(FakeTransport):
+        def send_photo(self, chat_id, photo, caption):
+            if not self.photos:
+                self.photos.append(("crash", photo, caption))
+                raise RuntimeError("boom")
+            super().send_photo(chat_id, photo, caption)
+
+    t = Crashy()
+    n = TelegramNotifier(live, store, t)
+    n.start()
+    try:
+        n.consider(1, Path("a"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        n.consider(2, Path("b"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        assert wait_until(lambda: len(t.photos) == 2)
+    finally:
+        n.stop()
+
+
+def test_send_test_uses_site_name_and_propagates_errors(live, config, store):
+    live.replace(enabled_config(config))
+    t = FakeTransport()
+    n = TelegramNotifier(live, store, t)
+    n.send_test()
+    assert t.texts == [("42", f"birdy test alert from {config.site.name}")]
+
+    class Bad(FakeTransport):
+        def send_text(self, chat_id, text):
+            raise TelegramError("Unauthorized", 401)
+
+    with pytest.raises(TelegramError):
+        TelegramNotifier(live, store, Bad()).send_test()
