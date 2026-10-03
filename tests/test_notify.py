@@ -350,7 +350,7 @@ def test_timeout_is_telegram_error():
         raise TimeoutError("timed out")
 
     with pytest.raises(TelegramError, match="TimeoutError"):
-        HttpTelegramTransport("T", urlopen=urlopen).send_text("42", "hi")
+        HttpTelegramTransport("123456:ABCdef", urlopen=urlopen).send_text("42", "hi")  # a 1-char token would be redacted out of "TimeoutError"
 
 
 def test_non_json_200_is_telegram_error():
