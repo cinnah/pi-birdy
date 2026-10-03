@@ -1,0 +1,6 @@
+# Output indices of bird classes in the 1001-class MobileNet labels file
+# (index 0 = background). Ranges are inclusive. ImageNet classes 7-24,
+# 80-100 and 127-146 are birds; +1 for the background offset.
+8-25
+81-101
+128-147
