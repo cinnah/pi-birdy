@@ -1,3 +1,4 @@
+# The web settings page rewrites birdy.toml without comments; this example keeps the documentation.
 # Birdy configuration. Copy to birdy.toml and edit. Relative paths are
 # resolved against the directory containing this file.
 

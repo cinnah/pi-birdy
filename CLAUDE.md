@@ -30,8 +30,8 @@ deploy/install.sh               # one-time: apt deps, venv, birdy.toml, systemd 
 .venv/bin/birdy classify <file> # run the classifier on a single image
 .venv/bin/birdy purge           # run the retention job now
 journalctl -u birdy -f          # logs
-# ROI tuning: while the service runs the camera is busy, so `birdy roi` can't open it -
-# use http://birdy.local:8000/roi.png instead.
+# Tuning: ROI and thresholds at http://birdy.local:8000/settings (live frame, click-to-draw
+# polygon, applies without restart). No auth - LAN only, no CSRF token by design.
 ```
 
 ## Architecture
@@ -43,7 +43,7 @@ capture ──MotionEvent──▶ pipeline (queue + worker) ──▶ classifie
    │                          │
    └──────────────────────────┴──▶ store (SQLite WAL + photos/thumbs on disk)
                                      ▲
-web (FastAPI, read-only) ────────────┘      retention (hourly thread) ──▶ store
+web (FastAPI + /settings) ───────────┘      retention (hourly thread) ──▶ store
 ```
 
 - `birdy/capture.py` is the **only** module that imports `picamera2`. Everything else must import and test on the Mac. Keep it that way; put any new camera-touching code there.
@@ -52,6 +52,9 @@ web (FastAPI, read-only) ────────────┘      retention 
 - `birdy/store.py` owns the single write connection (locked, `check_same_thread=False`); capture, pipeline and retention all write through it. The web thread reads through the same locked connection. The only other writer is the one-shot `birdy purge` CLI, which is safe under WAL.
 - Nothing is dropped on overload: capture inserts the row as `status='pending'` before enqueueing, and the pipeline's 5-minute backlog sweep reclassifies anything still pending.
 - Retention deletes `is_bird = 0` and `status = 'error'` rows older than `retention.non_bird_days`; bird photos are never auto-deleted.
+- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg` and the `/settings` page; `POST /settings` is its only write (to `birdy.toml`, never to the DB).
+- `birdy/live.py` — `LiveConfig` holds the current `Config` + a version. Tunables (`motion.*`, `classifier.threshold`, site/daylight, retention) are read through `live.get()` on use; the capture loop rebuilds its detector/gate when `live.version` changes (and the motion/site/daylight sections differ). Camera/web/storage/model keys are read once at startup — changing them needs a restart (the watcher logs a warning).
+- `birdy/settings.py` + `birdy/watcher.py` — the `/settings` page validates and atomically rewrites `birdy.toml` (comments are lost; `birdy.toml.example` keeps the docs) and applies it live; `ConfigWatcher` reloads the file when it's edited over SSH (invalid edits are logged and ignored until restart).
 
 ## Conventions and gotchas
 
@@ -64,3 +67,4 @@ web (FastAPI, read-only) ────────────┘      retention 
 - Models in `models/` are checked in with their license and labels; `imagenet_bird_classes.txt` is the source of truth for which class indices count as "bird".
 - The hosted MobileNetV2 TFLite model outputs **logits** (no softmax layer); `ImageNetBirdClassifier` applies softmax itself. Don't "fix" the dequantized sum ≠ 1.
 - `MotionDetector` suppresses triggers for its first `warmup_frames` (default 10) so camera auto-exposure settling at session start doesn't produce junk captures.
+- Adding a tunable key: `config.py` dataclass + validation, `birdy.toml.example`, `settings.py` (`SettingsPatch`, `config_to_dict`, `apply_patch`, `FIELD_KEYS`, `parse_settings_form`), `settings.html` form row, and the consumer must read it via `live.get()`. `test_config_to_dict_covers_every_field` fails if `config_to_dict` is forgotten.

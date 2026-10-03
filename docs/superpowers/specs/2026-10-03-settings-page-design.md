@@ -49,13 +49,13 @@ web (GET/POST /settings, GET /frame.jpg)
 - Paths in the written file are written exactly as they were loaded (absolute) — `load_config` resolves relative paths against the config directory, so writing absolute paths is safe and unambiguous.
 
 ### `birdy/watcher.py` — `ConfigWatcher`
-- Thread: every 5 s, `stat()` the file; if mtime changed, read bytes; if the SHA-256 differs from the last applied content → `load_config()`; on success `live.replace()` + `log.info`, on `ConfigError`/`TOMLDecodeError` → `log.error`, keep the running config. Content hashing makes the web's own save a no-op for the watcher.
+- Thread: every 5 s, `stat()` the file; if mtime changed → `load_config()`; on `ConfigError`/`TOMLDecodeError`/`OSError` → `log.error`, keep the running config. After loading, the watcher compares the new `Config` to `live.get()`; equal configs (e.g. the page's own write) are not re-applied. If camera/web/storage/model keys changed it logs that a restart is required (they are still loaded into `live`, but the capture loop keeps the camera config it started with). Otherwise `live.replace()` + `log.info`.
 - Same start/stop pattern as `RetentionJob`.
 
 ### Hot-reload at the consumers
 | Consumer | Change |
 |---|---|
-| `capture.run_capture` | Takes `live: LiveConfig`. At the top of each frame compares `live.version` to the version the current `MotionDetector`/`DaylightGate` were built from; if different, rebuilds both from `live.get()` (fresh warm-up ≈ 1 s) and logs "settings applied (vN)". Camera config (`camera.*`) is read once per session. |
+| `capture.run_capture` | Takes `live: LiveConfig`. Camera config (`camera.*`) is fixed per process: read once when `run_capture` starts and reused for every camera session. At the top of each frame compares `live.version` to the version last seen; if different, and the `motion`/`site`/`daylight` sections differ from those the current `MotionDetector`/`DaylightGate` were built from, rebuilds both from `live.get()` (fresh warm-up ≈ 1 s) and logs "settings applied (vN)". A version bump that only touched other sections (e.g. retention) does not reset the detector. |
 | `Pipeline` | Takes `live`; computes `roi_bbox(live.get().motion.roi)` per event instead of storing it. |
 | `ImageNetBirdClassifier.classify` | Gains a `threshold: float | None = None` argument overriding the constructor default; `Pipeline` passes `live.get().classifier.threshold`. (`Classifier` Protocol updated accordingly.) |
 | `RetentionJob` | Takes `live`; reads `non_bird_days` per run. |
@@ -68,7 +68,7 @@ One page (`settings.html`), linked from the header of `/`. Plain HTML + ~100 lin
 
 **ROI editor**
 - `<canvas>` sized to the lores frame × 2 (640×480 by default; scales down to the viewport width on phones, keeping aspect). Background: `/frame.jpg`, re-fetched every 1 s. Overlay: the polygon and its corners (12 px hit radius).
-- Interactions: click empty space → append corner; drag corner → move; click corner (no drag) → delete (refused below 3 points, with a hint); **Reset** → reload saved polygon.
+- Interactions (pointer events, so mouse and touch): click empty space → append corner; drag corner → move; click corner (no drag) → delete (refused below 3 points, with a hint); **Reset** → reload saved polygon. A press that moves less than 3 lores px is a tap (delete), not a drag. When corners overlap, the nearest corner within the hit radius wins. `pointercancel` (e.g. the browser taking over a touch for scrolling) ends the drag.
 - Coordinates are kept in lores pixels (integers) and submitted as JSON in a hidden `roi` field.
 - Live readout under the canvas: `motion score` and `min_area` (score polled from `/status` every 1 s), colour turns green when score ≥ min_area.
 
@@ -78,11 +78,11 @@ One page (`settings.html`), linked from the header of `/`. Plain HTML + ~100 lin
 - Site / daylight: `lat`, `lon` (numeric, both optional — both empty disables the gate; one empty is a validation error), `margin_minutes` 0–180.
 - Retention: `non_bird_days` 1–365.
 - Read-only block listing the non-editable keys with their current values and the note "edit birdy.toml and restart".
-- **Save** → `POST /settings`.
+- **Save** → `POST /settings`. The form has `novalidate`: values hand-set in `birdy.toml` may be off the slider step or range, and the server's validation (with field-level messages) is the authority.
 
 ### `POST /settings`
 - Form-encoded. Parses fields → `SettingsPatch` (type errors → 422 with a message on that field) → `save_settings()` → `live.replace()` → 303 redirect to `/settings?saved=1`, which shows a "Saved — applied live (vN)" banner.
-- `ConfigError` → 422, page re-rendered with submitted values and the message beside the field whose key the message names (fallback: top of form).
+- `ConfigError` → 422, page re-rendered with submitted values. The message always appears in the error banner at the top of the page, and additionally beside the field whose key the message names (numeric fields, ROI, lat/lon).
 - `OSError` on write → 500 page with the OS error; running config unchanged.
 
 ### `GET /frame.jpg`
@@ -99,7 +99,7 @@ No new keys. `tomli-w` added to `pyproject.toml` dependencies.
 | Invalid value / polygon from the page | 422, nothing written, field-level message |
 | Disk/permission error writing the file | 500, running config unchanged |
 | External edit produces a bad file | Logged, running config kept; a restart would exit 2 (existing behaviour) |
-| Capture loop rebuild fails (e.g. ROI outside lores after a camera-size change) | Cannot happen: `load_config` validates ROI against `lores_size`, and camera sizes are not editable live |
+| Camera-size change via an external (SSH) edit | Watcher logs that a restart is required; the new config is loaded into `live`, but the running capture loop ignores the camera change and keeps its startup camera config until restart. (Edits from the page cannot change camera sizes, and `load_config` validates ROI against `lores_size`.) |
 
 ## Testing (Mac)
 
