@@ -141,6 +141,8 @@ def create_app(
         return {
             "v": values,
             "roi_json": roi_json,
+            # what is actually in effect, regardless of what the (possibly rejected) form sent
+            "saved_roi_json": json.dumps([list(p) for p in cfg.motion.roi]),
             "lores_w": cfg.camera.lores_size[0],
             "lores_h": cfg.camera.lores_size[1],
             "readonly": {

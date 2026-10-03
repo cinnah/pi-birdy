@@ -192,20 +192,23 @@ def test_settings_post_saves_applies_and_redirects(client, config_path, live):
 
 
 @pytest.mark.parametrize(
-    "overrides, key",
+    "overrides, key, field",
     [
-        ({"roi": "[[0, 0], [1, 1]]"}, "motion.roi"),
-        ({"min_area": "-1"}, "motion.min_area"),
-        ({"lat": "38.7"}, "site.lat"),
-        ({"background_alpha": "abc"}, "motion.background_alpha"),
+        ({"roi": "[[0, 0], [1, 1]]"}, "motion.roi", "roi"),
+        ({"min_area": "-1"}, "motion.min_area", "min_area"),
+        ({"lat": "38.7"}, "site.lat", "lat"),
+        ({"background_alpha": "abc"}, "motion.background_alpha", "background_alpha"),
     ],
 )
-def test_settings_post_invalid_renders_error_and_writes_nothing(client, config_path, live, overrides, key):
+def test_settings_post_invalid_renders_error_and_writes_nothing(client, config_path, live, overrides, key, field):
     before = config_path.read_bytes()
     r = post_settings(client, **overrides)
     assert r.status_code == 422
     assert key in r.text
-    assert re.search(r'class="[^"]*error[^"]*"', r.text)
+    if field == "roi":
+        assert 'id="roi-hint" class="hint error"' in r.text
+    else:
+        assert re.search(rf'<div class="row error">\s*<label for="{field}"', r.text)
     assert config_path.read_bytes() == before
     assert live.version == 0
 
@@ -213,3 +216,43 @@ def test_settings_post_invalid_renders_error_and_writes_nothing(client, config_p
 def test_settings_post_keeps_submitted_values_on_error(client):
     r = post_settings(client, min_area="-1", pixel_threshold="77")
     assert 'value="77"' in r.text
+
+
+def test_settings_post_oserror_is_500(client, config_path, live, monkeypatch):
+    def boom(*a, **k):
+        raise PermissionError("ro")
+
+    monkeypatch.setattr("birdy.web.app.save_settings", boom)
+    before = config_path.read_bytes()
+    r = post_settings(client, min_area="400")
+    assert r.status_code == 500
+    assert "could not write" in r.text
+    assert live.version == 0
+    assert config_path.read_bytes() == before
+
+
+def test_settings_post_missing_field_422(client):
+    form = {
+        "roi": "[[40, 60], [280, 60], [280, 220], [40, 220]]",
+        "pixel_threshold": "25",
+        "background_alpha": "0.05",
+        "cooldown_seconds": "3",
+        "classifier_threshold": "0.5",
+        "lat": "",
+        "lon": "",
+        "margin_minutes": "30",
+        "non_bird_days": "7",
+    }
+    r = client.post("/settings", data=form, follow_redirects=False)
+    assert r.status_code == 422
+    assert re.search(r'<div class="row error">\s*<label for="min_area"', r.text)
+
+
+def test_settings_post_ignores_unknown_fields(client):
+    assert post_settings(client, foo="bar").status_code == 303
+
+
+def test_settings_page_has_novalidate_and_saved_roi(client):
+    text = client.get("/settings").text
+    assert "novalidate" in text
+    assert "data-saved='[[40, 60], [280, 60], [280, 220], [40, 220]]'" in text

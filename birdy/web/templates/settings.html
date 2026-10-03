@@ -33,7 +33,7 @@
 <!-- novalidate: values set by hand in birdy.toml may be off the slider step grid; the server validates anyway -->
 <form method="post" action="/settings" id="form" novalidate>
 <h2>Region of interest</h2>
-<canvas id="roi" width="{{ lores_w * 2 }}" height="{{ lores_h * 2 }}"></canvas>
+<canvas id="roi" width="{{ lores_w * 2 }}" height="{{ lores_h * 2 }}" data-saved='{{ saved_roi_json }}'></canvas>
 <div class="hint">Click to add a corner, drag to move it, click a corner to delete it (min 3). Coordinates are in the {{ lores_w }}×{{ lores_h }} analysis frame.</div>
 <div class="readout">motion score <b id="score">–</b> <span class="hint">(green when ≥ min_area; state <span id="state">{{ status.state }}</span>)</span>
   <button type="button" id="reset">Reset polygon</button></div>
@@ -47,6 +47,7 @@
   <input type="range" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}" data-pair="{{ name }}">
   <input type="number" id="{{ name }}" name="{{ name }}" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}">
 </div>
+{% if error_field == name %}<div class="hint error">{{ error_message }}</div>{% endif %}
 {%- endmacro %}
 {{ num("pixel_threshold", "pixel_threshold", 0, 100, 1) }}
 {{ num("min_area", "min_area", 0, 20000, 10) }}
@@ -62,6 +63,7 @@
   <input type="text" id="lat" name="lat" placeholder="38.72 (empty = gate off)" value="{{ v['lat'] }}">
   <input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}">
 </div>
+{% if error_field in ('lat', 'lon') %}<div class="hint error">{{ error_message }}</div>{% endif %}
 {{ num("margin_minutes", "margin_minutes", 0, 180, 5) }}
 
 <h2>Retention</h2>
@@ -80,9 +82,12 @@
   const W = {{ lores_w }}, H = {{ lores_h }}, SCALE = 2;
   const canvas = document.getElementById('roi'), ctx = canvas.getContext('2d');
   const field = document.getElementById('roi-field'), hint = document.getElementById('roi-hint');
-  const saved = JSON.parse(field.value);
-  let pts = JSON.parse(JSON.stringify(saved));
-  let img = null, dragging = null, moved = false;
+  const saved = JSON.parse(canvas.dataset.saved);  // polygon in effect; Reset goes back to this
+  let pts;
+  try { pts = JSON.parse(field.value); if (!Array.isArray(pts)) throw 0; }
+  catch { pts = JSON.parse(JSON.stringify(saved)); }
+  const DRAG_THRESHOLD = 3;  // lores px: below this a press-and-release is a tap (delete), not a nudge
+  let img = null, dragging = null, moved = false, downAt = null, loading = false;
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -103,19 +108,23 @@
   function hit(p) {
     const r = canvas.getBoundingClientRect();
     const radius = 12 * W / r.width;  // 12 CSS px, in lores units
-    return pts.findIndex(q => Math.hypot(q[0] - p[0], q[1] - p[1]) <= radius);
+    let best = -1, bestD = radius;    // nearest corner within the radius
+    pts.forEach((q, i) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d <= bestD) { best = i; bestD = d; } });
+    return best;
   }
   canvas.addEventListener('pointerdown', e => {
     e.preventDefault();
     const p = toLores(e), i = hit(p);
-    moved = false; hint.textContent = '';
+    moved = false; downAt = p; hint.textContent = '';
     if (i >= 0) { dragging = i; canvas.setPointerCapture(e.pointerId); }
     else { pts.push(p); draw(); }
   });
   canvas.addEventListener('pointermove', e => {
     if (dragging === null) return;
     const p = toLores(e);
-    if (p[0] !== pts[dragging][0] || p[1] !== pts[dragging][1]) { pts[dragging] = p; moved = true; draw(); }
+    if (!moved && Math.hypot(p[0] - downAt[0], p[1] - downAt[1]) < DRAG_THRESHOLD) return;
+    moved = true;
+    if (p[0] !== pts[dragging][0] || p[1] !== pts[dragging][1]) { pts[dragging] = p; draw(); }
   });
   canvas.addEventListener('pointerup', e => {
     if (dragging === null) return;
@@ -129,8 +138,11 @@
   document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(saved)); draw(); };
 
   function refreshFrame() {
+    if (loading) return;  // don't pile up requests on a slow link
+    loading = true;
     const i = new Image();
-    i.onload = () => { img = i; draw(); };
+    i.onload = () => { loading = false; img = i; draw(); };
+    i.onerror = () => { loading = false; };
     i.src = '/frame.jpg?t=' + Date.now();
   }
   async function poll() {
