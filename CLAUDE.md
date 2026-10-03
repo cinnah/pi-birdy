@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Birdy: a Raspberry Pi 4 + Camera Module v2.1 behind a window photographs birds at a feeder, filters non-bird motion with a local TFLite model, stores photos + metadata in SQLite, and serves a LAN-only review page.
 
-The authoritative design is `docs/superpowers/specs/2026-10-03-capture-core-design.md` (approved, sub-project 1 of 5), together with `docs/superpowers/specs/2026-10-03-settings-page-design.md` for the settings page and live reload (sub-project 1b) and `docs/superpowers/specs/2026-10-03-species-recognition-design.md` for species ID (sub-project 2). Read them before implementing anything; module interfaces, config keys, DB schema and defaults are all specified there. Later sub-projects (publishing, multi-site, e-ink) are out of scope unless asked.
+The authoritative design is `docs/superpowers/specs/2026-10-03-capture-core-design.md` (approved, sub-project 1 of 5), together with `docs/superpowers/specs/2026-10-03-settings-page-design.md` for the settings page and live reload (sub-project 1b) , `docs/superpowers/specs/2026-10-03-species-recognition-design.md` for species ID (sub-project 2) and `docs/superpowers/specs/2026-10-03-telegram-alerts-design.md` for Telegram alerts (sub-project 6). Read them before implementing anything; module interfaces, config keys, DB schema and defaults are all specified there. Later sub-projects (publishing, multi-site, e-ink) are out of scope unless asked.
 
 ## Commands
 
@@ -29,14 +29,22 @@ deploy/install.sh               # one-time: apt deps, venv, birdy.toml, systemd 
 .venv/bin/birdy run             # what the service runs
 .venv/bin/birdy classify <file> # gate + species verdict, then both models' top-5
 .venv/bin/birdy purge           # run the retention job now
+.venv/bin/birdy telegram-chat-id   # print chat ids that have messaged the bot (--token overrides [telegram] bot_token)
 journalctl -u birdy -f          # logs
 # Tuning: ROI and thresholds at http://birdy.local:8000/settings (live frame, click-to-draw
 # polygon, applies without restart). No auth - LAN only, no CSRF token by design.
 ```
 
+Telegram bot setup (one-time; the token never leaves the Pi):
+
+1. Telegram → @BotFather → `/newbot` → put the token in `[telegram] bot_token` in `~/pi-birdy/birdy.toml` on the Pi (`chmod 600 birdy.toml`; `install.sh` creates it 0600).
+2. Open the bot in Telegram and send it any message.
+3. `ssh yassine@birdy.local 'cd ~/pi-birdy && .venv/bin/birdy telegram-chat-id'` → put the id in `chat_id`, set `enabled = true`, then `sudo systemctl restart birdy`.
+4. Settings page → **Send test alert**.
+
 ## Architecture
 
-One Python process, one systemd service, five threads talking through narrow interfaces:
+One Python process, one systemd service, five threads (six with Telegram alerts enabled) talking through narrow interfaces:
 
 ```
 capture ──MotionEvent──▶ pipeline (queue + worker) ──▶ classifier
@@ -46,6 +54,8 @@ capture ──MotionEvent──▶ pipeline (queue + worker) ──▶ classifie
 web (FastAPI + /settings) ───────────┘      retention (hourly thread) ──▶ store
 
 config watcher (5 s stat of birdy.toml) ──▶ LiveConfig ◀── web POST /settings
+
+telegram notifier (queue + worker) ◀── pipeline (live only)
 ```
 
 - `birdy/capture.py` is the **only** module that imports `picamera2`. Everything else must import and test on the Mac. Keep it that way; put any new camera-touching code there.
@@ -56,9 +66,10 @@ config watcher (5 s stat of birdy.toml) ──▶ LiveConfig ◀── web POST 
 - `birdy/store.py` owns the single write connection (locked, `check_same_thread=False`); capture, pipeline and retention all write through it. The web thread reads through the same locked connection. The only other writer is the one-shot `birdy purge` CLI, which is safe under WAL.
 - Nothing is dropped on overload: capture inserts the row as `status='pending'` before enqueueing, and the pipeline's 5-minute backlog sweep reclassifies anything still pending.
 - Retention deletes `is_bird = 0` and `status = 'error'` rows older than `retention.non_bird_days`; bird photos are never auto-deleted.
-- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg`, `/roi.png` (ROI overlay; still served, `birdy roi` points to it while the service holds the camera) the `/settings` page, `/species` (per-species summary + an upload box that `POST /classify`s a photo and shows both models' verdict; it runs on the full uploaded image with no ROI crop and nothing is stored), a species dropdown filter on `/` (returns birds only: `is_bird = 1`), and `last_species` in `/status`. `POST /settings` is its only write (to `birdy.toml`, never to the DB).
-- `birdy/live.py` — `LiveConfig` holds the current `Config` + a version. Tunables (`motion.*`, `classifier.threshold`, `species.threshold`/`species.rescue_threshold`, site/daylight, retention) are read through `live.get()` on use; the capture loop rebuilds its detector/gate when `live.version` changes (and `motion`, `site.lat/lon` or `daylight` differ). Camera/web/storage/model keys are read once at startup — changing them needs a restart (the watcher logs a warning).
+- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg`, `/roi.png` (ROI overlay; still served, `birdy roi` points to it while the service holds the camera) the `/settings` page (plus `POST /settings/test-alert`, which sends a Telegram message and writes nothing), `/species` (per-species summary + an upload box that `POST /classify`s a photo and shows both models' verdict; it runs on the full uploaded image with no ROI crop and nothing is stored), a species dropdown filter on `/` (returns birds only: `is_bird = 1`), and `last_species` in `/status`. `POST /settings` is its only write (to `birdy.toml`, never to the DB).
+- `birdy/live.py` — `LiveConfig` holds the current `Config` + a version. Tunables (`motion.*`, `classifier.threshold`, `species.threshold`/`species.rescue_threshold`, `telegram.watchlist/alert_new_species/cooldown_minutes`, site/daylight, retention) are read through `live.get()` on use; the capture loop rebuilds its detector/gate when `live.version` changes (and `motion`, `site.lat/lon` or `daylight` differ). Camera/web/storage/model keys and `telegram.enabled/bot_token/chat_id/base_url` are read once at startup — changing them needs a restart (the watcher logs a warning).
 - `birdy/settings.py` + `birdy/watcher.py` — the `/settings` page validates and atomically rewrites `birdy.toml` (comments are lost; `birdy.toml.example` keeps the docs) and applies it live; `ConfigWatcher` reloads the file when it's edited over SSH (invalid edits are logged and ignored until restart).
+- `birdy/notify.py` — `AlertPolicy` is pure: watchlist match is case-insensitive, a first-ever species gives reason `"new"` (bypasses the cooldown), otherwise a per-species cooldown held in memory. `TelegramNotifier` has a bounded queue (20; newest dropped with a warning when full) and one worker thread that `sendPhoto`s the full-res JPEG, retries after 5/15/45 s then logs once and drops, and falls back to a text message if the photo was purged. It is fed only by `Pipeline.process()` after a live classification is stored — never by the species backfill — and a `consider()` failure is logged without touching the row. The web shares the same instance for `POST /settings/test-alert` (`send_test()`, synchronous; 502 with Telegram's description on error, 503 when alerts are disabled). When `telegram.enabled = false` the notifier isn't constructed at all.
 - A settings-page save writes the running config: it overwrites SSH edits made in the last few seconds that the watcher hasn't applied yet, and drops comments and unknown keys.
 
 ## Conventions and gotchas
@@ -75,4 +86,6 @@ config watcher (5 s stat of birdy.toml) ──▶ LiveConfig ◀── web POST 
 - Both models must get the **same RGB** array (`CropLoader` converts once). Feeding BGR silently degrades results — a blue tit comes out as a hummingbird.
 - `birdy classify <file>` prints the final verdict with the raw gate probability (and whether species rescued it), then both models' top-5 — the first thing to run when a capture looks misclassified.
 - `MotionDetector` suppresses triggers for its first `warmup_frames` (default 10) so camera auto-exposure settling at session start doesn't produce junk captures.
+- `telegram.bot_token` is a secret. It lives only in the Pi's `birdy.toml` (0600, gitignored, rsync-excluded), is written back by every settings-page save (`config_to_dict` includes it, so a save never wipes it), is excluded from `repr(Config)` (`field(repr=False)`), is never logged, and every `TelegramError` message is redacted (`_redact`; request URLs are never included). Never put it in git, docs, tests, memory or log lines. The settings page shows only "set"/"not set".
+- `telegram.enabled`, `bot_token`, `chat_id`, `base_url` are restart-only (the watcher warns); `watchlist`, `alert_new_species`, `cooldown_minutes` are live. Cooldown state is in memory, so a restart may re-alert a species once; "new species" is derived from the DB (`store.count("birds", species=...) == 1`) and survives restarts.
 - Adding a tunable key: `config.py` dataclass + validation, `birdy.toml.example`, `settings.py` (`SettingsPatch`, `config_to_dict`, `apply_patch`, `FIELD_KEYS`, `parse_settings_form`), `settings.html` form row, and the consumer must read it via `live.get()`. `test_config_to_dict_covers_every_field` fails if `config_to_dict` is forgotten.
