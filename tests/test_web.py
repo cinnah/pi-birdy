@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from birdy.classifier import Prediction
 from birdy.config import load_config
+from birdy.notify import TelegramError
 from birdy.species import SpeciesLabel
 from birdy.state import RuntimeState
 from birdy.store import Store
@@ -48,9 +49,28 @@ def classifier():
     return FakeTwoStage()
 
 
+class FakeNotifier:
+    def __init__(self, raise_exc=None):
+        self.raise_exc = raise_exc
+        self.tests = 0
+
+    def send_test(self):
+        self.tests += 1
+        if self.raise_exc:
+            raise self.raise_exc
+
+    def consider(self, *a, **k):
+        return None
+
+
 @pytest.fixture
-def client(store, state, live, config_path, classifier):
-    return TestClient(create_app(store, state, live, config_path, classifier=classifier))
+def notifier():
+    return FakeNotifier()
+
+
+@pytest.fixture
+def client(store, state, live, config_path, classifier, notifier):
+    return TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=notifier))
 
 
 def add(store, i, is_bird):
@@ -154,8 +174,8 @@ def test_pending_tile_renders(client, store):
     assert ">pending<" in r.text
 
 
-def post_settings(client, **overrides):
-    form = {
+def _base_form():
+    return {
         "roi": "[[40, 60], [280, 60], [280, 220], [40, 220]]",
         "pixel_threshold": "25",
         "min_area": "150",
@@ -168,7 +188,14 @@ def post_settings(client, **overrides):
         "lon": "",
         "margin_minutes": "30",
         "non_bird_days": "7",
+        "watchlist": "",
+        "alert_new_species": "on",
+        "cooldown_minutes": "30",
     }
+
+
+def post_settings(client, **overrides):
+    form = _base_form()
     form.update(overrides)
     return client.post("/settings", data=form, follow_redirects=False)
 
@@ -423,3 +450,53 @@ def test_species_filter_excludes_non_bird_rows(client, store):
     r = client.get("/?species=Robin").text
     assert bird.thumb_path in r and junk.thumb_path not in r
     assert "(1)" in r
+
+
+def test_settings_alerts_group_renders(client, store, live, config):
+    import dataclasses
+
+    add(store, 0, True)  # a "Robin" bird → species hint
+    live.replace(dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, watchlist=("Hoopoe",), bot_token="SECRET123", chat_id="42")))
+    r = client.get("/settings").text
+    assert '<textarea id="watchlist" name="watchlist"' in r and ">Hoopoe</textarea>" in r
+    assert 'name="alert_new_species"' in r and "checked" in r
+    assert 'name="cooldown_minutes"' in r
+    assert "Robin" in r  # species hint
+    assert "telegram.bot_token" in r and "SECRET123" not in r
+    assert "Send test alert" in r
+
+
+def test_settings_post_saves_alert_fields(client, live, config_path):
+    r = post_settings(client, watchlist="Hoopoe\nBlue Tit", cooldown_minutes="10")
+    assert r.status_code == 303
+    t = live.get().telegram
+    assert t.watchlist == ("Hoopoe", "Blue Tit") and t.cooldown_minutes == 10 and t.alert_new_species is True
+    data = _base_form()
+    data.pop("alert_new_species")  # an unchecked checkbox is simply absent from the POST
+    r2 = client.post("/settings", data=data, follow_redirects=False)
+    assert r2.status_code == 303 and live.get().telegram.alert_new_species is False
+
+
+def test_settings_post_invalid_cooldown_highlights_row(client):
+    r = post_settings(client, cooldown_minutes="-5")
+    assert r.status_code == 422 and "telegram.cooldown_minutes" in r.text
+    assert re.search(r'<div class="row error">\s*<label for="cooldown_minutes"', r.text)
+
+
+def test_test_alert_success(client, notifier):
+    r = client.post("/settings/test-alert")
+    assert r.status_code == 200 and "test alert sent" in r.text and notifier.tests == 1
+
+
+def test_test_alert_telegram_error(store, state, live, config_path, classifier):
+    bad = FakeNotifier(raise_exc=TelegramError("Unauthorized", 401))
+    c = TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=bad))
+    r = c.post("/settings/test-alert")
+    assert r.status_code == 502 and "Unauthorized" in r.text
+
+
+def test_test_alert_disabled_503(store, state, live, config_path, classifier):
+    c = TestClient(create_app(store, state, live, config_path, classifier=classifier))
+    r = c.post("/settings/test-alert")
+    assert r.status_code == 503 and "disabled" in r.text
+    assert "disabled" in c.get("/settings").text  # button state explained

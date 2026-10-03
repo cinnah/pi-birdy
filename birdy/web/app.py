@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from birdy.classifier import Prediction
 from birdy.config import ConfigError
 from birdy.live import LiveConfig
+from birdy.notify import TelegramError
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
 from birdy.state import RuntimeState
 from birdy.store import FILTERS, Store
@@ -49,11 +50,14 @@ def create_app(
     config_path: Path,
     queue_depth: Callable[[], int] = lambda: 0,
     classifier: Any | None = None,
+    notifier: Any | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
     `classifier` is an object with `classify_image(img_rgb) -> (Prediction, top)`, normally a
     `TwoStageClassifier`; None disables `/classify`.
+
+    `notifier` is an object with `send_test()`; normally a `TelegramNotifier`; None = alerts disabled.
     """
     app = FastAPI(title="birdy")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -183,6 +187,7 @@ def create_app(
         form: dict | None = None,
         error: tuple[str | None, str] | None = None,
         saved: bool = False,
+        test: tuple[bool, str] | None = None,
     ) -> dict:
         cfg = live.get()
         values = (
@@ -201,6 +206,9 @@ def create_app(
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
                 "margin_minutes": cfg.daylight.margin_minutes,
                 "non_bird_days": cfg.retention.non_bird_days,
+                "watchlist": "\n".join(cfg.telegram.watchlist),
+                "alert_new_species": cfg.telegram.alert_new_species,
+                "cooldown_minutes": cfg.telegram.cooldown_minutes,
             }
         )
         roi = values.get("roi", "")
@@ -225,7 +233,16 @@ def create_app(
                 "storage.data_dir": str(cfg.storage.data_dir),
                 "classifier.model": str(cfg.classifier.model),
                 "species.model": str(cfg.species.model),
+                "telegram.enabled": cfg.telegram.enabled,
+                "telegram.chat_id": cfg.telegram.chat_id or "–",
+                # never the token itself
+                "telegram.bot_token": "set" if cfg.telegram.bot_token else "not set",
+                "telegram.base_url": cfg.telegram.base_url,
             },
+            "species_seen": [r.species for r in store.species_summary()],
+            "alerts_enabled": notifier is not None,
+            "test_ok": None if test is None else test[0],
+            "test_result": None if test is None else test[1],
             "error_field": None if error is None else error[0],
             "error_message": None if error is None else error[1],
             "saved": saved,
@@ -253,5 +270,27 @@ def create_app(
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=500)
         live.replace(new)
         return RedirectResponse("/settings?saved=1", status_code=303)
+
+    @app.post("/settings/test-alert", response_class=HTMLResponse)
+    async def settings_test_alert(request: Request):
+        if notifier is None:
+            ctx = settings_context(
+                test=(
+                    False,
+                    "alerts are disabled: set [telegram] enabled = true (with bot_token and chat_id) "
+                    "in birdy.toml and restart",
+                )
+            )
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=503)
+        try:
+            await run_in_threadpool(notifier.send_test)
+        except TelegramError as e:
+            ctx = settings_context(test=(False, f"Telegram error: {e.description}"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+        except OSError as e:
+            ctx = settings_context(test=(False, f"network error: {e}"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+        ctx = settings_context(test=(True, "test alert sent — check Telegram"))
+        return templates.TemplateResponse(request, "settings.html", ctx)
 
     return app
