@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,33 @@ def test_invalid_config_value_exits_2(tmp_path):
     assert proc.returncode == 2
     assert "config error" in proc.stderr
     assert "Traceback" not in proc.stderr
+
+
+def test_purge_command_end_to_end(tmp_path):
+    import cv2
+    import numpy as np
+
+    from birdy.store import Store
+
+    data_dir = tmp_path / "data"
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text(
+        '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n'
+        f'[storage]\ndata_dir = "{data_dir}"\n[retention]\nnon_bird_days = 7\n'
+    )
+    store = Store(data_dir)
+    old = datetime.now().astimezone() - timedelta(days=10)
+    abs_path, rel_path = store.photo_path_for(old)
+    assert cv2.imwrite(str(abs_path), np.zeros((8, 8, 3), dtype=np.uint8))
+    capture_id = store.add_capture(old, rel_path, 42)
+    store.update_classification(capture_id, False, 0.1, None, None)
+    store.close()
+    assert abs_path.exists()
+
+    proc = _run_cli("--config", str(cfg), "purge")
+    assert proc.returncode == 0, proc.stderr
+    assert "deleted 1" in proc.stdout
+    assert not abs_path.exists()
 
 
 def test_missing_config_exits_2(tmp_path):

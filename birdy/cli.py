@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -64,7 +65,8 @@ def cmd_run(config: Config) -> int:
 
     app = create_app(store, state, config.motion.roi, queue_depth=pipeline.queue_depth)
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
-    threading.Thread(target=server.run, name="web", daemon=True).start()
+    web_thread = threading.Thread(target=server.run, name="web", daemon=True)
+    web_thread.start()
 
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -76,6 +78,15 @@ def cmd_run(config: Config) -> int:
         config.site.name, gate.enabled, config.web.host, config.web.port,
     )
     try:
+        # If the port is taken, uvicorn sys.exit(1)s inside its thread; without this
+        # check the service would run headless forever. Fail fast so systemd restarts us.
+        for _ in range(50):
+            if server.started or not web_thread.is_alive():
+                break
+            time.sleep(0.1)
+        if not server.started:
+            log.error("web server failed to start on %s:%d", config.web.host, config.web.port)
+            return 1
         run_capture(config, store, pipeline, state, gate, stop)
         return 0
     except Exception:
@@ -94,7 +105,15 @@ def cmd_roi(config: Config, out: str) -> int:
 
     from birdy.capture import grab_lores_frame
 
-    frame = grab_lores_frame(config)
+    try:
+        frame = grab_lores_frame(config)
+    except RuntimeError as e:
+        print(
+            f"camera unavailable ({e}); if the service is running use "
+            "http://birdy.local:8000/roi.png or 'sudo systemctl stop birdy' first",
+            file=sys.stderr,
+        )
+        return 1
     img = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
     pts = np.array(config.motion.roi, dtype=np.int32).reshape((-1, 1, 2))
     cv2.polylines(img, [pts], isClosed=True, color=(0, 255, 0), thickness=1)

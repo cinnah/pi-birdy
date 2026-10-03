@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 FRAME_INTERVAL = 0.1  # ~10 fps analysis
 GATE_RECHECK = 60.0
+MAX_CONSECUTIVE_FRAME_ERRORS = 50  # ~5 s at FRAME_INTERVAL
 
 
 @contextmanager
@@ -107,6 +108,7 @@ def run_capture(
             with camera_session(config) as picam2:
                 state.update(state="capturing")
                 last_gate_check = time.monotonic()
+                consecutive_errors = 0
                 while not stop.is_set():
                     if time.monotonic() - last_gate_check > GATE_RECHECK:
                         last_gate_check = time.monotonic()
@@ -116,10 +118,17 @@ def run_capture(
                     try:
                         frame = lores_grey(picam2, config.camera.lores_size)
                         result = detector.process(frame)
-                        state.update(motion_score=result.score, latest_lores=frame.copy())
+                        # No copy needed: capture_buffer returns a fresh array each call and
+                        # RuntimeState.lores_frame() copies on read.
+                        state.update(motion_score=result.score, latest_lores=frame)
                         if result.triggered:
                             _capture_still(picam2, store, pipeline, state, result.score)
+                        consecutive_errors = 0
                     except Exception:
+                        consecutive_errors += 1
+                        if consecutive_errors >= MAX_CONSECUTIVE_FRAME_ERRORS:
+                            log.error("%d consecutive frame failures; giving up on this camera session", consecutive_errors)
+                            raise RuntimeError("camera stopped delivering frames")
                         log.exception("frame processing failed; continuing")
                     elapsed = time.monotonic() - t0
                     if elapsed < FRAME_INTERVAL:
