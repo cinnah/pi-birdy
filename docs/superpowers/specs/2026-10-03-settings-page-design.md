@@ -7,14 +7,14 @@
 
 ## Goal
 
-Tune the running system from the LAN web page instead of editing `birdy.toml` over SSH and restarting: draw the ROI polygon on the live camera frame, adjust motion/classifier/site/retention settings with the live motion score visible, and have changes apply within a second without restarting the camera.
+Tune the running system from the LAN web page instead of editing `birdy.toml` over SSH and restarting: draw the ROI polygon on the live camera frame, adjust motion/classifier/site/retention settings with the live motion score visible, and have changes apply within a second without restarting the camera — including daylight-gate changes (`site.lat/lon`, `daylight.margin_minutes`), which un-pause a paused loop within ~1 s and, inside a camera session, trigger an immediate gate re-check.
 
 ## Decisions made
 
 | Question | Decision |
 |---|---|
 | Editable settings | Tuning subset only: `motion.*`, `classifier.threshold`, `site.lat/lon`, `daylight.margin_minutes`, `retention.non_bird_days`. Camera sizes, JPEG quality, web host/port, data dir, model paths stay TOML-only (restart required; shown greyed on the page). |
-| ROI input | Click-to-place polygon on the live lores frame; drag to move, click a corner to delete, min 3 points. |
+| ROI input | Tap-to-place polygon on the live lores frame (a corner is added on release if the press didn't move); drag to move, tap a corner to delete, min 3 points. Hit radius 24 CSS px for touch, 12 for mouse. |
 | Auth | None (LAN only, same as the read-only page). Revisit with the publishing sub-project. |
 | Source of truth | `birdy.toml` remains the single config. The web writes it; the process hot-reloads. No settings in SQLite. |
 | Apply semantics | One **Save**: validate → write file atomically → apply live. No separate "try" mode; the live score shows the effect. |
@@ -44,18 +44,18 @@ web (GET/POST /settings, GET /frame.jpg)
 
 ### `birdy/settings.py` — `save_settings(path, current, patch) -> Config`
 - `patch` is a `SettingsPatch` dataclass with exactly the editable fields (`roi: tuple[Point, ...]`, `pixel_threshold`, `min_area`, `background_alpha`, `cooldown_seconds`, `classifier_threshold`, `lat`, `lon`, `margin_minutes`, `non_bird_days`). Unknown fields can't exist by construction.
-- Builds a plain dict from `current` (every section, including non-editable keys, so nothing is lost), overlays the patch, serialises with `tomli-w`, writes `<path>.tmp`, validates it by calling `load_config(tmp)`, then `os.replace(tmp, path)`. On `ConfigError` the temp file is deleted and the error re-raised; the original file is untouched.
+- Builds a plain dict from `current` (every section, including non-editable keys known to `Config`; unknown keys in the file and all comments are dropped), overlays the patch, serialises with `tomli-w`, writes `<path>.tmp`, validates it by calling `load_config(tmp)`, then `os.replace(tmp, path)`. On `ConfigError` the temp file is deleted and the error re-raised; the original file is untouched.
 - The written file starts with a comment: `# Written by the birdy settings page. Comments live in birdy.toml.example.`
 - Paths in the written file are written exactly as they were loaded (absolute) — `load_config` resolves relative paths against the config directory, so writing absolute paths is safe and unambiguous.
 
 ### `birdy/watcher.py` — `ConfigWatcher`
-- Thread: every 5 s, `stat()` the file; if mtime changed → `load_config()`; on `ConfigError`/`TOMLDecodeError`/`OSError` → `log.error`, keep the running config. After loading, the watcher compares the new `Config` to `live.get()`; equal configs (e.g. the page's own write) are not re-applied. If camera/web/storage/model keys changed it logs that a restart is required (they are still loaded into `live`, but the capture loop keeps the camera config it started with). Otherwise `live.replace()` + `log.info`.
+- Thread: every 5 s, `stat()` the file; if its `(mtime, size, inode)` signature changed → `load_config()`; on `ConfigError`/`TOMLDecodeError`/`OSError` → `log.error`, keep the running config. After loading, the watcher compares the new `Config` to `live.get()`; equal configs (e.g. the page's own write) are not re-applied. If camera/web/storage/model keys changed it logs that a restart is required (they are still loaded into `live`, but the capture loop keeps the camera config it started with). Otherwise `live.replace()` + `log.info`.
 - Same start/stop pattern as `RetentionJob`.
 
 ### Hot-reload at the consumers
 | Consumer | Change |
 |---|---|
-| `capture.run_capture` | Takes `live: LiveConfig`. Camera config (`camera.*`) is fixed per process: read once when `run_capture` starts and reused for every camera session. At the top of each frame compares `live.version` to the version last seen; if different, and the `motion`/`site`/`daylight` sections differ from those the current `MotionDetector`/`DaylightGate` were built from, rebuilds both from `live.get()` (fresh warm-up ≈ 1 s) and logs "settings applied (vN)". A version bump that only touched other sections (e.g. retention) does not reset the detector. |
+| `capture.run_capture` | Takes `live: LiveConfig`. Camera config (`camera.*`) is fixed per process: read once when `run_capture` starts and reused for every camera session. At the top of each frame compares `live.version` to the version last seen; if different, and `motion`, `site.lat/lon` or `daylight` differ from those the current `MotionDetector`/`DaylightGate` were built from, rebuilds both from `live.get()` (fresh warm-up ≈ 1 s), logs "settings applied (vN) (detector rebuilt)" and re-checks the new gate immediately (otherwise every 60 s). A version bump that only touched other fields (e.g. retention, `site.name`) does not reset the detector. While daylight-paused the loop waits in 1 s steps and wakes as soon as `live.version` changes, so a gate change applies within ~1 s. |
 | `Pipeline` | Takes `live`; computes `roi_bbox(live.get().motion.roi)` per event instead of storing it. |
 | `ImageNetBirdClassifier.classify` | Gains a `threshold: float | None = None` argument overriding the constructor default; `Pipeline` passes `live.get().classifier.threshold`. (`Classifier` Protocol updated accordingly.) |
 | `RetentionJob` | Takes `live`; reads `non_bird_days` per run. |
@@ -90,7 +90,7 @@ One page (`settings.html`), linked from the header of `/`. Plain HTML + ~100 lin
 
 ## Configuration
 
-No new keys. `tomli-w` added to `pyproject.toml` dependencies.
+No new keys. `tomli-w` and `python-multipart` (FastAPI form parsing for `POST /settings`) added to `pyproject.toml` dependencies.
 
 ## Error handling summary
 

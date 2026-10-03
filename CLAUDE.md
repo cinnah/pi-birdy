@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Birdy: a Raspberry Pi 4 + Camera Module v2.1 behind a window photographs birds at a feeder, filters non-bird motion with a local TFLite model, stores photos + metadata in SQLite, and serves a LAN-only review page.
 
-The authoritative design is `docs/superpowers/specs/2026-10-03-capture-core-design.md` (approved, sub-project 1 of 5). Read it before implementing anything; module interfaces, config keys, DB schema and defaults are all specified there. Later sub-projects (species ID, publishing, multi-site, e-ink) are out of scope unless asked.
+The authoritative design is `docs/superpowers/specs/2026-10-03-capture-core-design.md` (approved, sub-project 1 of 5), together with `docs/superpowers/specs/2026-10-03-settings-page-design.md` for the settings page and live reload (sub-project 1b). Read it before implementing anything; module interfaces, config keys, DB schema and defaults are all specified there. Later sub-projects (species ID, publishing, multi-site, e-ink) are out of scope unless asked.
 
 ## Commands
 
@@ -36,7 +36,7 @@ journalctl -u birdy -f          # logs
 
 ## Architecture
 
-One Python process, one systemd service, four threads talking through narrow interfaces:
+One Python process, one systemd service, five threads talking through narrow interfaces:
 
 ```
 capture ──MotionEvent──▶ pipeline (queue + worker) ──▶ classifier
@@ -44,6 +44,8 @@ capture ──MotionEvent──▶ pipeline (queue + worker) ──▶ classifie
    └──────────────────────────┴──▶ store (SQLite WAL + photos/thumbs on disk)
                                      ▲
 web (FastAPI + /settings) ───────────┘      retention (hourly thread) ──▶ store
+
+config watcher (5 s stat of birdy.toml) ──▶ LiveConfig ◀── web POST /settings
 ```
 
 - `birdy/capture.py` is the **only** module that imports `picamera2`. Everything else must import and test on the Mac. Keep it that way; put any new camera-touching code there.
@@ -52,9 +54,10 @@ web (FastAPI + /settings) ───────────┘      retention (h
 - `birdy/store.py` owns the single write connection (locked, `check_same_thread=False`); capture, pipeline and retention all write through it. The web thread reads through the same locked connection. The only other writer is the one-shot `birdy purge` CLI, which is safe under WAL.
 - Nothing is dropped on overload: capture inserts the row as `status='pending'` before enqueueing, and the pipeline's 5-minute backlog sweep reclassifies anything still pending.
 - Retention deletes `is_bird = 0` and `status = 'error'` rows older than `retention.non_bird_days`; bird photos are never auto-deleted.
-- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg` and the `/settings` page; `POST /settings` is its only write (to `birdy.toml`, never to the DB).
-- `birdy/live.py` — `LiveConfig` holds the current `Config` + a version. Tunables (`motion.*`, `classifier.threshold`, site/daylight, retention) are read through `live.get()` on use; the capture loop rebuilds its detector/gate when `live.version` changes (and the motion/site/daylight sections differ). Camera/web/storage/model keys are read once at startup — changing them needs a restart (the watcher logs a warning).
+- `birdy/web/app.py` serves the capture grid, `/status`, `/frame.jpg`, `/roi.png` (ROI overlay; still served, `birdy roi` points to it while the service holds the camera) and the `/settings` page; `POST /settings` is its only write (to `birdy.toml`, never to the DB).
+- `birdy/live.py` — `LiveConfig` holds the current `Config` + a version. Tunables (`motion.*`, `classifier.threshold`, site/daylight, retention) are read through `live.get()` on use; the capture loop rebuilds its detector/gate when `live.version` changes (and `motion`, `site.lat/lon` or `daylight` differ). Camera/web/storage/model keys are read once at startup — changing them needs a restart (the watcher logs a warning).
 - `birdy/settings.py` + `birdy/watcher.py` — the `/settings` page validates and atomically rewrites `birdy.toml` (comments are lost; `birdy.toml.example` keeps the docs) and applies it live; `ConfigWatcher` reloads the file when it's edited over SSH (invalid edits are logged and ignored until restart).
+- A settings-page save writes the running config: it overwrites SSH edits made in the last few seconds that the watcher hasn't applied yet, and drops comments and unknown keys.
 
 ## Conventions and gotchas
 
