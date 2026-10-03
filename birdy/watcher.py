@@ -55,7 +55,7 @@ class ConfigWatcher:
         if cfg == self._live.get():
             return False  # e.g. the settings page just wrote it
         if _restart_only(cfg) != _restart_only(self._live.get()):
-            log.warning("%s: camera/web/storage/model settings changed; restart birdy to apply them", self._path)
+            log.warning("%s: camera/web/storage/model/telegram settings changed; restart birdy to apply them", self._path)
         self._live.replace(cfg)
         log.info("settings reloaded from %s (v%d)", self._path, self._live.version)
         return True
