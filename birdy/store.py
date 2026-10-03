@@ -115,7 +115,12 @@ class Store:
             self._conn.executescript(SCHEMA)
             cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(captures)")}
             if "species_checked" not in cols:
-                self._conn.execute("ALTER TABLE captures ADD COLUMN species_checked INTEGER NOT NULL DEFAULT 0")
+                try:
+                    self._conn.execute("ALTER TABLE captures ADD COLUMN species_checked INTEGER NOT NULL DEFAULT 0")
+                except sqlite3.OperationalError as e:
+                    # Another process (service vs `birdy purge`) migrated between our check and ALTER.
+                    if "duplicate column" not in str(e):
+                        raise
 
     # --- site -------------------------------------------------------------
 

@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -5,7 +6,7 @@ import cv2
 import numpy as np
 import pytest
 
-from birdy.store import Store
+from birdy.store import SpeciesRow, Store
 
 
 @pytest.fixture
@@ -161,10 +162,6 @@ def test_count_pending(store):
     assert store.count_pending() == 2
 
 
-import sqlite3
-
-from birdy.store import SpeciesRow
-
 
 def add_species(store, when, species, conf, is_bird=True):
     cid = add(store, when)
@@ -250,3 +247,15 @@ def test_last_species(store):
     add_species(store, T0 + timedelta(minutes=5), None, None)
     name, when = store.last_species()
     assert name == "Robin" and when == T0
+
+
+def test_fresh_db_has_species_checked_column(store):
+    cols = {r["name"] for r in store._conn.execute("PRAGMA table_info(captures)")}
+    assert "species_checked" in cols
+
+
+def test_species_summary_null_confidence_loses(store):
+    scored = add_species(store, T0, "Robin", 0.5)
+    add_species(store, T0 + timedelta(minutes=1), "Robin", None)  # newer, but no confidence
+    (robin,) = store.species_summary()
+    assert robin.best_capture_id == scored
