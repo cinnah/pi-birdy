@@ -271,3 +271,19 @@ def test_last_species_ignores_non_birds(store):
     add_species(store, T0, "Robin", 0.9)
     add_species(store, T0 + timedelta(minutes=5), "Blue Tit", 0.9, is_bird=False)
     assert store.last_species() == ("Robin", T0)
+
+
+def test_species_filter_excludes_non_bird_rows(store):
+    add_species(store, T0, "Robin", 0.9, is_bird=False)
+    bird = add_species(store, T0 + timedelta(minutes=1), "Robin", 0.9)
+    assert [c.id for c in store.list_captures("all", species="Robin")] == [bird]
+    assert store.count("all", species="Robin") == 1
+
+
+def test_count_species_backlog(store):
+    for i in range(2):
+        add_species(store, T0 + timedelta(minutes=i), None, None)
+    assert store.count_species_backlog() == 0
+    with store._lock, store._conn:
+        store._conn.execute("UPDATE captures SET species_checked = 0")
+    assert store.count_species_backlog() == 2

@@ -191,7 +191,7 @@ class Store:
     def _where(self, filter: str, species: str | None) -> tuple[str, list]:
         where, params = FILTERS[filter], []
         if species is not None:
-            where += " AND species = ?"
+            where += " AND species = ? AND is_bird = 1"
             params.append(species)
         return where, params
 
@@ -224,6 +224,14 @@ class Store:
         with self._lock:
             row = self._conn.execute("SELECT MAX(captured_at) AS t FROM captures").fetchone()
         return None if row["t"] is None else _from_db_time(row["t"])
+
+    def count_species_backlog(self) -> int:
+        with self._lock:
+            return int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM captures WHERE status = 'done' AND species_checked = 0"
+                ).fetchone()[0]
+            )
 
     def species_backlog(self, limit: int = 50) -> list[Capture]:
         """Classified rows that predate species recognition, newest first."""

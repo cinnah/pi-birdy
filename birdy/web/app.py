@@ -131,7 +131,7 @@ def create_app(
         return Response(content=jpg.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     def species_context(result: dict | None = None, error: str | None = None) -> dict:
-        return {"rows": store.species_summary(), "result": result, "error": error, "status": status_payload()}
+        return {"rows": store.species_summary(), "result": result, "error": error}
 
     def _decode_and_classify(data: bytes) -> tuple[Prediction, list] | None:
         """Decode an uploaded image and run both models; None if the bytes aren't an image."""
@@ -151,6 +151,7 @@ def create_app(
     async def classify_upload(request: Request):
         if classifier is None:
             raise HTTPException(status_code=503, detail="classifier not available")
+        # Starlette spools the whole upload before the size check below (fine on a LAN-only service).
         form = await request.form()
         upload = form.get("image")
         if upload is None or not hasattr(upload, "read"):

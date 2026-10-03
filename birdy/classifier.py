@@ -1,4 +1,6 @@
-"""Bird / not-bird classification with a TFLite ImageNet model."""
+"""Two-stage classification: an ImageNet bird/not-bird gate, then an iNat species model.
+
+A confident species verdict can rescue a frame the gate rejected."""
 
 from __future__ import annotations
 
@@ -22,7 +24,9 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Prediction:
     is_bird: bool
-    confidence: float  # P(bird), 0..1
+    # P(bird) from the gate, or max(gate, species) when a confident species rescued a
+    # gate-rejected frame; 0..1.
+    confidence: float
     species: str | None = None
     species_confidence: float | None = None
 

@@ -414,3 +414,12 @@ def test_status_last_species_returns_newest(client, store):
     cid = store.add_capture(when, rel, 100)
     store.update_classification(cid, True, 0.9, "Blue Tit", 0.7)
     assert client.get("/status").json()["last_species"] == "Blue Tit"
+
+
+def test_species_filter_excludes_non_bird_rows(client, store):
+    junk = add(store, 0, False)
+    store.update_classification(junk.id, False, 0.1, "Robin", 0.8)  # non-bird row labelled Robin
+    bird = add(store, 1, True)
+    r = client.get("/?species=Robin").text
+    assert bird.thumb_path in r and junk.thumb_path not in r
+    assert "(1)" in r

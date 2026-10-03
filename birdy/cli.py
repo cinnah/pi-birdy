@@ -49,7 +49,7 @@ def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
             lores_size=config.camera.lores_size,
         )
         species = InatBirdClassifier(config.species.model, config.species.labels)
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, RuntimeError) as e:  # LiteRT raises RuntimeError on corrupt models
         raise ModelLoadError(str(e)) from e
     return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size)
 
@@ -140,6 +140,11 @@ def cmd_roi(config: Config, out: str) -> int:
 
 
 def cmd_classify(config: Config, image: str) -> int:
+    """Classify one image and print both models' views.
+
+    `clf.gate.predict` / `top_k` bypass the classifier's lock and decode again: fine for this
+    one-shot CLI, never do that in the service.
+    """
     live = LiveConfig(config)
     clf = _classifier(config, live)
     try:

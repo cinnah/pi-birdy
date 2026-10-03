@@ -107,7 +107,7 @@ class Pipeline:
             with_species += got_species
             rescued += was_rescued
         if processed:
-            remaining = len(self._store.species_backlog(limit=10_000))
+            remaining = self._store.count_species_backlog()
             log.info("backfill: %d rows, %d with species, %d rescued, %d remaining", processed, with_species, rescued, remaining)
 
     def _backfill_species(self, c: Capture) -> tuple[bool, bool]:
@@ -116,7 +116,8 @@ class Pipeline:
         path = self._store.photos_dir / c.path
         try:
             pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
-            # Never demote: a row already judged a bird stays a bird (with its old confidence).
+            # Never demote: a bird stays a bird. Confidence comes from the new verdict when it
+            # is a bird (gate or rescue); the old confidence is kept only when it says non-bird.
             is_bird = bool(c.is_bird) or pred.is_bird
             confidence = pred.confidence if pred.is_bird else c.confidence
             self._store.update_classification(c.id, is_bird, confidence, pred.species, pred.species_confidence)
