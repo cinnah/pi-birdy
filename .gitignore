@@ -1,0 +1,7 @@
+data/
+.venv/
+birdy.toml
+__pycache__/
+*.pyc
+.pytest_cache/
+roi.png
