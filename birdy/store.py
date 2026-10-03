@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS captures (
 CREATE INDEX IF NOT EXISTS captures_captured_at ON captures(captured_at DESC);
 CREATE INDEX IF NOT EXISTS captures_is_bird ON captures(is_bird, captured_at DESC);
 CREATE INDEX IF NOT EXISTS captures_status ON captures(status);
+CREATE INDEX IF NOT EXISTS captures_species ON captures(species, captured_at DESC);
 """
 
 FILTERS = {
@@ -59,6 +60,18 @@ class Capture:
     species: str | None
     species_confidence: float | None
     status: str
+    species_checked: bool
+
+
+@dataclass(frozen=True)
+class SpeciesRow:
+    species: str
+    count: int
+    first_seen: datetime
+    last_seen: datetime
+    best_capture_id: int
+    best_path: str
+    best_thumb_path: str | None
 
 
 def _to_db_time(dt: datetime) -> str:
@@ -82,6 +95,7 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         species=row["species"],
         species_confidence=row["species_confidence"],
         status=row["status"],
+        species_checked=bool(row["species_checked"]),
     )
 
 
@@ -99,6 +113,9 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         with self._lock, self._conn:
             self._conn.executescript(SCHEMA)
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(captures)")}
+            if "species_checked" not in cols:
+                self._conn.execute("ALTER TABLE captures ADD COLUMN species_checked INTEGER NOT NULL DEFAULT 0")
 
     # --- site -------------------------------------------------------------
 
@@ -153,7 +170,7 @@ class Store:
     ) -> None:
         with self._lock, self._conn:
             self._conn.execute(
-                "UPDATE captures SET is_bird = ?, confidence = ?, species = ?, species_confidence = ?, status = 'done' WHERE id = ?",
+                "UPDATE captures SET is_bird = ?, confidence = ?, species = ?, species_confidence = ?, species_checked = 1, status = 'done' WHERE id = ?",
                 (int(is_bird), confidence, species, species_confidence, capture_id),
             )
 
@@ -166,19 +183,28 @@ class Store:
             row = self._conn.execute("SELECT * FROM captures WHERE id = ?", (capture_id,)).fetchone()
         return None if row is None else _row_to_capture(row)
 
-    def list_captures(self, filter: str = "all", limit: int = 50, offset: int = 0) -> list[Capture]:
-        where = FILTERS[filter]
+    def _where(self, filter: str, species: str | None) -> tuple[str, list]:
+        where, params = FILTERS[filter], []
+        if species is not None:
+            where += " AND species = ?"
+            params.append(species)
+        return where, params
+
+    def list_captures(
+        self, filter: str = "all", limit: int = 50, offset: int = 0, species: str | None = None
+    ) -> list[Capture]:
+        where, params = self._where(filter, species)
         with self._lock:
             rows = self._conn.execute(
                 f"SELECT * FROM captures WHERE {where} ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?",
-                (limit, offset),
+                (*params, limit, offset),
             ).fetchall()
         return [_row_to_capture(r) for r in rows]
 
-    def count(self, filter: str = "all") -> int:
-        where = FILTERS[filter]
+    def count(self, filter: str = "all", species: str | None = None) -> int:
+        where, params = self._where(filter, species)
         with self._lock:
-            return int(self._conn.execute(f"SELECT COUNT(*) FROM captures WHERE {where}").fetchone()[0])
+            return int(self._conn.execute(f"SELECT COUNT(*) FROM captures WHERE {where}", params).fetchone()[0])
 
     def pending(self) -> list[Capture]:
         with self._lock:
@@ -193,6 +219,54 @@ class Store:
         with self._lock:
             row = self._conn.execute("SELECT MAX(captured_at) AS t FROM captures").fetchone()
         return None if row["t"] is None else _from_db_time(row["t"])
+
+    def species_backlog(self, limit: int = 50) -> list[Capture]:
+        """Classified rows that predate species recognition, newest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM captures WHERE status = 'done' AND species_checked = 0"
+                " ORDER BY captured_at DESC, id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_row_to_capture(r) for r in rows]
+
+    def mark_species_checked(self, capture_id: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE captures SET species_checked = 1 WHERE id = ?", (capture_id,))
+
+    def species_summary(self) -> list[SpeciesRow]:
+        with self._lock:
+            groups = self._conn.execute(
+                "SELECT species, COUNT(*) AS n, MIN(captured_at) AS first_seen, MAX(captured_at) AS last_seen"
+                " FROM captures WHERE species IS NOT NULL GROUP BY species ORDER BY last_seen DESC"
+            ).fetchall()
+            out = []
+            for g in groups:
+                best = self._conn.execute(
+                    "SELECT id, path, thumb_path FROM captures WHERE species = ?"
+                    " ORDER BY species_confidence DESC, captured_at DESC LIMIT 1",
+                    (g["species"],),
+                ).fetchone()
+                out.append(
+                    SpeciesRow(
+                        species=g["species"],
+                        count=int(g["n"]),
+                        first_seen=_from_db_time(g["first_seen"]),
+                        last_seen=_from_db_time(g["last_seen"]),
+                        best_capture_id=int(best["id"]),
+                        best_path=best["path"],
+                        best_thumb_path=best["thumb_path"],
+                    )
+                )
+        return out
+
+    def last_species(self) -> tuple[str, datetime] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT species, captured_at FROM captures WHERE species IS NOT NULL"
+                " ORDER BY captured_at DESC LIMIT 1"
+            ).fetchone()
+        return None if row is None else (row["species"], _from_db_time(row["captured_at"]))
 
     # --- maintenance ------------------------------------------------------
 
