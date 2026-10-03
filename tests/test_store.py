@@ -215,7 +215,7 @@ def test_mark_species_checked(store):
 
 
 def test_species_summary(store):
-    a = add_species(store, T0, "Robin", 0.6)
+    add_species(store, T0, "Robin", 0.6)
     b = add_species(store, T0 + timedelta(minutes=1), "Robin", 0.9)
     c = add_species(store, T0 + timedelta(minutes=2), "Blue Tit", 0.7)
     add_species(store, T0 + timedelta(minutes=3), None, None)
