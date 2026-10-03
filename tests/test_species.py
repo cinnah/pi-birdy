@@ -28,12 +28,14 @@ def test_parse_label_without_parentheses_and_whitespace():
     assert parse_label("  Passer domesticus \n") == SpeciesLabel("Passer domesticus", "Passer domesticus")
 
 
+# Requires the downloaded model; only used by the skipif'd TestRealModel class below.
+@pytest.fixture(scope="module")
+def clf():
+    return InatBirdClassifier(MODEL, LABELS)
+
+
 @pytest.mark.skipif(not MODEL.exists(), reason="species model not downloaded")
 class TestRealModel:
-    @pytest.fixture(scope="class")
-    def clf(self):
-        return InatBirdClassifier(MODEL, LABELS)
-
     def test_labels_match_output_size(self, clf):
         assert len(clf.labels) == 965
         assert any(l.latin == "background" for l in clf.labels)
