@@ -76,6 +76,17 @@ class WebConfig:
 
 
 @dataclass(frozen=True)
+class TelegramConfig:
+    enabled: bool              # restart-only
+    bot_token: str             # restart-only, secret
+    chat_id: str               # restart-only
+    base_url: str              # restart-only; link in the alert caption
+    watchlist: tuple[str, ...] # live
+    alert_new_species: bool    # live
+    cooldown_minutes: int      # live
+
+
+@dataclass(frozen=True)
 class Config:
     site: SiteConfig
     camera: CameraConfig
@@ -86,6 +97,7 @@ class Config:
     retention: RetentionConfig
     storage: StorageConfig
     web: WebConfig
+    telegram: TelegramConfig
 
 
 def _size(v: Any, name: str) -> tuple[int, int]:
@@ -121,6 +133,27 @@ def _num(section: dict[str, Any], name: str, key: str, default: Any, cast: type)
     if cast is float and not math.isfinite(v):
         raise ConfigError(f"{name}.{key} must be a finite number")
     return v
+
+
+def _bool(section: dict[str, Any], name: str, key: str, default: bool) -> bool:
+    v = section.get(key, default)
+    if not isinstance(v, bool):
+        raise ConfigError(f"{name}.{key} must be true or false")
+    return v
+
+
+def _str(section: dict[str, Any], name: str, key: str, default: str) -> str:
+    v = section.get(key, default)
+    if not isinstance(v, str):
+        raise ConfigError(f"{name}.{key} must be a string")
+    return v
+
+
+def _str_list(section: dict[str, Any], name: str, key: str) -> tuple[str, ...]:
+    v = section.get(key, [])
+    if not isinstance(v, list) or not all(isinstance(s, str) for s in v):
+        raise ConfigError(f"{name}.{key} must be a list of strings")
+    return tuple(s.strip() for s in v if s.strip())
 
 
 def _path(base: Path, section: dict[str, Any], name: str, key: str, default: str) -> Path:
@@ -195,6 +228,19 @@ def load_config(path: Path) -> Config:
     port = _num(web, "web", "port", 8000, int)
     _check(1 <= port <= 65535, "web.port must be between 1 and 65535")
 
+    tg = raw.get("telegram", {})
+    tg_enabled = _bool(tg, "telegram", "enabled", False)
+    tg_token = _str(tg, "telegram", "bot_token", "")
+    tg_chat = _str(tg, "telegram", "chat_id", "")
+    tg_base = _str(tg, "telegram", "base_url", "http://birdy.local:8000").rstrip("/")
+    tg_watch = _str_list(tg, "telegram", "watchlist")
+    tg_new = _bool(tg, "telegram", "alert_new_species", True)
+    tg_cooldown = _num(tg, "telegram", "cooldown_minutes", 30, int)
+    _check(tg_cooldown >= 0, "telegram.cooldown_minutes must be >= 0")
+    if tg_enabled:
+        _check(bool(tg_token), "telegram.bot_token is required when telegram.enabled = true")
+        _check(bool(tg_chat), "telegram.chat_id is required when telegram.enabled = true")
+
     return Config(
         site=SiteConfig(name=str(site["name"]), lat=lat, lon=lon),
         camera=CameraConfig(main_size=main_size, lores_size=lores_size, jpeg_quality=jpeg_quality),
@@ -221,4 +267,8 @@ def load_config(path: Path) -> Config:
         retention=RetentionConfig(non_bird_days=non_bird_days),
         storage=StorageConfig(data_dir=_path(base, sto, "storage", "data_dir", "data")),
         web=WebConfig(host=str(web.get("host", "0.0.0.0")), port=port),
+        telegram=TelegramConfig(
+            enabled=tg_enabled, bot_token=tg_token, chat_id=tg_chat, base_url=tg_base,
+            watchlist=tg_watch, alert_new_species=tg_new, cooldown_minutes=tg_cooldown,
+        ),
     )

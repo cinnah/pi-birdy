@@ -48,3 +48,12 @@ data_dir = "data"          # photos/, thumbs/, birdy.db live here
 [web]
 host = "0.0.0.0"
 port = 8000
+
+[telegram]
+enabled = false            # restart-only; set true once bot_token and chat_id are filled in
+bot_token = ""             # restart-only, SECRET — from @BotFather; this file is gitignored
+chat_id = ""               # restart-only — `birdy telegram-chat-id` prints it after you message the bot
+base_url = "http://birdy.local:8000"   # link in the alert caption
+watchlist = []             # species common names (as on /species), e.g. ["Eurasian Hoopoe"]
+alert_new_species = true   # one alert the first time any species is ever seen
+cooldown_minutes = 30      # at most one alert per species per this many minutes

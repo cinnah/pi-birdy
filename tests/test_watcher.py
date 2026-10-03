@@ -137,6 +137,9 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         lon=cur.site.lon,
         margin_minutes=cur.daylight.margin_minutes,
         non_bird_days=cur.retention.non_bird_days,
+        watchlist=cur.telegram.watchlist,
+        alert_new_species=cur.telegram.alert_new_species,
+        cooldown_minutes=cur.telegram.cooldown_minutes,
     )
     new = save_settings(config_path, cur, patch)
     live.replace(new)  # what the web handler does
@@ -144,3 +147,12 @@ def test_save_settings_then_watch_is_noop(config_path, live):
     assert w.check_once() is False
     assert live.version == 1
     assert live.get().motion.min_area == 200
+
+
+def test_telegram_token_change_warns(config_path, live, caplog):
+    w = ConfigWatcher(config_path, live)
+    config_path.write_text(config_path.read_text() + '\n[telegram]\nbot_token = "new"\n')
+    bump_mtime(config_path)
+    with caplog.at_level(logging.WARNING):
+        assert w.check_once() is True
+    assert "restart" in caplog.text and live.get().telegram.bot_token == "new"

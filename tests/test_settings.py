@@ -21,6 +21,9 @@ def default_patch(config, **overrides) -> SettingsPatch:
         lon=config.site.lon,
         margin_minutes=config.daylight.margin_minutes,
         non_bird_days=config.retention.non_bird_days,
+        watchlist=config.telegram.watchlist,
+        alert_new_species=config.telegram.alert_new_species,
+        cooldown_minutes=config.telegram.cooldown_minutes,
     )
     base.update(overrides)
     return SettingsPatch(**base)
@@ -96,6 +99,9 @@ FORM = {
     "lon": "",
     "margin_minutes": "30",
     "non_bird_days": "7",
+    "watchlist": "",
+    "alert_new_species": "on",
+    "cooldown_minutes": "30",
 }
 
 
@@ -180,6 +186,15 @@ data_dir = "store"
 [web]
 host = "127.0.0.1"
 port = 9001
+
+[telegram]
+enabled = true
+bot_token = "123:ABC"
+chat_id = "42"
+base_url = "http://example.test"
+watchlist = ["Hoopoe"]
+alert_new_species = false
+cooldown_minutes = 5
 """
 
 
@@ -282,3 +297,25 @@ def test_species_rescue_below_threshold_rejected(config_path, config):
 def test_parse_form_species_fields():
     p = parse_settings_form({**FORM, "species_threshold": "0.35", "species_rescue_threshold": "0.75"})
     assert p.species_threshold == 0.35 and p.species_rescue_threshold == 0.75
+
+
+def test_telegram_fields_roundtrip_and_token_preserved(config_path, config):
+    config_path.write_text(config_path.read_text() + '\n[telegram]\nbot_token = "SECRET"\nchat_id = "7"\n')
+    cfg = load_config(config_path)
+    new = save_settings(config_path, cfg, default_patch(cfg, watchlist=("Hoopoe", "Blue Tit"), alert_new_species=False, cooldown_minutes=10))
+    assert new.telegram.watchlist == ("Hoopoe", "Blue Tit")
+    assert new.telegram.alert_new_species is False and new.telegram.cooldown_minutes == 10
+    assert new.telegram.bot_token == "SECRET" and new.telegram.chat_id == "7"  # restart-only keys survive a save
+
+
+def test_parse_form_watchlist_textarea_and_checkbox():
+    p = parse_settings_form({**FORM, "watchlist": "Hoopoe\n\n  Blue Tit  \n", "alert_new_species": "on"})
+    assert p.watchlist == ("Hoopoe", "Blue Tit") and p.alert_new_species is True
+    form = dict(FORM)
+    del form["alert_new_species"]  # unchecked checkboxes are absent from the POST
+    assert parse_settings_form(form).alert_new_species is False
+
+
+def test_parse_form_cooldown_minutes_int():
+    with pytest.raises(ConfigError, match="telegram.cooldown_minutes"):
+        parse_settings_form({**FORM, "cooldown_minutes": "x"})

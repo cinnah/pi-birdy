@@ -155,3 +155,38 @@ def test_species_rescue_must_not_be_below_threshold(tmp_path):
 def test_species_thresholds_range(tmp_path, key):
     with pytest.raises(ConfigError, match=f"species.{key}"):
         load_config(write(tmp_path, MINIMAL + f"\n[species]\n{key} = 1.5\n"))
+
+
+def test_telegram_defaults(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL))
+    t = cfg.telegram
+    assert t.enabled is False and t.bot_token == "" and t.chat_id == ""
+    assert t.base_url == "http://birdy.local:8000"
+    assert t.watchlist == () and t.alert_new_species is True and t.cooldown_minutes == 30
+
+
+def test_telegram_watchlist_trimmed_and_empty_dropped(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nwatchlist = [" Hoopoe ", "", "Blue Tit"]\n'))
+    assert cfg.telegram.watchlist == ("Hoopoe", "Blue Tit")
+
+
+def test_telegram_watchlist_must_be_strings(tmp_path):
+    with pytest.raises(ConfigError, match="telegram.watchlist"):
+        load_config(write(tmp_path, MINIMAL + "\n[telegram]\nwatchlist = [1, 2]\n"))
+
+
+@pytest.mark.parametrize("missing", ["bot_token", "chat_id"])
+def test_telegram_enabled_requires_token_and_chat(tmp_path, missing):
+    other = "chat_id" if missing == "bot_token" else "bot_token"
+    with pytest.raises(ConfigError, match=f"telegram.{missing}"):
+        load_config(write(tmp_path, MINIMAL + f'\n[telegram]\nenabled = true\n{other} = "x"\n'))
+
+
+def test_telegram_cooldown_non_negative(tmp_path):
+    with pytest.raises(ConfigError, match="telegram.cooldown_minutes"):
+        load_config(write(tmp_path, MINIMAL + "\n[telegram]\ncooldown_minutes = -1\n"))
+
+
+def test_telegram_enabled_must_be_bool(tmp_path):
+    with pytest.raises(ConfigError, match="telegram.enabled"):
+        load_config(write(tmp_path, MINIMAL + '\n[telegram]\nenabled = "yes"\n'))
