@@ -58,7 +58,9 @@ def test_job_thread_runs_periodically(store, live):
 def test_job_uses_current_days(store, live, config):
     import dataclasses
 
-    add_non_bird(store, T0 - timedelta(days=3))  # younger than the default 7 days
+    add_non_bird(store, datetime.now(timezone.utc) - timedelta(days=3))
+    run_once(store, 7)  # default 7 days: the 3-day-old row must survive
+    assert store.count("all") == 1
     live.replace(dataclasses.replace(config, retention=dataclasses.replace(config.retention, non_bird_days=1)))
     job = RetentionJob(store, live, interval=0.1)
     job.start()
