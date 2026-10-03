@@ -109,6 +109,16 @@ def test_restart_only_change_warns(config_path, live, caplog):
     assert "restart" in caplog.text
 
 
+def test_species_model_change_warns(config_path, live, caplog):
+    w = ConfigWatcher(config_path, live)
+    config_path.write_text(config_path.read_text() + '\n[species]\nmodel = "models/other.tflite"\n')
+    bump_mtime(config_path)
+    with caplog.at_level(logging.WARNING):
+        assert w.check_once() is True
+    assert live.get().species.model.name == "other.tflite"
+    assert "restart birdy to apply them" in caplog.text
+
+
 def test_save_settings_then_watch_is_noop(config_path, live):
     from birdy.settings import SettingsPatch, save_settings
 

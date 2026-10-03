@@ -16,7 +16,10 @@ log = logging.getLogger(__name__)
 def _restart_only(cfg: Config) -> tuple:
     """Settings only read at startup; changing them on disk needs a restart."""
     c = cfg.classifier
-    return (cfg.camera, cfg.web, cfg.storage, c.model, c.labels, c.bird_classes)
+    return (
+        cfg.camera, cfg.web, cfg.storage, c.model, c.labels, c.bird_classes,
+        cfg.species.model, cfg.species.labels,
+    )
 
 
 class ConfigWatcher:
