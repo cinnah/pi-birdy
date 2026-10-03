@@ -48,6 +48,8 @@ class Pipeline:
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
         self._thread.join(timeout)
+        if self._thread.is_alive():
+            log.warning("pipeline worker did not stop within %.1fs", timeout)
 
     def submit(self, event: MotionEvent) -> bool:
         try:
@@ -65,7 +67,10 @@ class Pipeline:
             pred = self._classifier.classify(path, self._roi_bbox)
         except Exception:
             log.exception("classification failed for %s", path)
-            self._store.mark_error(capture_id)
+            try:
+                self._store.mark_error(capture_id)
+            except Exception:
+                log.exception("mark_error failed for capture %d; left pending", capture_id)
             return
         try:
             self._store.update_classification(capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence)
@@ -80,13 +85,15 @@ class Pipeline:
 
     def sweep(self) -> None:
         for c in self._store.pending():
+            if self._stop.is_set():
+                break
             current = self._store.get(c.id)
             if current is None or current.status != "pending":
                 continue
             self.process(c.id, self._store.photos_dir / c.path)
 
     def _run(self) -> None:
-        next_sweep = time.monotonic() + self._sweep_interval
+        next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick
         while not self._stop.is_set():
             try:
                 ev = self._queue.get(timeout=0.5)

@@ -147,3 +147,53 @@ def test_queued_event_already_classified_is_skipped(store):
     assert clf.calls == []
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.is_bird is False
+
+
+def test_store_get_error_in_worker_does_not_kill_thread(store, monkeypatch):
+    import threading
+
+    real_get = store.get
+    raised = {"done": False}
+
+    def flaky_get(capture_id):
+        # Only break the worker's lookup; the test's own polling uses get too.
+        if threading.current_thread().name == "pipeline" and not raised["done"]:
+            raised["done"] = True
+            raise RuntimeError("db read failed")
+        return real_get(capture_id)
+
+    monkeypatch.setattr(store, "get", flaky_get)
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, roi_bbox=None)
+    p.start()
+    try:
+        first = add(store, 0)
+        p.submit(first)
+        assert wait_until(lambda: raised["done"])
+        second = add(store, 1)
+        p.submit(second)
+        assert wait_until(lambda: store.get(second.capture_id).status == "done")
+        assert p._thread.is_alive()
+    finally:
+        p.stop()
+
+
+class SlowClassifier(FakeClassifier):
+    def classify(self, image_path, roi_bbox):
+        time.sleep(0.3)
+        return super().classify(image_path, roi_bbox)
+
+
+def test_sweep_stops_promptly(store):
+    for i in range(10):
+        add(store, i)
+    clf = SlowClassifier()
+    p = Pipeline(store, clf, roi_bbox=None)
+    p.start()  # startup sweep begins after the first empty queue tick
+    assert wait_until(lambda: len(clf.calls) >= 1)
+    time.sleep(0.1)
+    t = time.monotonic()
+    p.stop(timeout=1.0)
+    assert time.monotonic() - t < 0.5
+    assert not p._thread.is_alive()
+    assert 1 <= len(clf.calls) < 10
