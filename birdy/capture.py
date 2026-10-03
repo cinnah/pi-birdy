@@ -28,19 +28,22 @@ def camera_session(config: Config):
     from picamera2 import Picamera2  # Pi only
 
     picam2 = Picamera2()
-    cam_cfg = picam2.create_preview_configuration(
-        main={"size": tuple(config.camera.main_size), "format": "RGB888"},
-        lores={"size": tuple(config.camera.lores_size), "format": "YUV420"},
-        buffer_count=2,
-    )
-    picam2.configure(cam_cfg)
-    picam2.options["quality"] = config.camera.jpeg_quality
-    picam2.start()
-    time.sleep(1.0)  # let AE/AWB settle
     try:
+        # raw=None: no raw stream — we never read it and it costs ~10 MB of CMA per buffer.
+        cam_cfg = picam2.create_preview_configuration(
+            main={"size": tuple(config.camera.main_size), "format": "RGB888"},
+            lores={"size": tuple(config.camera.lores_size), "format": "YUV420"},
+            raw=None,
+            buffer_count=2,
+        )
+        picam2.configure(cam_cfg)
+        picam2.options["quality"] = config.camera.jpeg_quality
+        picam2.start()
+        time.sleep(1.0)  # let AE/AWB settle
         yield picam2
     finally:
-        picam2.stop()
+        # close() stops if started; wrapping configure/start too means a failed
+        # session start never leaves the camera acquired.
         picam2.close()
 
 
