@@ -21,6 +21,7 @@
   .meta { padding: 6px 8px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
   .tag { font-weight: bold; } .tag.bird { color: var(--bird); } .tag.junk { color: var(--junk); }
   .pager { margin-top: 16px; } .pager a, .pager span { margin-right: 12px; }
+  select { padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -34,14 +35,21 @@
     <span>disk free <b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
     <span>last capture <b>{{ status.last_capture_at | local_time }}</b></span>
     <span>up <b>{{ status.uptime_seconds }}s</b></span>
+    <span><a href="/species">species</a></span>
     <span><a href="/settings">settings</a></span>
   </div>
 </header>
 
 <nav>
   {% for f in ["all", "birds", "non-birds"] %}
-    <a href="/?filter={{ f }}" class="{{ 'active' if f == filter else '' }}">{{ f }}</a>
+    <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ f }}</a>
   {% endfor %}
+  <select name="species" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
+    <option value="" {{ 'selected' if not species else '' }}>All species</option>
+    {% for r in species_rows %}
+    <option value="{{ r.species }}" {{ 'selected' if r.species == species else '' }}>{{ r.species }} ({{ r.count }})</option>
+    {% endfor %}
+  </select>
   <span>({{ total }})</span>
 </nav>
 
@@ -68,9 +76,9 @@
 </div>
 
 <div class="pager">
-  {% if page > 1 %}<a href="/?filter={{ filter }}&page={{ page - 1 }}">← page {{ page - 1 }}</a>{% endif %}
+  {% if page > 1 %}<a href="/?filter={{ filter }}&page={{ page - 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">← page {{ page - 1 }}</a>{% endif %}
   <span>page {{ page }} / {{ pages }}</span>
-  {% if page < pages %}<a href="/?filter={{ filter }}&page={{ page + 1 }}">page {{ page + 1 }} →</a>{% endif %}
+  {% if page < pages %}<a href="/?filter={{ filter }}&page={{ page + 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">page {{ page + 1 }} →</a>{% endif %}
 </div>
 </body>
 </html>

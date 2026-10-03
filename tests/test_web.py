@@ -1,13 +1,16 @@
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from birdy.classifier import Prediction
 from birdy.config import load_config
+from birdy.species import SpeciesLabel
 from birdy.state import RuntimeState
 from birdy.store import Store
 from birdy.web.app import create_app
@@ -27,9 +30,27 @@ def state():
     return s
 
 
+BLUE_TIT = SpeciesLabel("Cyanistes caeruleus", "Eurasian Blue Tit")
+
+
+class FakeTwoStage:
+    def __init__(self):
+        self.images = []
+
+    def classify_image(self, img, threshold=None):
+        self.images.append(img.shape)
+        pred = Prediction(is_bird=True, confidence=0.93, species="Eurasian Blue Tit", species_confidence=0.81)
+        return pred, [(BLUE_TIT, 0.81), (SpeciesLabel("Parus major", "Great Tit"), 0.05)]
+
+
 @pytest.fixture
-def client(store, state, live, config_path):
-    return TestClient(create_app(store, state, live, config_path))
+def classifier():
+    return FakeTwoStage()
+
+
+@pytest.fixture
+def client(store, state, live, config_path, classifier):
+    return TestClient(create_app(store, state, live, config_path, classifier=classifier))
 
 
 def add(store, i, is_bird):
@@ -278,3 +299,67 @@ def test_settings_page_has_novalidate_and_saved_roi(client):
 def test_settings_page_has_species_rows(client):
     r = client.get("/settings").text
     assert 'name="species_threshold"' in r and 'name="species_rescue_threshold"' in r
+
+
+def test_index_species_dropdown_and_filter(client, store):
+    robin = add(store, 0, True)
+    junk = add(store, 1, False)
+    r = client.get("/")
+    assert '<select name="species"' in r.text and "Robin (1)" in r.text
+    r2 = client.get("/?species=Robin")
+    assert robin.thumb_path in r2.text and junk.thumb_path not in r2.text
+    assert client.get("/?species=Dodo").status_code == 400
+
+
+def test_index_links_to_species_page(client):
+    assert 'href="/species"' in client.get("/").text
+
+
+def test_species_page_empty(client):
+    r = client.get("/species")
+    assert r.status_code == 200 and "No species yet" in r.text
+
+
+def test_species_page_table_and_best_photo(client, store):
+    a = add(store, 0, True)
+    b = add(store, 1, True)
+    r = client.get("/species").text
+    assert "Robin" in r and ">2<" in r
+    assert f"/photos/{b.path}" in r or f"/photos/{a.path}" in r  # best photo link present
+
+
+def test_classify_upload_renders_result(client, classifier, store):
+    data = (Path(__file__).parent / "fixtures" / "bird.jpg").read_bytes()
+    before = store.count("all")
+    r = client.post("/classify", files={"image": ("phone.jpg", data, "image/jpeg")})
+    assert r.status_code == 200
+    assert "Eurasian Blue Tit" in r.text and "81%" in r.text and "bird" in r.text
+    assert classifier.images and classifier.images[0][2] == 3
+    assert store.count("all") == before
+    assert not any(store.photos_dir.rglob("*.jpg"))
+
+
+def test_classify_upload_garbage_422(client):
+    r = client.post("/classify", files={"image": ("x.jpg", b"not an image", "image/jpeg")})
+    assert r.status_code == 422 and "could not decode" in r.text
+
+
+def test_classify_upload_missing_422(client):
+    assert client.post("/classify", data={}).status_code == 422
+
+
+def test_classify_upload_too_large_413(client):
+    big = b"\xff\xd8" + b"\0" * (10 * 1024 * 1024 + 1)
+    assert client.post("/classify", files={"image": ("big.jpg", big, "image/jpeg")}).status_code == 413
+
+
+def test_classify_without_classifier_503(store, state, live, config_path):
+    c = TestClient(create_app(store, state, live, config_path))
+    data = (Path(__file__).parent / "fixtures" / "bird.jpg").read_bytes()
+    assert c.post("/classify", files={"image": ("p.jpg", data, "image/jpeg")}).status_code == 503
+
+
+def test_status_last_species(client, store):
+    assert client.get("/status").json()["last_species"] is None
+    add(store, 0, True)
+    assert client.get("/status").json()["last_species"] == "Robin"

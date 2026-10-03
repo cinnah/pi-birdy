@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>birdy species</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fafaf7; --fg: #222; --muted: #777; --card: #fff; --line: #ddd; --ok: #2a7; --bad: #c66; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #eee; --muted: #999; --card: #222; --line: #333; } }
+  body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); max-width: 820px; }
+  a { color: var(--fg); }
+  h1 { font-size: 20px; margin: 0 0 12px; } h2 { font-size: 15px; margin: 20px 0 8px; }
+  table { border-collapse: collapse; width: 100%; } th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td img { width: 96px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; display: block; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .banner { padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
+  .banner.ok { background: #2a72; border: 1px solid var(--ok); } .banner.bad { background: #c662; border: 1px solid var(--bad); }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--ok); background: var(--ok); color: #fff; font-weight: bold; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1><a href="/">birdy</a> › species</h1>
+
+<h2>Try a photo</h2>
+<form method="post" action="/classify" enctype="multipart/form-data">
+  <input type="file" name="image" accept="image/*" capture="environment" required>
+  <button type="submit">Classify</button>
+  <div class="hint">Runs both models on the photo. Nothing is stored.</div>
+</form>
+{% if error %}<div class="banner bad">{{ error }}</div>{% endif %}
+{% if result %}
+<div class="banner ok">
+  <b>{{ result.filename }}</b>:
+  {% if result.is_bird %}bird ({{ (result.confidence * 100) | round(0) | int }}%){% else %}not a bird ({{ (result.confidence * 100) | round(0) | int }}% bird){% endif %}
+  {% if result.species %} — <b>{{ result.species }}</b>{% endif %}
+  <div class="hint">species guesses:
+    {% for common, latin, p in result.top %}{{ common }} {{ (p * 100) | round(0) | int }}%{{ ", " if not loop.last else "" }}{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<h2>Species seen</h2>
+{% if rows %}
+<table>
+  <tr><th>species</th><th>count</th><th>first seen</th><th>last seen</th><th>best photo</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/?species={{ r.species | urlencode }}">{{ r.species }}</a></td>
+    <td>{{ r.count }}</td>
+    <td>{{ r.first_seen | local_time }}</td>
+    <td>{{ r.last_seen | local_time }}</td>
+    <td><a href="/photos/{{ r.best_path }}">{% if r.best_thumb_path %}<img src="/thumbs/{{ r.best_thumb_path }}" alt="">{% else %}photo{% endif %}</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="hint">No species yet — confident species appear here as birds are captured.</p>
+{% endif %}
+</body>
+</html>

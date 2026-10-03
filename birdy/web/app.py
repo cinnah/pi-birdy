@@ -1,4 +1,4 @@
-"""LAN web page over the store: capture grid, status JSON, and the settings page."""
+"""LAN web page over the store: capture grid, status JSON, species summary and the settings page."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -21,6 +22,7 @@ from birdy.state import RuntimeState
 from birdy.store import FILTERS, Store
 
 PAGE_SIZE = 50
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 def _local_time(dt: datetime | str | None) -> str:
@@ -44,7 +46,13 @@ def create_app(
     live: LiveConfig,
     config_path: Path,
     queue_depth: Callable[[], int] = lambda: 0,
+    classifier: Any | None = None,
 ) -> FastAPI:
+    """Build the FastAPI app.
+
+    `classifier` is an object with `classify_image(img_rgb) -> (Prediction, top)`, normally a
+    `TwoStageClassifier`; None disables `/classify`.
+    """
     app = FastAPI(title="birdy")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     templates.env.filters["local_time"] = _local_time
@@ -55,22 +63,29 @@ def create_app(
     def status_payload() -> dict:
         snap = state.snapshot()
         last = store.last_capture_at()
+        ls = store.last_species()
         snap.update(
             queue_depth=queue_depth(),
             pending_count=store.count_pending(),
             disk_free_bytes=store.disk_free_bytes(),
             last_capture_at=None if last is None else last.isoformat(),
+            last_species=None if ls is None else ls[0],
         )
         return snap
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, filter: str = "all", page: int = 1):
+    def index(request: Request, filter: str = "all", page: int = 1, species: str | None = None):
         if filter not in FILTERS:
             raise HTTPException(status_code=400, detail="filter must be one of all, birds, non-birds")
-        total = store.count(filter)
+        summary = store.species_summary()
+        if species == "":
+            species = None
+        if species is not None and species not in {r.species for r in summary}:
+            raise HTTPException(status_code=400, detail="unknown species")
+        total = store.count(filter, species=species)
         pages = max(1, -(-total // PAGE_SIZE))
         page = min(max(1, page), pages)
-        captures = store.list_captures(filter, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+        captures = store.list_captures(filter, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, species=species)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -80,6 +95,8 @@ def create_app(
                 "page": page,
                 "pages": pages,
                 "total": total,
+                "species": species,
+                "species_rows": summary,
                 "status": status_payload(),
             },
         )
@@ -110,6 +127,40 @@ def create_app(
         if not ok:
             raise HTTPException(status_code=500, detail="encode failed")
         return Response(content=jpg.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    def species_context(result: dict | None = None, error: str | None = None) -> dict:
+        return {"rows": store.species_summary(), "result": result, "error": error, "status": status_payload()}
+
+    @app.get("/species", response_class=HTMLResponse)
+    def species_page(request: Request):
+        return templates.TemplateResponse(request, "species.html", species_context())
+
+    @app.post("/classify", response_class=HTMLResponse)
+    async def classify_upload(request: Request):
+        if classifier is None:
+            raise HTTPException(status_code=503, detail="classifier not available")
+        form = await request.form()
+        upload = form.get("image")
+        if upload is None or not hasattr(upload, "read"):
+            ctx = species_context(error="choose a photo first")
+            return templates.TemplateResponse(request, "species.html", ctx, status_code=422)
+        data = await upload.read(MAX_UPLOAD_BYTES + 1)
+        if len(data) > MAX_UPLOAD_BYTES:
+            ctx = species_context(error="photo larger than 10 MB")
+            return templates.TemplateResponse(request, "species.html", ctx, status_code=413)
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            ctx = species_context(error="could not decode that file as an image")
+            return templates.TemplateResponse(request, "species.html", ctx, status_code=422)
+        pred, top = classifier.classify_image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        result = {
+            "is_bird": pred.is_bird,
+            "confidence": pred.confidence,
+            "species": pred.species,
+            "top": [(label.common, label.latin, p) for label, p in top[:3]],
+            "filename": getattr(upload, "filename", "photo"),
+        }
+        return templates.TemplateResponse(request, "species.html", species_context(result=result))
 
     def settings_context(
         form: dict | None = None,
