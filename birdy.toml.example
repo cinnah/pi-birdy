@@ -1,0 +1,43 @@
+# Birdy configuration. Copy to birdy.toml and edit. Relative paths are
+# resolved against the directory containing this file.
+
+[site]
+name = "home"
+# Optional. Both or neither. With both set, capture pauses outside
+# sunrise-margin .. sunset+margin. Without them, capture runs 24/7.
+# lat = 38.72
+# lon = -9.14
+
+[camera]
+main_size = [3280, 2464]   # full-res stills. Drop to [1640, 1232] if the
+                           # camera fails to allocate buffers (CMA memory).
+lores_size = [320, 240]    # analysis stream; ROI coordinates use this size
+jpeg_quality = 90
+
+[motion]
+# Polygon around the feeder, in lores_size pixel coordinates.
+# Run `birdy roi` to save a frame and pick the points.
+roi = [[40, 60], [280, 60], [280, 220], [40, 220]]
+pixel_threshold = 25       # per-pixel grey-level change to count as "changed"
+min_area = 150             # changed pixels inside ROI needed to trigger
+background_alpha = 0.05    # 0..1; higher = background adapts faster
+cooldown_seconds = 3.0     # minimum gap between stills
+
+[daylight]
+margin_minutes = 30
+
+[classifier]
+model = "models/mobilenet_v2_1.0_224_quant.tflite"
+labels = "models/imagenet_labels.txt"
+bird_classes = "models/imagenet_bird_classes.txt"
+threshold = 0.5            # P(bird) at or above this = bird
+
+[retention]
+non_bird_days = 7          # non-bird photos older than this are deleted hourly
+
+[storage]
+data_dir = "data"          # photos/, thumbs/, birdy.db live here
+
+[web]
+host = "0.0.0.0"
+port = 8000
