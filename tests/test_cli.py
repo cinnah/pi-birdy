@@ -60,6 +60,35 @@ def test_classify_command_prints_prediction(tmp_path):
     assert "species (iNat):" in proc.stdout
 
 
+
+def _classify_config(tmp_path, species_model: str) -> Path:
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text(
+        '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n'
+        f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
+        f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
+        f'[species]\nmodel = "{species_model}"\n'
+        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+    )
+    return cfg
+
+
+def test_missing_species_model_exits_2(tmp_path):
+    cfg = _classify_config(tmp_path, str(tmp_path / "nope.tflite"))
+    proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
+    assert proc.returncode == 2
+    assert "model error" in proc.stderr
+
+
+def test_unreadable_image_exits_1(tmp_path):
+    if not (ROOT / "models" / "mobilenet_v2_1.0_224_inat_bird_quant.tflite").exists():
+        pytest.skip("model missing")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    proc = _run_cli("--config", str(cfg), "classify", str(tmp_path / "missing.jpg"))
+    assert proc.returncode == 1
+    assert "cannot read image" in proc.stderr
+    assert "model error" not in proc.stderr
+
 def test_bad_config_exits_2(tmp_path):
     cfg = tmp_path / "birdy.toml"
     cfg.write_text('[site]\nname = "t"\n[motion\nroi = [[0,0],[10,0],[10,10],[0,10]]\n')

@@ -35,15 +35,22 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+class ModelLoadError(Exception):
+    """A model or labels file is missing/corrupt: only a human can fix it (exit 2, no restart)."""
+
+
 def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
-    gate = ImageNetBirdClassifier(
-        config.classifier.model,
-        config.classifier.labels,
-        config.classifier.bird_classes,
-        threshold=config.classifier.threshold,
-        lores_size=config.camera.lores_size,
-    )
-    species = InatBirdClassifier(config.species.model, config.species.labels)
+    try:
+        gate = ImageNetBirdClassifier(
+            config.classifier.model,
+            config.classifier.labels,
+            config.classifier.bird_classes,
+            threshold=config.classifier.threshold,
+            lores_size=config.camera.lores_size,
+        )
+        species = InatBirdClassifier(config.species.model, config.species.labels)
+    except (ValueError, OSError) as e:
+        raise ModelLoadError(str(e)) from e
     return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size)
 
 
@@ -135,7 +142,11 @@ def cmd_roi(config: Config, out: str) -> int:
 def cmd_classify(config: Config, image: str) -> int:
     live = LiveConfig(config)
     clf = _classifier(config, live)
-    img = CropLoader(config.camera.lores_size).load(Path(image), None)
+    try:
+        img = CropLoader(config.camera.lores_size).load(Path(image), None)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     p_gate = clf.gate.predict(img)
     pred, top = clf.classify_image(img)
     threshold = config.classifier.threshold
@@ -184,9 +195,9 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_run(config, Path(args.config))
         if args.command == "classify":
             return cmd_classify(config, args.image)
-    except (ValueError, OSError) as e:
-        # A missing or corrupt model file fails while the classifier is built. Exit 2 like
-        # a config error so systemd does not restart-loop on something only a human can fix.
+    except ModelLoadError as e:
+        # Exit 2 like a config error so systemd does not restart-loop on something only a
+        # human can fix. Other startup errors (e.g. an unmounted data dir) keep restarting.
         print(f"model error: {e}", file=sys.stderr)
         return 2
     if args.command == "roi":
