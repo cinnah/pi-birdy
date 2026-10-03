@@ -21,7 +21,8 @@ class DaylightGate:
         return s["sunrise"] - self._margin, s["sunset"] + self._margin
 
     def is_active(self, now: datetime) -> bool:
-        """`now` must be timezone-aware."""
+        """`now` must be timezone-aware local time, e.g. `datetime.now().astimezone()`;
+        the day's window is computed for the date in `now`'s timezone."""
         if not self.enabled:
             return True
         start, end = self._window(now)
