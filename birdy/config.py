@@ -52,6 +52,14 @@ class ClassifierConfig:
 
 
 @dataclass(frozen=True)
+class SpeciesConfig:
+    model: Path
+    labels: Path
+    threshold: float          # show a species at or above this
+    rescue_threshold: float   # promote a gate-rejected frame to "bird" at or above this
+
+
+@dataclass(frozen=True)
 class RetentionConfig:
     non_bird_days: int
 
@@ -74,6 +82,7 @@ class Config:
     motion: MotionConfig
     daylight: DaylightConfig
     classifier: ClassifierConfig
+    species: SpeciesConfig
     retention: RetentionConfig
     storage: StorageConfig
     web: WebConfig
@@ -170,6 +179,13 @@ def load_config(path: Path) -> Config:
     threshold = _num(cls, "classifier", "threshold", 0.5, float)
     _check(0.0 <= threshold <= 1.0, "classifier.threshold must be between 0 and 1")
 
+    sp = raw.get("species", {})
+    species_threshold = _num(sp, "species", "threshold", 0.5, float)
+    _check(0.0 <= species_threshold <= 1.0, "species.threshold must be between 0 and 1")
+    rescue_threshold = _num(sp, "species", "rescue_threshold", 0.7, float)
+    _check(0.0 <= rescue_threshold <= 1.0, "species.rescue_threshold must be between 0 and 1")
+    _check(rescue_threshold >= species_threshold, "species.rescue_threshold must be >= species.threshold")
+
     ret = raw.get("retention", {})
     non_bird_days = _num(ret, "retention", "non_bird_days", 7, int)
     _check(non_bird_days >= 1, "retention.non_bird_days must be >= 1")
@@ -195,6 +211,12 @@ def load_config(path: Path) -> Config:
             labels=_path(base, cls, "classifier", "labels", "models/imagenet_labels.txt"),
             bird_classes=_path(base, cls, "classifier", "bird_classes", "models/imagenet_bird_classes.txt"),
             threshold=threshold,
+        ),
+        species=SpeciesConfig(
+            model=_path(base, sp, "species", "model", "models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"),
+            labels=_path(base, sp, "species", "labels", "models/inat_bird_labels.txt"),
+            threshold=species_threshold,
+            rescue_threshold=rescue_threshold,
         ),
         retention=RetentionConfig(non_bird_days=non_bird_days),
         storage=StorageConfig(data_dir=_path(base, sto, "storage", "data_dir", "data")),

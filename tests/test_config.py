@@ -137,3 +137,21 @@ def test_size_rejects_booleans(tmp_path):
     p = write(tmp_path, MINIMAL + "\n[camera]\nlores_size = [true, 240]\n")
     with pytest.raises(ConfigError, match="camera.lores_size"):
         load_config(p)
+
+
+def test_species_defaults(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL))
+    assert cfg.species.model == tmp_path / "models" / "mobilenet_v2_1.0_224_inat_bird_quant.tflite"
+    assert cfg.species.labels == tmp_path / "models" / "inat_bird_labels.txt"
+    assert cfg.species.threshold == 0.5 and cfg.species.rescue_threshold == 0.7
+
+
+def test_species_rescue_must_not_be_below_threshold(tmp_path):
+    with pytest.raises(ConfigError, match="species.rescue_threshold"):
+        load_config(write(tmp_path, MINIMAL + "\n[species]\nthreshold = 0.8\nrescue_threshold = 0.6\n"))
+
+
+@pytest.mark.parametrize("key", ["threshold", "rescue_threshold"])
+def test_species_thresholds_range(tmp_path, key):
+    with pytest.raises(ConfigError, match=f"species.{key}"):
+        load_config(write(tmp_path, MINIMAL + f"\n[species]\n{key} = 1.5\n"))

@@ -15,6 +15,8 @@ def default_patch(config, **overrides) -> SettingsPatch:
         background_alpha=config.motion.background_alpha,
         cooldown_seconds=config.motion.cooldown_seconds,
         classifier_threshold=config.classifier.threshold,
+        species_threshold=config.species.threshold,
+        species_rescue_threshold=config.species.rescue_threshold,
         lat=config.site.lat,
         lon=config.site.lon,
         margin_minutes=config.daylight.margin_minutes,
@@ -88,6 +90,8 @@ FORM = {
     "background_alpha": "0.05",
     "cooldown_seconds": "3",
     "classifier_threshold": "0.5",
+    "species_threshold": "0.5",
+    "species_rescue_threshold": "0.7",
     "lat": "",
     "lon": "",
     "margin_minutes": "30",
@@ -160,6 +164,12 @@ model = "m/model.tflite"
 labels = "m/labels.txt"
 bird_classes = "m/birds.txt"
 threshold = 0.65
+
+[species]
+model = "models/other_species.tflite"
+labels = "models/other_species_labels.txt"
+threshold = 0.4
+rescue_threshold = 0.9
 
 [retention]
 non_bird_days = 14
@@ -257,3 +267,18 @@ def test_parse_form_rejects_inf(config_path, config):
     with pytest.raises(ConfigError, match="motion.cooldown_seconds"):
         save_settings(config_path, config, patch)
     assert config_path.read_bytes() == before
+
+
+def test_species_thresholds_roundtrip(config_path, config):
+    new = save_settings(config_path, config, default_patch(config, species_threshold=0.3, species_rescue_threshold=0.8))
+    assert new.species.threshold == 0.3 and new.species.rescue_threshold == 0.8
+
+
+def test_species_rescue_below_threshold_rejected(config_path, config):
+    with pytest.raises(ConfigError, match="species.rescue_threshold"):
+        save_settings(config_path, config, default_patch(config, species_threshold=0.9, species_rescue_threshold=0.5))
+
+
+def test_parse_form_species_fields():
+    p = parse_settings_form({**FORM, "species_threshold": "0.35", "species_rescue_threshold": "0.75"})
+    assert p.species_threshold == 0.35 and p.species_rescue_threshold == 0.75

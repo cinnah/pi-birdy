@@ -56,6 +56,8 @@
 
 <h2>Classifier</h2>
 {{ num("classifier_threshold", "threshold (P bird)", 0, 1, 0.01) }}
+{{ num("species_threshold", "species threshold", 0, 1, 0.01) }}
+{{ num("species_rescue_threshold", "species rescue threshold", 0, 1, 0.01) }}
 
 <h2>Site &amp; daylight</h2>
 <div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">

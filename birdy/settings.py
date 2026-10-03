@@ -25,6 +25,8 @@ FIELD_KEYS = {
     "background_alpha": "motion.background_alpha",
     "cooldown_seconds": "motion.cooldown_seconds",
     "classifier_threshold": "classifier.threshold",
+    "species_threshold": "species.threshold",
+    "species_rescue_threshold": "species.rescue_threshold",
     "lat": "site.lat",
     "lon": "site.lon",
     "margin_minutes": "daylight.margin_minutes",
@@ -42,6 +44,8 @@ class SettingsPatch:
     background_alpha: float
     cooldown_seconds: float
     classifier_threshold: float
+    species_threshold: float
+    species_rescue_threshold: float
     lat: float | None
     lon: float | None
     margin_minutes: int
@@ -75,6 +79,12 @@ def config_to_dict(config: Config) -> dict:
             "bird_classes": str(config.classifier.bird_classes),
             "threshold": config.classifier.threshold,
         },
+        "species": {
+            "model": str(config.species.model),
+            "labels": str(config.species.labels),
+            "threshold": config.species.threshold,
+            "rescue_threshold": config.species.rescue_threshold,
+        },
         "retention": {"non_bird_days": config.retention.non_bird_days},
         "storage": {"data_dir": str(config.storage.data_dir)},
         "web": {"host": config.web.host, "port": config.web.port},
@@ -90,6 +100,8 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
         cooldown_seconds=patch.cooldown_seconds,
     )
     data["classifier"]["threshold"] = patch.classifier_threshold
+    data["species"]["threshold"] = patch.species_threshold
+    data["species"]["rescue_threshold"] = patch.species_rescue_threshold
     data["site"].pop("lat", None)
     data["site"].pop("lon", None)
     # Write whichever is given; load_config rejects one-without-the-other with a clear message.
@@ -169,6 +181,8 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         background_alpha=_num(form, "background_alpha", float),
         cooldown_seconds=_num(form, "cooldown_seconds", float),
         classifier_threshold=_num(form, "classifier_threshold", float),
+        species_threshold=_num(form, "species_threshold", float),
+        species_rescue_threshold=_num(form, "species_rescue_threshold", float),
         lat=_num(form, "lat", float, optional=True),
         lon=_num(form, "lon", float, optional=True),
         margin_minutes=_num(form, "margin_minutes", int),

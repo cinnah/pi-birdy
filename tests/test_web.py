@@ -141,6 +141,8 @@ def post_settings(client, **overrides):
         "background_alpha": "0.05",
         "cooldown_seconds": "3",
         "classifier_threshold": "0.5",
+        "species_threshold": "0.5",
+        "species_rescue_threshold": "0.7",
         "lat": "",
         "lon": "",
         "margin_minutes": "30",
@@ -271,3 +273,8 @@ def test_settings_page_has_novalidate_and_saved_roi(client):
     text = client.get("/settings").text
     assert "novalidate" in text
     assert "data-saved='[[40, 60], [280, 60], [280, 220], [40, 220]]'" in text
+
+
+def test_settings_page_has_species_rows(client):
+    r = client.get("/settings").text
+    assert 'name="species_threshold"' in r and 'name="species_rescue_threshold"' in r

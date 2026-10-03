@@ -33,6 +33,12 @@ labels = "models/imagenet_labels.txt"
 bird_classes = "models/imagenet_bird_classes.txt"
 threshold = 0.5            # P(bird) at or above this = bird
 
+[species]
+model = "models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"
+labels = "models/inat_bird_labels.txt"
+threshold = 0.5            # show a species name at or above this confidence
+rescue_threshold = 0.7     # a frame the gate rejected becomes a bird if the species model is this sure
+
 [retention]
 non_bird_days = 7          # non-bird photos older than this are deleted hourly
 
