@@ -62,3 +62,59 @@ def test_threshold_range(tmp_path):
 def test_only_one_of_lat_lon_is_error(tmp_path):
     with pytest.raises(ConfigError, match="lat"):
         load_config(write(tmp_path, MINIMAL.replace('name = "test"', 'name = "test"\nlat = 38.7')))
+
+
+def _with_site(extra: str) -> str:
+    return MINIMAL.replace('name = "test"', 'name = "test"\n' + extra)
+
+
+@pytest.mark.parametrize(
+    "text, key",
+    [
+        (MINIMAL + "background_alpha = 0\n", "motion.background_alpha"),
+        (MINIMAL + "background_alpha = 1.5\n", "motion.background_alpha"),
+        (MINIMAL + "pixel_threshold = -1\n", "motion.pixel_threshold"),
+        (MINIMAL + "min_area = -1\n", "motion.min_area"),
+        (MINIMAL + "cooldown_seconds = -0.5\n", "motion.cooldown_seconds"),
+        (MINIMAL + "\n[camera]\njpeg_quality = 0\n", "camera.jpeg_quality"),
+        (MINIMAL + "\n[camera]\njpeg_quality = 101\n", "camera.jpeg_quality"),
+        (MINIMAL + "\n[retention]\nnon_bird_days = 0\n", "retention.non_bird_days"),
+        (MINIMAL + "\n[daylight]\nmargin_minutes = -1\n", "daylight.margin_minutes"),
+        (_with_site("lat = 91\nlon = 0"), "site.lat"),
+        (_with_site("lat = 0\nlon = -181"), "site.lon"),
+        (MINIMAL + "\n[web]\nport = 0\n", "web.port"),
+        (MINIMAL + "\n[web]\nport = 65536\n", "web.port"),
+        (MINIMAL.replace("[10, 10]", "[320, 10]"), "motion.roi point .* outside camera.lores_size"),
+        (MINIMAL.replace("[0, 10]]", "[0, 240]]"), "motion.roi point .* outside camera.lores_size"),
+        (MINIMAL.replace("[0, 0], [10, 0]", "[-1, 0], [10, 0]"), "motion.roi point .* outside camera.lores_size"),
+        (MINIMAL + "\n[camera]\nlores_size = [8, 8]\n", "motion.roi point .* outside camera.lores_size"),
+    ],
+)
+def test_range_checks(tmp_path, text, key):
+    with pytest.raises(ConfigError, match=key):
+        load_config(write(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    "text, key",
+    [
+        (MINIMAL + '\n[classifier]\nmodel = 5\n', "classifier.model"),
+        (MINIMAL + '\n[web]\nport = "80a"\n', "web.port"),
+        (MINIMAL + '\n[camera]\njpeg_quality = "high"\n', "camera.jpeg_quality"),
+    ],
+)
+def test_wrong_types_raise_config_error(tmp_path, text, key):
+    with pytest.raises(ConfigError, match=key):
+        load_config(write(tmp_path, text))
+
+
+def test_absolute_data_dir_kept(tmp_path):
+    abs_dir = tmp_path / "elsewhere" / "data"
+    cfg = load_config(write(tmp_path, MINIMAL + f'\n[storage]\ndata_dir = "{abs_dir}"\n'))
+    assert cfg.storage.data_dir == abs_dir
+
+
+def test_example_config_loads():
+    cfg = load_config(Path(__file__).resolve().parents[1] / "birdy.toml.example")
+    assert cfg.site.name == "home"
+    assert len(cfg.motion.roi) == 4

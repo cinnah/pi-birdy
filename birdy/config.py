@@ -95,7 +95,25 @@ def _roi(v: Any) -> tuple[Point, ...]:
     return tuple(pts)
 
 
-def _path(base: Path, v: str) -> Path:
+def _check(cond: bool, msg: str) -> None:
+    if not cond:
+        raise ConfigError(msg)
+
+
+def _num(section: dict[str, Any], name: str, key: str, default: Any, cast: type) -> Any:
+    v = section.get(key, default)
+    if isinstance(v, bool):
+        raise ConfigError(f"{name}.{key} must be a {cast.__name__}")
+    try:
+        return cast(v)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{name}.{key} must be a {cast.__name__}") from None
+
+
+def _path(base: Path, section: dict[str, Any], name: str, key: str, default: str) -> Path:
+    v = section.get(key, default)
+    if not isinstance(v, str):
+        raise ConfigError(f"{name}.{key} must be a path string")
     p = Path(v)
     return p if p.is_absolute() else base / p
 
@@ -109,45 +127,72 @@ def load_config(path: Path) -> Config:
     site = raw.get("site", {})
     if "name" not in site:
         raise ConfigError("site.name is required")
-    lat, lon = site.get("lat"), site.get("lon")
-    if (lat is None) != (lon is None):
+    if (site.get("lat") is None) != (site.get("lon") is None):
         raise ConfigError("site.lat and site.lon must both be set or both omitted")
+    lat = lon = None
+    if site.get("lat") is not None:
+        lat = _num(site, "site", "lat", None, float)
+        lon = _num(site, "site", "lon", None, float)
+        _check(-90 <= lat <= 90, "site.lat must be between -90 and 90")
+        _check(-180 <= lon <= 180, "site.lon must be between -180 and 180")
 
     cam = raw.get("camera", {})
+    main_size = _size(cam.get("main_size", [3280, 2464]), "camera.main_size")
+    lores_size = _size(cam.get("lores_size", [320, 240]), "camera.lores_size")
+    jpeg_quality = _num(cam, "camera", "jpeg_quality", 90, int)
+    _check(1 <= jpeg_quality <= 100, "camera.jpeg_quality must be between 1 and 100")
+
     mot = raw.get("motion", {})
     if "roi" not in mot:
         raise ConfigError("motion.roi is required")
+    roi = _roi(mot["roi"])
+    lw, lh = lores_size
+    for x, y in roi:
+        _check(0 <= x < lw and 0 <= y < lh, f"motion.roi point [{x}, {y}] is outside camera.lores_size {lw}x{lh}")
+    pixel_threshold = _num(mot, "motion", "pixel_threshold", 25, int)
+    _check(pixel_threshold >= 0, "motion.pixel_threshold must be >= 0")
+    min_area = _num(mot, "motion", "min_area", 150, int)
+    _check(min_area >= 0, "motion.min_area must be >= 0")
+    background_alpha = _num(mot, "motion", "background_alpha", 0.05, float)
+    _check(0 < background_alpha <= 1, "motion.background_alpha must be in (0, 1]")
+    cooldown_seconds = _num(mot, "motion", "cooldown_seconds", 3.0, float)
+    _check(cooldown_seconds >= 0, "motion.cooldown_seconds must be >= 0")
+
     day = raw.get("daylight", {})
+    margin_minutes = _num(day, "daylight", "margin_minutes", 30, int)
+    _check(margin_minutes >= 0, "daylight.margin_minutes must be >= 0")
+
     cls = raw.get("classifier", {})
-    threshold = float(cls.get("threshold", 0.5))
-    if not 0.0 <= threshold <= 1.0:
-        raise ConfigError("classifier.threshold must be between 0 and 1")
+    threshold = _num(cls, "classifier", "threshold", 0.5, float)
+    _check(0.0 <= threshold <= 1.0, "classifier.threshold must be between 0 and 1")
+
     ret = raw.get("retention", {})
+    non_bird_days = _num(ret, "retention", "non_bird_days", 7, int)
+    _check(non_bird_days >= 1, "retention.non_bird_days must be >= 1")
+
     sto = raw.get("storage", {})
     web = raw.get("web", {})
+    port = _num(web, "web", "port", 8000, int)
+    _check(1 <= port <= 65535, "web.port must be between 1 and 65535")
 
     return Config(
-        site=SiteConfig(name=str(site["name"]), lat=None if lat is None else float(lat), lon=None if lon is None else float(lon)),
-        camera=CameraConfig(
-            main_size=_size(cam.get("main_size", [3280, 2464]), "camera.main_size"),
-            lores_size=_size(cam.get("lores_size", [320, 240]), "camera.lores_size"),
-            jpeg_quality=int(cam.get("jpeg_quality", 90)),
-        ),
+        site=SiteConfig(name=str(site["name"]), lat=lat, lon=lon),
+        camera=CameraConfig(main_size=main_size, lores_size=lores_size, jpeg_quality=jpeg_quality),
         motion=MotionConfig(
-            roi=_roi(mot["roi"]),
-            pixel_threshold=int(mot.get("pixel_threshold", 25)),
-            min_area=int(mot.get("min_area", 150)),
-            background_alpha=float(mot.get("background_alpha", 0.05)),
-            cooldown_seconds=float(mot.get("cooldown_seconds", 3.0)),
+            roi=roi,
+            pixel_threshold=pixel_threshold,
+            min_area=min_area,
+            background_alpha=background_alpha,
+            cooldown_seconds=cooldown_seconds,
         ),
-        daylight=DaylightConfig(margin_minutes=int(day.get("margin_minutes", 30))),
+        daylight=DaylightConfig(margin_minutes=margin_minutes),
         classifier=ClassifierConfig(
-            model=_path(base, cls.get("model", "models/mobilenet_v2_1.0_224_quant.tflite")),
-            labels=_path(base, cls.get("labels", "models/imagenet_labels.txt")),
-            bird_classes=_path(base, cls.get("bird_classes", "models/imagenet_bird_classes.txt")),
+            model=_path(base, cls, "classifier", "model", "models/mobilenet_v2_1.0_224_quant.tflite"),
+            labels=_path(base, cls, "classifier", "labels", "models/imagenet_labels.txt"),
+            bird_classes=_path(base, cls, "classifier", "bird_classes", "models/imagenet_bird_classes.txt"),
             threshold=threshold,
         ),
-        retention=RetentionConfig(non_bird_days=int(ret.get("non_bird_days", 7))),
-        storage=StorageConfig(data_dir=_path(base, sto.get("data_dir", "data"))),
-        web=WebConfig(host=str(web.get("host", "0.0.0.0")), port=int(web.get("port", 8000))),
+        retention=RetentionConfig(non_bird_days=non_bird_days),
+        storage=StorageConfig(data_dir=_path(base, sto, "storage", "data_dir", "data")),
+        web=WebConfig(host=str(web.get("host", "0.0.0.0")), port=port),
     )
