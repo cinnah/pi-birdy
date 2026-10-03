@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>birdy settings</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fafaf7; --fg: #222; --muted: #777; --card: #fff; --line: #ddd; --ok: #2a7; --bad: #c66; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #eee; --muted: #999; --card: #222; --line: #333; } }
+  body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); max-width: 720px; }
+  a { color: var(--fg); }
+  h1 { font-size: 20px; margin: 0 0 12px; } h2 { font-size: 15px; margin: 20px 0 8px; }
+  canvas { width: 100%; max-width: 640px; aspect-ratio: {{ lores_w }} / {{ lores_h }}; background: #333; border: 1px solid var(--line); touch-action: none; display: block; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0; }
+  .hint.error { color: var(--bad); font-weight: bold; }
+  .readout { margin: 8px 0; } .readout b { font-size: 18px; } .readout b.hot { color: var(--ok); }
+  .banner { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
+  .banner.ok { background: #2a72; border: 1px solid var(--ok); } .banner.bad { background: #c662; border: 1px solid var(--bad); }
+  .row { display: grid; grid-template-columns: 160px 1fr 90px; gap: 8px; align-items: center; margin: 6px 0; }
+  .row.error label { color: var(--bad); font-weight: bold; }
+  .row input[type=number], .row input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
+  .ro { color: var(--muted); font-size: 12px; } .ro code { color: var(--fg); }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--ok); color: #fff; border-color: var(--ok); font-weight: bold; }
+</style>
+</head>
+<body>
+<h1><a href="/">birdy</a> › settings</h1>
+
+{% if saved %}<div class="banner ok">Saved — applied live (v{{ version }}).</div>{% endif %}
+{% if error_message %}<div class="banner bad">{{ error_message }}</div>{% endif %}
+
+<!-- novalidate: values set by hand in birdy.toml may be off the slider step grid; the server validates anyway -->
+<form method="post" action="/settings" id="form" novalidate>
+<h2>Region of interest</h2>
+<canvas id="roi" width="{{ lores_w * 2 }}" height="{{ lores_h * 2 }}"></canvas>
+<div class="hint">Click to add a corner, drag to move it, click a corner to delete it (min 3). Coordinates are in the {{ lores_w }}×{{ lores_h }} analysis frame.</div>
+<div class="readout">motion score <b id="score">–</b> <span class="hint">(green when ≥ min_area; state <span id="state">{{ status.state }}</span>)</span>
+  <button type="button" id="reset">Reset polygon</button></div>
+<input type="hidden" name="roi" id="roi-field" value='{{ roi_json }}'>
+<div id="roi-hint" class="hint {{ 'error' if error_field == 'roi' else '' }}">{{ error_message if error_field == 'roi' else '' }}</div>
+
+<h2>Motion</h2>
+{% macro num(name, label, min, max, step) -%}
+<div class="row {{ 'error' if error_field == name else '' }}">
+  <label for="{{ name }}">{{ label }}</label>
+  <input type="range" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}" data-pair="{{ name }}">
+  <input type="number" id="{{ name }}" name="{{ name }}" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}">
+</div>
+{%- endmacro %}
+{{ num("pixel_threshold", "pixel_threshold", 0, 100, 1) }}
+{{ num("min_area", "min_area", 0, 20000, 10) }}
+{{ num("background_alpha", "background_alpha", 0.01, 1, 0.01) }}
+{{ num("cooldown_seconds", "cooldown_seconds", 0, 60, 0.5) }}
+
+<h2>Classifier</h2>
+{{ num("classifier_threshold", "threshold (P bird)", 0, 1, 0.01) }}
+
+<h2>Site &amp; daylight</h2>
+<div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
+  <label for="lat">lat / lon</label>
+  <input type="text" id="lat" name="lat" placeholder="38.72 (empty = gate off)" value="{{ v['lat'] }}">
+  <input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}">
+</div>
+{{ num("margin_minutes", "margin_minutes", 0, 180, 5) }}
+
+<h2>Retention</h2>
+{{ num("non_bird_days", "non_bird_days", 1, 365, 1) }}
+
+<p><button class="primary" type="submit">Save</button> <span class="hint">writes birdy.toml and applies immediately</span></p>
+</form>
+
+<h2>Read-only (edit birdy.toml and restart)</h2>
+<div class="ro">
+{% for k, val in readonly.items() %}<div><code>{{ k }}</code> = {{ val }}</div>{% endfor %}
+</div>
+
+<script>
+(function () {
+  const W = {{ lores_w }}, H = {{ lores_h }}, SCALE = 2;
+  const canvas = document.getElementById('roi'), ctx = canvas.getContext('2d');
+  const field = document.getElementById('roi-field'), hint = document.getElementById('roi-hint');
+  const saved = JSON.parse(field.value);
+  let pts = JSON.parse(JSON.stringify(saved));
+  let img = null, dragging = null, moved = false;
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#0f0'; ctx.fillStyle = '#0f0';
+    ctx.beginPath();
+    pts.forEach((p, i) => { const x = p[0] * SCALE, y = p[1] * SCALE; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    if (pts.length > 2) ctx.closePath();
+    ctx.stroke();
+    pts.forEach(p => { ctx.beginPath(); ctx.arc(p[0] * SCALE, p[1] * SCALE, 6, 0, Math.PI * 2); ctx.fill(); });
+    field.value = JSON.stringify(pts);
+  }
+  function toLores(e) {
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+    return [Math.max(0, Math.min(W - 1, Math.round(x))), Math.max(0, Math.min(H - 1, Math.round(y)))];
+  }
+  function hit(p) {
+    const r = canvas.getBoundingClientRect();
+    const radius = 12 * W / r.width;  // 12 CSS px, in lores units
+    return pts.findIndex(q => Math.hypot(q[0] - p[0], q[1] - p[1]) <= radius);
+  }
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const p = toLores(e), i = hit(p);
+    moved = false; hint.textContent = '';
+    if (i >= 0) { dragging = i; canvas.setPointerCapture(e.pointerId); }
+    else { pts.push(p); draw(); }
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (dragging === null) return;
+    const p = toLores(e);
+    if (p[0] !== pts[dragging][0] || p[1] !== pts[dragging][1]) { pts[dragging] = p; moved = true; draw(); }
+  });
+  canvas.addEventListener('pointerup', e => {
+    if (dragging === null) return;
+    if (!moved) {
+      if (pts.length > 3) pts.splice(dragging, 1);
+      else hint.textContent = 'need at least 3 points';
+    }
+    dragging = null; draw();
+  });
+  canvas.addEventListener('pointercancel', () => { dragging = null; draw(); });
+  document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(saved)); draw(); };
+
+  function refreshFrame() {
+    const i = new Image();
+    i.onload = () => { img = i; draw(); };
+    i.src = '/frame.jpg?t=' + Date.now();
+  }
+  async function poll() {
+    try {
+      const s = await (await fetch('/status')).json();
+      const el = document.getElementById('score');
+      el.textContent = s.motion_score;
+      el.className = s.motion_score >= +document.getElementById('min_area').value ? 'hot' : '';
+      document.getElementById('state').textContent = s.state;
+    } catch (e) { /* page still usable without live status */ }
+  }
+  document.querySelectorAll('[data-pair]').forEach(range => {
+    const num = document.getElementById(range.dataset.pair);
+    range.oninput = () => { num.value = range.value; };
+    num.oninput = () => { range.value = num.value; };
+  });
+  draw(); refreshFrame(); poll();
+  setInterval(refreshFrame, 1000); setInterval(poll, 1000);
+})();
+</script>
+</body>
+</html>

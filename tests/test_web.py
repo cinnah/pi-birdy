@@ -10,7 +10,6 @@ from birdy.store import Store
 from birdy.web.app import create_app
 
 T0 = datetime(2026, 10, 3, 10, 0, tzinfo=timezone.utc)
-ROI = ((40, 60), (280, 60), (280, 220), (40, 220))
 
 
 @pytest.fixture
@@ -26,8 +25,8 @@ def state():
 
 
 @pytest.fixture
-def client(store, state):
-    return TestClient(create_app(store, state, roi=ROI))
+def client(store, state, live, config_path):
+    return TestClient(create_app(store, state, live, config_path))
 
 
 def add(store, i, is_bird):
@@ -129,3 +128,88 @@ def test_pending_tile_renders(client, store):
     r = client.get("/")
     assert r.status_code == 200
     assert ">pending<" in r.text
+
+
+import json
+import re
+
+from birdy.config import load_config
+
+
+def post_settings(client, **overrides):
+    form = {
+        "roi": "[[40, 60], [280, 60], [280, 220], [40, 220]]",
+        "pixel_threshold": "25",
+        "min_area": "150",
+        "background_alpha": "0.05",
+        "cooldown_seconds": "3",
+        "classifier_threshold": "0.5",
+        "lat": "",
+        "lon": "",
+        "margin_minutes": "30",
+        "non_bird_days": "7",
+    }
+    form.update(overrides)
+    return client.post("/settings", data=form, follow_redirects=False)
+
+
+def test_frame_jpg_404_without_frame(client):
+    assert client.get("/frame.jpg").status_code == 404
+
+
+def test_frame_jpg_returns_jpeg(client, state):
+    state.update(latest_lores=np.full((240, 320), 100, np.uint8))
+    r = client.get("/frame.jpg")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+    assert r.headers["cache-control"] == "no-store"
+    assert r.content[:2] == b"\xff\xd8"
+
+
+def test_index_links_to_settings(client):
+    assert 'href="/settings"' in client.get("/").text
+
+
+def test_settings_page_shows_current_values(client, config):
+    r = client.get("/settings")
+    assert r.status_code == 200
+    assert 'name="min_area"' in r.text and 'value="150"' in r.text
+    assert json.dumps([list(p) for p in config.motion.roi]) in r.text
+    assert "edit birdy.toml" in r.text  # read-only block
+    assert str(config.camera.main_size[0]) in r.text
+
+
+def test_settings_post_saves_applies_and_redirects(client, config_path, live):
+    r = post_settings(client, min_area="400", roi="[[10, 10], [100, 10], [100, 100]]", lat="38.72", lon="-9.14")
+    assert r.status_code == 303
+    assert r.headers["location"] == "/settings?saved=1"
+    assert live.version == 1
+    cfg = live.get()
+    assert cfg.motion.min_area == 400 and cfg.motion.roi == ((10, 10), (100, 10), (100, 100))
+    assert cfg.site.lat == 38.72
+    assert load_config(config_path) == cfg
+    assert "applied live" in client.get("/settings?saved=1").text
+
+
+@pytest.mark.parametrize(
+    "overrides, key",
+    [
+        ({"roi": "[[0, 0], [1, 1]]"}, "motion.roi"),
+        ({"min_area": "-1"}, "motion.min_area"),
+        ({"lat": "38.7"}, "site.lat"),
+        ({"background_alpha": "abc"}, "motion.background_alpha"),
+    ],
+)
+def test_settings_post_invalid_renders_error_and_writes_nothing(client, config_path, live, overrides, key):
+    before = config_path.read_bytes()
+    r = post_settings(client, **overrides)
+    assert r.status_code == 422
+    assert key in r.text
+    assert re.search(r'class="[^"]*error[^"]*"', r.text)
+    assert config_path.read_bytes() == before
+    assert live.version == 0
+
+
+def test_settings_post_keeps_submitted_values_on_error(client):
+    r = post_settings(client, min_area="-1", pixel_threshold="77")
+    assert 'value="77"' in r.text
