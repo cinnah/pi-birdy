@@ -459,7 +459,7 @@ def test_settings_alerts_group_renders(client, store, live, config):
     live.replace(dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, watchlist=("Hoopoe",), bot_token="SECRET123", chat_id="42")))
     r = client.get("/settings").text
     assert '<textarea id="watchlist" name="watchlist"' in r and ">Hoopoe</textarea>" in r
-    assert 'name="alert_new_species"' in r and "checked" in r
+    assert 'name="alert_new_species" value="on" checked' in r
     assert 'name="cooldown_minutes"' in r
     assert "Robin" in r  # species hint
     assert "telegram.bot_token" in r and "SECRET123" not in r
@@ -483,9 +483,31 @@ def test_settings_post_invalid_cooldown_highlights_row(client):
     assert re.search(r'<div class="row error">\s*<label for="cooldown_minutes"', r.text)
 
 
+def test_settings_failed_post_never_leaks_token(client, live, config):
+    import dataclasses
+
+    live.replace(dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, bot_token="SECRET123", chat_id="42")))
+    r = post_settings(client, cooldown_minutes="-5")
+    assert r.status_code == 422 and "telegram.bot_token" in r.text and "SECRET123" not in r.text
+
+
+def test_settings_button_disabled_without_notifier(store, state, live, config, config_path, classifier):
+    import dataclasses
+
+    tg = dataclasses.replace(config.telegram, enabled=True, bot_token="SECRET123", chat_id="42")
+    live.replace(dataclasses.replace(config, telegram=tg))
+    c = TestClient(create_app(store, state, live, config_path, classifier=classifier))
+    r = c.get("/settings").text
+    assert re.search(r'<button type="submit"\s+disabled>Send test alert</button>', r)
+    assert "alerts disabled — set [telegram] in birdy.toml and restart" in r
+    assert "SECRET123" not in r
+
+
 def test_test_alert_success(client, notifier):
     r = client.post("/settings/test-alert")
     assert r.status_code == 200 and "test alert sent" in r.text and notifier.tests == 1
+    # result banner sits at the top, before the main form
+    assert r.text.index("test alert sent") < r.text.index('<form method="post" action="/settings"')
 
 
 def test_test_alert_telegram_error(store, state, live, config_path, classifier):

@@ -31,6 +31,7 @@
 
 {% if saved %}<div class="banner ok">Saved — applied live (v{{ version }}).</div>{% endif %}
 {% if error_message %}<div class="banner bad">{{ error_message }}</div>{% endif %}
+{% if test_result %}<div class="banner {{ 'ok' if test_ok else 'bad' }}">{{ test_result }}</div>{% endif %}
 
 <!-- novalidate: values set by hand in birdy.toml may be off the slider step grid; the server validates anyway -->
 <form method="post" action="/settings" id="form" novalidate>
@@ -94,7 +95,6 @@
   <button type="submit" {{ '' if alerts_enabled else 'disabled' }}>Send test alert</button>
   <span class="hint">{{ 'sends "birdy test alert" to your chat' if alerts_enabled else 'alerts disabled — set [telegram] in birdy.toml and restart' }}</span>
 </form>
-{% if test_result %}<div class="banner {{ 'ok' if test_ok else 'bad' }}">{{ test_result }}</div>{% endif %}
 
 <h2>Read-only (edit birdy.toml and restart)</h2>
 <div class="ro">

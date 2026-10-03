@@ -286,9 +286,7 @@ def create_app(
             await run_in_threadpool(notifier.send_test)
         except TelegramError as e:
             ctx = settings_context(test=(False, f"Telegram error: {e.description}"))
-            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
-        except OSError as e:
-            ctx = settings_context(test=(False, f"network error: {e}"))
+            # TelegramError also wraps transport failures (DNS, timeouts, connection resets)
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
         ctx = settings_context(test=(True, "test alert sent — check Telegram"))
         return templates.TemplateResponse(request, "settings.html", ctx)
