@@ -187,9 +187,10 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
     real_init = pipeline.Pipeline.__init__
 
-    def pipeline_init(self, store, classifier, live):
+    def pipeline_init(self, store, classifier, live, notifier=None):
         seen["pipeline_classifier"] = classifier
-        return real_init(self, store, classifier, live)
+        seen["pipeline_notifier"] = notifier
+        return real_init(self, store, classifier, live, notifier=notifier)
 
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
 
@@ -198,6 +199,7 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
 
     def create_app(*a, **kw):
         seen["web_classifier"] = kw.get("classifier")
+        seen["web_notifier"] = kw.get("notifier", "missing")
         return real_create_app(*a, **kw)
 
     monkeypatch.setattr(web_app, "create_app", create_app)
@@ -227,3 +229,73 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     # The pipeline and the upload box share one classifier (and therefore its lock).
     assert seen["pipeline_classifier"] is clf
     assert seen["web_classifier"] is clf
+    # Alerts are off in the default config: no notifier anywhere.
+    assert seen["pipeline_notifier"] is None
+    assert seen["web_notifier"] is None
+
+
+def test_telegram_chat_id_prints_ids(capsys, config, monkeypatch):
+    import dataclasses
+
+    from birdy import cli
+
+    monkeypatch.setattr(cli, "fetch_chat_ids", lambda token: [(11, "Yazz", "test")])
+    cfg = dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, bot_token="T"))
+    assert cli.cmd_telegram_chat_id(cfg, None) == 0
+    assert "11\tYazz\ttest" in capsys.readouterr().out
+
+
+def test_telegram_chat_id_without_token_exits_2(capsys, config):
+    from birdy import cli
+
+    assert cli.cmd_telegram_chat_id(config, None) == 2
+    assert "bot_token" in capsys.readouterr().err
+
+
+def test_telegram_chat_id_no_chats_exits_1(capsys, config, monkeypatch):
+    from birdy import cli
+
+    monkeypatch.setattr(cli, "fetch_chat_ids", lambda token: [])
+    assert cli.cmd_telegram_chat_id(config, "T") == 1
+    assert "send" in capsys.readouterr().err.lower()
+
+
+def test_parser_telegram_chat_id():
+    a = build_parser().parse_args(["telegram-chat-id", "--token", "x"])
+    assert a.command == "telegram-chat-id" and a.token == "x"
+
+
+def test_cmd_run_builds_notifier_when_enabled(config_path, monkeypatch):
+    import dataclasses
+
+    from birdy import cli
+    from birdy.config import load_config
+
+    cfg = load_config(config_path)
+    cfg = dataclasses.replace(cfg, telegram=dataclasses.replace(cfg.telegram, enabled=True, bot_token="T", chat_id="42"))
+    built = {}
+
+    class FakeNotifier:
+        def __init__(self, live, store, transport):
+            built["transport"] = transport
+            built["self"] = self
+
+        def start(self):
+            built["started"] = True
+
+        def stop(self, timeout=5.0):
+            built["stopped"] = True
+
+    monkeypatch.setattr(cli, "TelegramNotifier", FakeNotifier)
+    monkeypatch.setattr(cli, "HttpTelegramTransport", lambda token: ("transport", token))
+    monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
+    seen = {}
+    monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: seen.update(pipeline=pipeline))
+    import birdy.web.app as webapp
+
+    real_create_app = webapp.create_app
+    monkeypatch.setattr(webapp, "create_app", lambda *a, **k: seen.update(notifier=k.get("notifier")) or real_create_app(*a, **k))
+    cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
+    assert cli.cmd_run(cfg, config_path) == 0
+    assert built["transport"] == ("transport", "T") and built["started"] and built["stopped"]
+    assert seen["notifier"] is built["self"] and seen["pipeline"]._notifier is built["self"]

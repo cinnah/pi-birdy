@@ -1,4 +1,4 @@
-"""Command line entry point: birdy run | roi | classify | purge."""
+"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pathlib import Path
 from birdy.classifier import CropLoader, ImageNetBirdClassifier, TwoStageClassifier
 from birdy.config import Config, ConfigError, load_config
 from birdy.live import LiveConfig
+from birdy.notify import HttpTelegramTransport, TelegramError, TelegramNotifier, fetch_chat_ids
 from birdy.species import InatBirdClassifier
 from birdy.store import Store
 
@@ -32,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     cls = sub.add_parser("classify", help="classify a single image file")
     cls.add_argument("image")
     sub.add_parser("purge", help="run the retention purge once")
+    tg = sub.add_parser("telegram-chat-id", help="print the chat ids that have messaged the bot (bot setup)")
+    tg.add_argument("--token", default=None, help="override [telegram] bot_token")
     return p
 
 
@@ -73,14 +76,18 @@ def cmd_run(config: Config, config_path: Path) -> int:
     # One classifier for the pipeline worker and the web upload box: it serialises inference
     # under its own lock (TFLite interpreters are not thread-safe).
     clf = _classifier(config, live)
-    pipeline = Pipeline(store, clf, live)
+    notifier = None
+    if config.telegram.enabled:
+        notifier = TelegramNotifier(live, store, HttpTelegramTransport(config.telegram.bot_token))
+        notifier.start()
+    pipeline = Pipeline(store, clf, live, notifier=notifier)
     pipeline.start()
     retention = RetentionJob(store, live)
     retention.start()
     watcher = ConfigWatcher(config_path, live)
     watcher.start()
 
-    app = create_app(store, state, live, config_path, queue_depth=pipeline.queue_depth, classifier=clf)
+    app = create_app(store, state, live, config_path, queue_depth=pipeline.queue_depth, classifier=clf, notifier=notifier)
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
     web_thread = threading.Thread(target=server.run, name="web", daemon=True)
     web_thread.start()
@@ -90,8 +97,8 @@ def cmd_run(config: Config, config_path: Path) -> int:
         signal.signal(sig, lambda *_: stop.set())
 
     log.info(
-        "birdy starting: site=%s daylight_gate=%s web=%s:%d",
-        config.site.name, config.site.lat is not None, config.web.host, config.web.port,
+        "birdy starting: site=%s daylight_gate=%s alerts=%s web=%s:%d",
+        config.site.name, config.site.lat is not None, config.telegram.enabled, config.web.host, config.web.port,
     )
     try:
         # If the port is taken, uvicorn sys.exit(1)s inside its thread; without this
@@ -112,6 +119,8 @@ def cmd_run(config: Config, config_path: Path) -> int:
         server.should_exit = True
         watcher.stop()
         pipeline.stop()
+        if notifier is not None:
+            notifier.stop()
         retention.stop()
         store.close()
 
@@ -181,6 +190,24 @@ def cmd_purge(config: Config) -> int:
     return 0
 
 
+def cmd_telegram_chat_id(config: Config, token_override: str | None) -> int:
+    token = token_override or config.telegram.bot_token
+    if not token:
+        print("no bot token: set [telegram] bot_token in birdy.toml or pass --token", file=sys.stderr)
+        return 2
+    try:
+        chats = fetch_chat_ids(token)
+    except (TelegramError, OSError) as e:
+        print(f"telegram error: {e}", file=sys.stderr)
+        return 1
+    if not chats:
+        print("no chats yet: open your bot in Telegram, send it any message, then run this again", file=sys.stderr)
+        return 1
+    for chat_id, name, text in chats:
+        print(f"{chat_id}\t{name}\t{text}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
@@ -209,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_roi(config, args.out)
     if args.command == "purge":
         return cmd_purge(config)
+    if args.command == "telegram-chat-id":
+        return cmd_telegram_chat_id(config, args.token)
     return 2
 
 
