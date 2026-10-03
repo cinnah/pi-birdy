@@ -17,6 +17,8 @@ from birdy.store import Store
 
 log = logging.getLogger(__name__)
 
+SPECIES_BACKLOG_PER_SWEEP = 50
+
 
 @dataclass(frozen=True)
 class MotionEvent:
@@ -93,6 +95,27 @@ class Pipeline:
             if current is None or current.status != "pending":
                 continue
             self.process(c.id, self._store.photos_dir / c.path)
+        # Rows classified before species recognition existed: re-run the (two-stage)
+        # classifier so they get a species. Bounded per sweep to keep the Pi responsive.
+        for c in self._store.species_backlog(limit=SPECIES_BACKLOG_PER_SWEEP):
+            if self._stop.is_set():
+                break
+            self._backfill_species(c.id, self._store.photos_dir / c.path)
+
+    def _backfill_species(self, capture_id: int, path: Path) -> None:
+        cfg = self._live.get()
+        try:
+            pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
+            self._store.update_classification(capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence)
+            if pred.species:
+                log.info("backfill capture %d: %s %.2f", capture_id, pred.species, pred.species_confidence)
+        except Exception:
+            # Unlike live processing, a failure here must not flip a `done` row to `error`.
+            log.exception("species backfill failed for capture %d; marking checked", capture_id)
+            try:
+                self._store.mark_species_checked(capture_id)
+            except Exception:
+                log.exception("mark_species_checked failed for capture %d", capture_id)
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick

@@ -224,3 +224,47 @@ def test_roi_and_threshold_come_from_live_config(store, live, config):
     p.process(ev2.capture_id, ev2.path)
     assert clf.bboxes[-1] == roi_bbox(new.motion.roi)
     assert clf.thresholds[-1] == 0.9
+
+
+def unchecked(store, ids):
+    with store._lock, store._conn:
+        store._conn.execute(f"UPDATE captures SET species_checked = 0 WHERE id IN ({','.join('?' * len(ids))})", ids)
+
+
+class SpeciesFake(FakeClassifier):
+    def classify(self, image_path, roi_bbox, threshold=None):
+        super().classify(image_path, roi_bbox, threshold)
+        return Prediction(is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8)
+
+
+def test_sweep_drains_species_backlog(store, live):
+    evs = [add(store, i) for i in range(3)]
+    for ev in evs:
+        store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id for ev in evs])
+    p = Pipeline(store, SpeciesFake(), live)
+    p.sweep()
+    assert store.species_backlog() == []
+    assert all(store.get(ev.capture_id).species == "Robin" for ev in evs)
+    assert all(store.get(ev.capture_id).status == "done" for ev in evs)
+
+
+def test_backlog_failure_is_marked_checked_not_error(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p = Pipeline(store, FakeClassifier(fail_on={ev.path.name}), live)
+    p.sweep()
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.species_checked is True and c.species is None
+
+
+def test_backlog_respects_stop(store, live):
+    evs = [add(store, i) for i in range(2)]
+    for ev in evs:
+        store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id for ev in evs])
+    p = Pipeline(store, SpeciesFake(), live)
+    p._stop.set()
+    p.sweep()
+    assert len(store.species_backlog()) == 2
