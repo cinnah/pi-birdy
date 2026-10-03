@@ -20,13 +20,18 @@ Development happens on the Mac; the Pi (`yassine@birdy.local`, SSH key auth) onl
 .venv/bin/pytest tests/test_motion.py -k "cooldown"   # one test
 deploy/deploy.sh                # rsync to the Pi + restart the systemd service
 
-# Pi (via ssh)
-deploy/install.sh               # one-time: apt deps, venv, birdy.toml, systemd unit
-birdy run                       # what the service runs
-birdy roi                       # dump one lores frame to roi.png for ROI tuning
-birdy classify <file>           # run the classifier on a single image
-birdy purge                     # run the retention job now
+# First-time bootstrap (from the Mac)
+deploy/deploy.sh                # syncs the repo; its pip step fails on a fresh Pi - expected
+ssh -t yassine@birdy.local 'cd ~/pi-birdy && deploy/install.sh'   # -t required: sudo prompts interactively
+
+# Pi (via ssh, from ~/pi-birdy - --config defaults to ./birdy.toml)
+deploy/install.sh               # one-time: apt deps, venv, birdy.toml, systemd unit (run via ssh -t)
+.venv/bin/birdy run             # what the service runs
+.venv/bin/birdy classify <file> # run the classifier on a single image
+.venv/bin/birdy purge           # run the retention job now
 journalctl -u birdy -f          # logs
+# ROI tuning: while the service runs the camera is busy, so `birdy roi` can't open it -
+# use http://birdy.local:8000/roi.png instead.
 ```
 
 ## Architecture
@@ -44,9 +49,9 @@ web (FastAPI, read-only) ────────────┘      retention 
 - `birdy/capture.py` is the **only** module that imports `picamera2`. Everything else must import and test on the Mac. Keep it that way; put any new camera-touching code there.
 - `birdy/motion.py` is a pure-numpy/OpenCV detector (ROI mask → running background → diff → threshold → cooldown) so it can be tested with synthetic 320×240 frames. No camera code in it.
 - `birdy/classifier.py` exposes a `Classifier` protocol returning `Prediction(is_bird, confidence, species, species_confidence)`. The current implementation aggregates ImageNet bird classes from MobileNetV2; a species model will later sit behind the same interface. The `species*` fields exist in the schema now and stay `NULL`.
-- `birdy/store.py` owns the single write connection (locked, `check_same_thread=False`); capture, pipeline and retention all write through it. The web app opens its own read-only connection. Never open a second writer.
+- `birdy/store.py` owns the single write connection (locked, `check_same_thread=False`); capture, pipeline and retention all write through it. The web thread reads through the same locked connection. The only other writer is the one-shot `birdy purge` CLI, which is safe under WAL.
 - Nothing is dropped on overload: capture inserts the row as `status='pending'` before enqueueing, and the pipeline's 5-minute backlog sweep reclassifies anything still pending.
-- Retention deletes only `is_bird = 0` rows older than `retention.non_bird_days`; bird photos are never auto-deleted.
+- Retention deletes `is_bird = 0` and `status = 'error'` rows older than `retention.non_bird_days`; bird photos are never auto-deleted.
 
 ## Conventions and gotchas
 

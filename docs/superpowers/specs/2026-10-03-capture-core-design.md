@@ -8,11 +8,11 @@
 
 A Raspberry Pi 4 with a Camera Module v2.1, placed indoors behind a window and pointed at a bird feeder, photographs birds automatically during daylight, filters out non-bird motion with a local TFLite model, stores photos + metadata locally, and shows them on a LAN-only web page for review and tuning.
 
-Inspired by [thjkral/BirdDetection](https://github.com/thjkral/BirdDetection), rebuilt for Raspberry Pi OS Bookworm (64-bit Lite) and the `picamera2`/libcamera stack.
+Inspired by [thjkral/BirdDetection](https://github.com/thjkral/BirdDetection), rebuilt for Raspberry Pi OS Trixie (64-bit Lite) and the `picamera2`/libcamera stack.
 
 ## Hardware & environment
 
-- Raspberry Pi 4, Raspberry Pi OS Bookworm 64-bit Lite, fresh install, networked, camera verified working.
+- Raspberry Pi 4, Raspberry Pi OS Trixie (Debian 13, Python 3.13) 64-bit Lite, fresh install, networked, camera verified working.
 - Camera Module v2.1 (8 MP, fixed focus ~1 m → ∞, no night capability).
 - Placement: indoors, lens flush against the window, feeder ≥ 1 m away. Outdoor enclosure is a possible later move; only the ROI mask would need retuning.
 - Host: `yassine@birdy.local`, SSH key auth (no passwords stored anywhere).
@@ -37,7 +37,7 @@ Inspired by [thjkral/BirdDetection](https://github.com/thjkral/BirdDetection), r
 │ birdy (one process, systemd service)                        │
 │                                                             │
 │  capture ──MotionEvent──▶ pipeline ──▶ classifier           │
-│  (picamera2,              (queue +      (tflite-runtime,    │
+│  (picamera2,              (queue +      (ai-edge-litert,    │
 │   motion, ROI,             worker        bird vs not-bird)  │
 │   daylight gate)           thread)            │             │
 │                               │               ▼             │
@@ -58,7 +58,7 @@ Module responsibilities (each is importable and testable alone):
 | `birdy/capture.py` | Camera setup, lores/main streams, motion loop glue, daylight gate, emits `MotionEvent` | picamera2, motion, daylight | **yes** (only module importing picamera2) |
 | `birdy/daylight.py` | Is it daytime now, when is the next transition | astral | no |
 | `birdy/pipeline.py` | Queue + worker thread; classify → store; error isolation; backlog sweep | classifier, store | no |
-| `birdy/classifier.py` | `Classifier` interface + `ImageNetBirdClassifier` (TFLite) | tflite-runtime, opencv | no |
+| `birdy/classifier.py` | `Classifier` interface + `ImageNetBirdClassifier` (TFLite) | ai-edge-litert (`tflite-runtime` fallback import), opencv | no |
 | `birdy/store.py` | SQLite schema, `add()`, `query()`, thumbnails, retention | sqlite3, opencv | no |
 | `birdy/web/` | FastAPI app, one Jinja template, `/status` | fastapi, store | no |
 | `birdy/cli.py` | `birdy run`, `birdy roi`, `birdy classify <file>`, `birdy purge` | all | partly |
@@ -88,7 +88,7 @@ Config is a single `birdy.toml` (gitignored on the Pi; `birdy.toml.example` in t
 **Error handling**
 - Camera init failure: log, exit code 1; systemd `Restart=on-failure`, `RestartSec=10`.
 - Exception on a single frame: log with traceback, skip frame, continue.
-- Still-capture failure: log, skip event, continue (no cooldown so the next frame can retry).
+- Still-capture failure: log, skip; the detector's cooldown still applies, so a broken camera can't re-fire on every frame.
 
 ## Classifier
 
@@ -134,7 +134,7 @@ CREATE TABLE site (
 
 CREATE TABLE captures (
   id INTEGER PRIMARY KEY,
-  captured_at TEXT NOT NULL,          -- ISO 8601, local time with offset
+  captured_at TEXT NOT NULL,          -- ISO 8601, UTC
   path TEXT NOT NULL,                 -- relative to data/photos
   thumb_path TEXT,                    -- relative to data/thumbs
   motion_score INTEGER NOT NULL,
@@ -151,7 +151,7 @@ CREATE INDEX captures_is_bird ON captures(is_bird, captured_at DESC);
 - `site` has exactly one row, seeded from `birdy.toml` at startup (updated if config changes). It exists now so that multi-site sharing in sub-project 4 has a stable identity to key on.
 - Photos: `data/photos/YYYY/MM/DD/HHMMSS_mmm.jpg`. Thumbnails: `data/thumbs/<same path>`, 400 px wide, generated at insert time; the web page never reads full-res files except on click.
 - Store API: `add_capture()`, `update_classification()`, `list_captures(filter, limit, offset)`, `pending()`, `purge_non_birds(older_than_days)`, `disk_free_bytes()`.
-- **Retention job** (thread in the main process, hourly): deletes non-bird (`is_bird = 0`) captures older than `retention.non_bird_days` (default 7) — files, thumbs and rows. `is_bird = 1` rows are never auto-deleted. Logs disk free; warns below 1 GB.
+- **Retention job** (thread in the main process, hourly): deletes non-bird (`is_bird = 0`) and `status = 'error'` captures older than `retention.non_bird_days` (default 7) — files, thumbs and rows. `is_bird = 1` rows are never auto-deleted. Logs disk free; warns below 1 GB.
 
 ## Web
 
@@ -186,6 +186,7 @@ margin_minutes = 30
 [classifier]
 model = "models/mobilenet_v2_1.0_224_quant.tflite"
 labels = "models/imagenet_labels.txt"
+bird_classes = "models/imagenet_bird_classes.txt"
 threshold = 0.5
 
 [retention]
@@ -220,7 +221,7 @@ pi-birdy/
 
 ## Deploy
 
-- `deploy/install.sh` (run once on the Pi via ssh): `apt install python3-picamera2 python3-opencv python3-numpy`; `python3 -m venv --system-site-packages .venv`; `pip install -e .` (pulls `tflite-runtime`, `fastapi`, `uvicorn`, `jinja2`, `astral`); copy `birdy.toml.example` → `birdy.toml` if absent; install and enable `deploy/birdy.service`.
+- `deploy/install.sh` (run once on the Pi via ssh): `apt install python3-picamera2 python3-opencv python3-numpy`; `python3 -m venv --system-site-packages .venv`; `pip install -e .` (pulls `ai-edge-litert` — `tflite-runtime` is a fallback import, `fastapi`, `uvicorn`, `jinja2`, `astral`); copy `birdy.toml.example` → `birdy.toml` if absent; install and enable `deploy/birdy.service`.
 - `deploy/birdy.service`: `ExecStart=/home/yassine/pi-birdy/.venv/bin/birdy run`, `WorkingDirectory=/home/yassine/pi-birdy`, `Restart=on-failure`, `RestartSec=10`, `User=yassine`.
 - `deploy/deploy.sh` (from the Mac): `rsync -az --delete --exclude data/ --exclude .venv/ --exclude birdy.toml ./ birdy.local:~/pi-birdy/` then `ssh birdy.local sudo systemctl restart birdy`.
 - Logs: `ssh birdy.local journalctl -u birdy -f`.
@@ -233,7 +234,7 @@ All tests run on the Mac with `pytest`; nothing imports `picamera2` outside `cap
 - `motion.py`: synthetic 320×240 frames — static scene → no trigger; blob inside ROI → trigger with expected score; same blob outside ROI → none; second blob within cooldown → none; stationary blob fades into background after N frames.
 - `daylight.py`: fixed lat/lon and dates → known active/inactive; missing lat/lon → always active.
 - `classifier.py`: real TFLite model against `tests/fixtures/{bird,cat,empty_feeder}.jpg` → `is_bird` as expected; ROI-bbox crop produces a 224×224 input.
-- `store.py`: temp DB — add/update/list/filter; thumbnail created; `purge_non_birds` deletes only old non-birds and their files.
+- `store.py`: temp DB — add/update/list/filter; thumbnail created; `purge_non_birds` deletes only old non-birds and old `error` rows, and their files.
 - `pipeline.py`: fake classifier (raises on one path) → that row becomes `error`, next row `done`; backlog sweep picks up `pending`.
 - `web`: `TestClient` against a seeded temp store — grid renders, filter works, `/status` JSON shape.
 - `capture.py`: manual verification on the Pi (`birdy run` under journalctl; `birdy roi`).
