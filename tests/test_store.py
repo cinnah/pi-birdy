@@ -259,3 +259,15 @@ def test_species_summary_null_confidence_loses(store):
     add_species(store, T0 + timedelta(minutes=1), "Robin", None)  # newer, but no confidence
     (robin,) = store.species_summary()
     assert robin.best_capture_id == scored
+
+
+def test_species_summary_excludes_non_bird_rows(store):
+    add_species(store, T0, "Robin", 0.9, is_bird=False)
+    add_species(store, T0 + timedelta(minutes=1), "Blue Tit", 0.8)
+    assert [r.species for r in store.species_summary()] == ["Blue Tit"]
+
+
+def test_last_species_ignores_non_birds(store):
+    add_species(store, T0, "Robin", 0.9)
+    add_species(store, T0 + timedelta(minutes=5), "Blue Tit", 0.9, is_bird=False)
+    assert store.last_species() == ("Robin", T0)

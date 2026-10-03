@@ -243,12 +243,12 @@ class Store:
         with self._lock:
             groups = self._conn.execute(
                 "SELECT species, COUNT(*) AS n, MIN(captured_at) AS first_seen, MAX(captured_at) AS last_seen"
-                " FROM captures WHERE species IS NOT NULL GROUP BY species ORDER BY last_seen DESC"
+                " FROM captures WHERE species IS NOT NULL AND is_bird = 1 GROUP BY species ORDER BY last_seen DESC"
             ).fetchall()
             out = []
             for g in groups:
                 best = self._conn.execute(
-                    "SELECT id, path, thumb_path FROM captures WHERE species = ?"
+                    "SELECT id, path, thumb_path FROM captures WHERE species = ? AND is_bird = 1"
                     " ORDER BY species_confidence DESC, captured_at DESC LIMIT 1",
                     (g["species"],),
                 ).fetchone()
@@ -268,7 +268,7 @@ class Store:
     def last_species(self) -> tuple[str, datetime] | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT species, captured_at FROM captures WHERE species IS NOT NULL"
+                "SELECT species, captured_at FROM captures WHERE species IS NOT NULL AND is_bird = 1"
                 " ORDER BY captured_at DESC LIMIT 1"
             ).fetchone()
         return None if row is None else (row["species"], _from_db_time(row["captured_at"]))
