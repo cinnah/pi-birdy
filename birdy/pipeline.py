@@ -9,11 +9,15 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from birdy.classifier import Classifier
 from birdy.live import LiveConfig
 from birdy.motion import roi_bbox
 from birdy.store import Capture, Store
+
+if TYPE_CHECKING:
+    from birdy.notify import TelegramNotifier
 
 log = logging.getLogger(__name__)
 
@@ -34,12 +38,14 @@ class Pipeline:
         store: Store,
         classifier: Classifier,
         live: LiveConfig,
+        notifier: "TelegramNotifier | None" = None,
         maxsize: int = 50,
         sweep_interval: float = 300.0,
     ) -> None:
         self._store = store
         self._classifier = classifier
         self._live = live
+        self._notifier = notifier
         self._queue: queue.Queue[MotionEvent] = queue.Queue(maxsize=maxsize)
         self._sweep_interval = sweep_interval
         self._stop = threading.Event()
@@ -65,7 +71,7 @@ class Pipeline:
     def queue_depth(self) -> int:
         return self._queue.qsize()
 
-    def process(self, capture_id: int, path: Path) -> None:
+    def process(self, capture_id: int, path: Path, captured_at: datetime) -> None:
         cfg = self._live.get()
         try:
             pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
@@ -86,6 +92,13 @@ class Pipeline:
                 log.exception("mark_error failed for capture %d; left pending", capture_id)
             return
         log.info("capture %d: bird=%s p=%.2f", capture_id, pred.is_bird, pred.confidence)
+        if self._notifier is not None:
+            try:
+                reason = self._notifier.consider(capture_id, path, pred, captured_at)
+                if reason:
+                    log.info("alert queued for capture %d (%s)", capture_id, reason)
+            except Exception:
+                log.exception("alert decision failed for capture %d", capture_id)
 
     def sweep(self) -> None:
         for c in self._store.pending():
@@ -94,7 +107,7 @@ class Pipeline:
             current = self._store.get(c.id)
             if current is None or current.status != "pending":
                 continue
-            self.process(c.id, self._store.photos_dir / c.path)
+            self.process(c.id, self._store.photos_dir / c.path, c.captured_at)
         # Rows classified before species recognition existed: re-run the (two-stage)
         # classifier so they get a species. Bounded per sweep to keep the Pi responsive,
         # and yields to live events (the remainder drains on the next sweep).
@@ -144,7 +157,7 @@ class Pipeline:
                     if current is None or current.status != "pending":
                         log.debug("capture %d no longer pending; skipping", ev.capture_id)
                     else:
-                        self.process(ev.capture_id, ev.path)
+                        self.process(ev.capture_id, ev.path, ev.captured_at)
                 except Exception:
                     log.exception("processing capture %d failed", ev.capture_id)
             if time.monotonic() >= next_sweep:

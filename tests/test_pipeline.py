@@ -210,7 +210,7 @@ def test_roi_and_threshold_come_from_live_config(store, live, config):
     clf = FakeClassifier()
     p = Pipeline(store, clf, live)
     ev1 = add(store, 0)
-    p.process(ev1.capture_id, ev1.path)
+    p.process(ev1.capture_id, ev1.path, ev1.captured_at)
     assert clf.bboxes[-1] == roi_bbox(config.motion.roi)
     assert clf.thresholds[-1] == 0.5
 
@@ -221,7 +221,7 @@ def test_roi_and_threshold_come_from_live_config(store, live, config):
     )
     live.replace(new)
     ev2 = add(store, 1)
-    p.process(ev2.capture_id, ev2.path)
+    p.process(ev2.capture_id, ev2.path, ev2.captured_at)
     assert clf.bboxes[-1] == roi_bbox(new.motion.roi)
     assert clf.thresholds[-1] == 0.9
 
@@ -315,3 +315,54 @@ def test_backlog_yields_to_queue(store, live):
     p.sweep()  # the pending loop handles live_ev's row; the queue still holds its event
     assert store.get(live_ev.capture_id).status == "done"
     assert len(store.species_backlog()) == 5
+
+
+class FakeNotifier:
+    def __init__(self, raise_exc=None):
+        self.calls = []
+        self.raise_exc = raise_exc
+
+    def consider(self, capture_id, photo_path, pred, captured_at):
+        self.calls.append((capture_id, photo_path, pred.species, captured_at))
+        if self.raise_exc:
+            raise self.raise_exc
+        return "watchlist"
+
+
+def test_live_process_notifies(store, live):
+    n = FakeNotifier()
+    p = Pipeline(store, SpeciesFake(), live, notifier=n)
+    ev = add(store, 0)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert n.calls == [(ev.capture_id, ev.path, "Robin", ev.captured_at)]
+    assert store.get(ev.capture_id).status == "done"
+
+
+def test_notifier_exception_does_not_mark_error(store, live):
+    p = Pipeline(store, SpeciesFake(), live, notifier=FakeNotifier(raise_exc=RuntimeError("boom")))
+    ev = add(store, 0)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert store.get(ev.capture_id).status == "done"
+
+
+def test_backfill_never_notifies(store, live):
+    n = FakeNotifier()
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p = Pipeline(store, SpeciesFake(), live, notifier=n)
+    p.sweep()
+    assert store.get(ev.capture_id).species == "Robin" and n.calls == []
+
+
+def test_queued_event_passes_captured_at(store, live):
+    n = FakeNotifier()
+    p = Pipeline(store, SpeciesFake(), live, notifier=n)
+    p.start()
+    try:
+        ev = add(store, 0)
+        p.submit(ev)
+        assert wait_until(lambda: n.calls)
+        assert n.calls[0][3] == ev.captured_at
+    finally:
+        p.stop()
