@@ -1,6 +1,8 @@
 [Unit]
 Description=Birdy bird feeder camera
-After=network-online.target
+# No RTC on the Pi: wait for NTP so capture timestamps aren't bogus.
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
 
 [Service]
 User=yassine

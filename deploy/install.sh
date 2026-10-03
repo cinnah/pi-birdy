@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # One-time setup on the Pi. Run from the repo root: deploy/install.sh
+# First time: deploy/deploy.sh (syncs, then fails at pip - expected), then
+#   ssh -t yassine@birdy.local 'cd ~/pi-birdy && deploy/install.sh'
+# -t is required: sudo prompts for a password (no blanket NOPASSWD on this Pi).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
