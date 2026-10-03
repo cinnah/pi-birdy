@@ -8,6 +8,8 @@ WorkingDirectory=/home/yassine/pi-birdy
 ExecStart=/home/yassine/pi-birdy/.venv/bin/birdy --config /home/yassine/pi-birdy/birdy.toml run
 Restart=on-failure
 RestartSec=10
+# exit 2 = config error; restarting won't help, wait for a fix + manual restart
+RestartPreventExitStatus=2
 
 [Install]
 WantedBy=multi-user.target
