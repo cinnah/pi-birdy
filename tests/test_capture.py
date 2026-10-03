@@ -83,6 +83,10 @@ def test_run_capture_pins_camera_and_rebuilds_only_when_relevant(live, monkeypat
         cur = live.get()
         live.replace(dataclasses.replace(cur, classifier=dataclasses.replace(cur.classifier, threshold=0.99)))
         assert _wait(lambda: any("v2" in r.message for r in caplog.records))
+        # site.name is cosmetic: must not rebuild (and re-warm) the detector.
+        cur = live.get()
+        live.replace(dataclasses.replace(cur, site=dataclasses.replace(cur.site, name="elsewhere")))
+        assert _wait(lambda: any("v3" in r.message for r in caplog.records))
     finally:
         stop.set()
         t.join(timeout=2.0)
@@ -93,5 +97,52 @@ def test_run_capture_pins_camera_and_rebuilds_only_when_relevant(live, monkeypat
     assert not any("camera session failed" in m for m in messages), messages
     assert "settings applied (v1) (detector rebuilt)" in messages
     assert "settings applied (v2)" in messages
+    assert "settings applied (v3)" in messages
     assert state.state == "capturing"
     assert state.scores and max(state.scores) > 0
+
+
+class FakeGate:
+    """Active only when no site is set, so tests can pause/unpause via lat/lon."""
+
+    def __init__(self, lat, lon, margin_minutes):
+        self.lat = lat
+
+    def is_active(self, now):
+        return self.lat is None
+
+    def next_change(self, now):
+        return None
+
+
+def test_paused_loop_wakes_promptly_on_settings_change(live, monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="birdy.capture")
+
+    @contextmanager
+    def fake_session(cfg):
+        yield object()
+
+    monkeypatch.setattr(capture, "DaylightGate", FakeGate)
+    monkeypatch.setattr(capture, "camera_session", fake_session)
+    monkeypatch.setattr(capture, "lores_grey", lambda picam2, lores_size: np.zeros((240, 320), np.uint8))
+    monkeypatch.setattr(capture, "FRAME_INTERVAL", 0.02)
+    base = live.get()
+    live.replace(dataclasses.replace(base, site=dataclasses.replace(base.site, lat=38.72, lon=-9.14)))
+
+    state = RuntimeState()
+    stop = threading.Event()
+    t = threading.Thread(target=run_capture, args=(live, None, None, state, stop), daemon=True)
+    t.start()
+    try:
+        assert _wait(lambda: state.state == "daylight_paused")
+        cur = live.get()
+        live.replace(dataclasses.replace(cur, site=dataclasses.replace(cur.site, lat=None, lon=None)))
+        assert _wait(lambda: state.state == "capturing", timeout=3.0)  # not GATE_RECHECK (60 s)
+        # ...and pausing again inside a session is immediate too.
+        cur = live.get()
+        live.replace(dataclasses.replace(cur, site=dataclasses.replace(cur.site, lat=38.72, lon=-9.14)))
+        assert _wait(lambda: state.state == "daylight_paused", timeout=3.0)
+    finally:
+        stop.set()
+        t.join(timeout=3.0)
+    assert not t.is_alive()

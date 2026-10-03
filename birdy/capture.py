@@ -87,8 +87,8 @@ def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int) -> None
 
 
 def _tunable_key(cfg: Config) -> tuple:
-    """The config sections the detector and gate are built from."""
-    return (cfg.motion, cfg.site, cfg.daylight)
+    """The config fields the detector and gate are built from (not site.name)."""
+    return (cfg.motion, cfg.site.lat, cfg.site.lon, cfg.daylight)
 
 
 def _build_tunables(cfg: Config, lores_size: tuple[int, int]) -> tuple[MotionDetector, DaylightGate]:
@@ -126,20 +126,22 @@ def run_capture(
     detector, gate = _build_tunables(config, camera.lores_size)
     built_from = _tunable_key(config)
 
-    def refresh_tunables() -> None:
+    def refresh_tunables() -> bool:
+        """Pick up a settings change; True if the detector and gate were rebuilt."""
         nonlocal version, detector, gate, built_from
         if live.version == version:
-            return
+            return False
         version = live.version
         cfg = live.get()
         key = _tunable_key(cfg)
         if key == built_from:
-            # Only classifier/retention/etc. changed: keep the warmed-up detector.
+            # Only classifier/retention/site name etc. changed: keep the warmed-up detector.
             log.info("settings applied (v%d)", version)
-            return
+            return False
         detector, gate = _build_tunables(cfg, camera.lores_size)
         built_from = key
         log.info("settings applied (v%d) (detector rebuilt)", version)
+        return True
 
     while not stop.is_set():
         refresh_tunables()
@@ -148,7 +150,10 @@ def run_capture(
             if not paused_logged:
                 log.info("outside daylight window; next change %s", gate.next_change(datetime.now().astimezone()))
                 paused_logged = True
-            stop.wait(GATE_RECHECK)
+            # Wait in short steps so a lat/lon/margin change un-pauses within ~1 s.
+            deadline = time.monotonic() + GATE_RECHECK
+            while not stop.is_set() and live.version == version and time.monotonic() < deadline:
+                stop.wait(min(1.0, max(0.0, deadline - time.monotonic())))
             continue
         if paused_logged:
             log.info("daylight window open; starting camera")
@@ -168,7 +173,8 @@ def run_capture(
                 last_gate_check = time.monotonic()
                 consecutive_errors = 0
                 while not stop.is_set():
-                    refresh_tunables()
+                    if refresh_tunables():
+                        last_gate_check = float("-inf")  # new gate: re-check it now, not in up to 60 s
                     if time.monotonic() - last_gate_check > GATE_RECHECK:
                         last_gate_check = time.monotonic()
                         if not gate.is_active(datetime.now().astimezone()):

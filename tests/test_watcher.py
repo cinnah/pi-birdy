@@ -26,6 +26,16 @@ def test_change_reloads(config_path, live):
     assert live.get().motion.min_area == 321
 
 
+def test_same_mtime_different_size_reloads(config_path, live):
+    w = ConfigWatcher(config_path, live)
+    st = config_path.stat()
+    config_path.write_text(config_path.read_text().replace("[motion]", "[motion]\nmin_area = 321"))
+    os.utime(config_path, ns=(st.st_atime_ns, st.st_mtime_ns))  # rewrite within mtime granularity
+    assert config_path.stat().st_mtime_ns == st.st_mtime_ns
+    assert w.check_once() is True
+    assert live.get().motion.min_area == 321
+
+
 def test_touch_without_content_change_does_not_reload(config_path, live):
     w = ConfigWatcher(config_path, live)
     bump_mtime(config_path)

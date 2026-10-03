@@ -24,22 +24,25 @@ class ConfigWatcher:
         self._path = Path(path)
         self._live = live
         self._interval = interval
-        self._last_mtime_ns = self._mtime_ns()
+        self._last_sig = self._signature()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="config-watcher", daemon=True)
 
-    def _mtime_ns(self) -> int | None:
+    def _signature(self) -> tuple[int, int, int] | None:
+        """(mtime, size, inode): catches rewrites that land within the filesystem's mtime granularity
+        and atomic replaces (new inode) that keep the old mtime."""
         try:
-            return self._path.stat().st_mtime_ns
+            st = self._path.stat()
         except FileNotFoundError:
             return None
+        return (st.st_mtime_ns, st.st_size, st.st_ino)
 
     def check_once(self) -> bool:
         """Reload if the file changed and differs from the running config. Returns True on reload."""
-        mtime = self._mtime_ns()
-        if mtime is None or mtime == self._last_mtime_ns:
+        sig = self._signature()
+        if sig is None or sig == self._last_sig:
             return False
-        self._last_mtime_ns = mtime  # whatever happens, don't re-process this mtime
+        self._last_sig = sig  # whatever happens, don't re-process this version of the file
         try:
             cfg = load_config(self._path)
         except (ConfigError, tomllib.TOMLDecodeError, OSError) as e:
