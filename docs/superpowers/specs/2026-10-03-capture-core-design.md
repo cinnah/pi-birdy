@@ -123,7 +123,7 @@ Sub-project 2 will add a species classifier behind the same interface (planned: 
 
 ## Store
 
-SQLite (stdlib `sqlite3`), file `data/birdy.db`, WAL mode so the web reader never blocks the writer. One `Store` instance holds a single write connection (`check_same_thread=False`) guarded by a lock; capture, pipeline and retention threads all write through it. The web app uses its own read-only connection.
+SQLite (stdlib `sqlite3`), file `data/birdy.db`, WAL mode so the web reader never blocks the writer. One `Store` instance holds a single write connection (`check_same_thread=False`) guarded by a lock; capture, pipeline and retention threads all write through it, and the web thread reads through the same locked connection (reads are short; a second connection buys nothing at this scale).
 
 ```sql
 CREATE TABLE site (
