@@ -66,7 +66,7 @@ version = "0.1.0"
 description = "Bird feeder camera for Raspberry Pi"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy<2; platform_machine == 'aarch64'",
+    "numpy",
     "ai-edge-litert>=2.0",
     "astral>=3.2",
     "fastapi>=0.110",
@@ -95,7 +95,7 @@ birdy = ["web/templates/*.html"]
 testpaths = ["tests"]
 ```
 
-Why the `numpy<2` marker: on the Pi, `cv2` comes from apt and is built against NumPy 1.x; the venv uses `--system-site-packages`, so this pin stops pip from installing a NumPy 2 that would break `import cv2`. On the Mac anything goes.
+NumPy is deliberately unpinned: on the Pi (Trixie, NumPy 2.2 from apt) the venv uses `--system-site-packages`, and a pip-installed different NumPy would break the apt `cv2`.
 
 - [ ] **Step 3: Create the package and a smoke test**
 
@@ -2619,7 +2619,7 @@ Run: `chmod +x deploy/install.sh deploy/deploy.sh`
    with
    `- \`captured_at\` is stored as **UTC** ISO 8601 (so string \`<\` comparisons are chronological) and converted to local time in the template. Photo *paths* use local time.`
 3. In **Conventions and gotchas**, after the `--system-site-packages` bullet, add:
-   `- \`pyproject.toml\` pins \`numpy<2\` on aarch64 only: the apt \`cv2\` is built against NumPy 1.x and a pip-installed NumPy 2 breaks \`import cv2\`. \`opencv-python-headless\` is a dev-only extra for the Mac.`
+   `- The Pi runs Raspberry Pi OS Trixie (Debian 13, Python 3.13, NumPy 2.x, OpenCV 4.10 from apt). Never pin \`numpy\` in \`pyproject.toml\`: with \`--system-site-packages\` the apt NumPy must satisfy it, or pip installs a second NumPy that breaks the apt \`cv2\`. \`opencv-python-headless\` is a dev-only extra for the Mac.`
 
 - [ ] **Step 5: Commit**
 
@@ -2640,7 +2640,7 @@ Manual steps; the user runs interactive ones with the `!` prefix.
 ssh-copy-id yassine@birdy.local
 ssh yassine@birdy.local 'echo ok && python3 --version && libcamera-hello --list-cameras 2>/dev/null | head -5 || rpicam-hello --list-cameras | head -5'
 ```
-Expected: `ok`, `Python 3.11.x`, camera listed as `imx219`.
+Expected: `ok`, `Python 3.13.x` (Trixie), camera listed as `imx219`.
 
 - [ ] **Step 2: Initial sync + install**
 
