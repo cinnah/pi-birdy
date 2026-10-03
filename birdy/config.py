@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +78,7 @@ class WebConfig:
 @dataclass(frozen=True)
 class TelegramConfig:
     enabled: bool              # restart-only
-    bot_token: str             # restart-only, secret
+    bot_token: str = field(repr=False)  # restart-only, secret
     chat_id: str               # restart-only
     base_url: str              # restart-only; link in the alert caption
     watchlist: tuple[str, ...] # live
@@ -231,6 +231,8 @@ def load_config(path: Path) -> Config:
     tg = raw.get("telegram", {})
     tg_enabled = _bool(tg, "telegram", "enabled", False)
     tg_token = _str(tg, "telegram", "bot_token", "")
+    if isinstance(tg.get("chat_id"), int) and not isinstance(tg.get("chat_id"), bool):
+        tg = {**tg, "chat_id": str(tg["chat_id"])}  # allow an unquoted numeric chat id
     tg_chat = _str(tg, "telegram", "chat_id", "")
     tg_base = _str(tg, "telegram", "base_url", "http://birdy.local:8000").rstrip("/")
     tg_watch = _str_list(tg, "telegram", "watchlist")

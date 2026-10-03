@@ -144,7 +144,8 @@ def save_settings(path: Path, current: Config, patch: SettingsPatch) -> Config:
     data = apply_patch(config_to_dict(current), patch)
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
-        with open(tmp, "w") as f:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds the bot token
+        with os.fdopen(fd, "w") as f:
             f.write(HEADER + tomli_w.dumps(data))
             f.flush()
             os.fsync(f.fileno())

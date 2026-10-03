@@ -14,7 +14,7 @@ sudo apt-get install -y python3-picamera2 python3-opencv python3-numpy python3-v
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
 
-[ -f birdy.toml ] || { cp birdy.toml.example birdy.toml; echo "created birdy.toml - edit site/motion settings"; }
+[ -f birdy.toml ] || { cp birdy.toml.example birdy.toml; chmod 600 birdy.toml; echo "created birdy.toml - edit site/motion settings"; }
 mkdir -p data
 
 sudo cp deploy/birdy.service /etc/systemd/system/birdy.service

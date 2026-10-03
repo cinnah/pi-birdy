@@ -319,3 +319,14 @@ def test_parse_form_watchlist_textarea_and_checkbox():
 def test_parse_form_cooldown_minutes_int():
     with pytest.raises(ConfigError, match="telegram.cooldown_minutes"):
         parse_settings_form({**FORM, "cooldown_minutes": "x"})
+
+
+def test_save_creates_private_file(config_path, config):
+    config_path.unlink()
+    save_settings(config_path, config, default_patch(config))
+    assert (config_path.stat().st_mode & 0o777) == 0o600
+
+
+def test_parse_form_watchlist_crlf():
+    p = parse_settings_form({**FORM, "watchlist": "Hoopoe\r\n\r\nBlue Tit\r\n"})
+    assert p.watchlist == ("Hoopoe", "Blue Tit")

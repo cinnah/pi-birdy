@@ -190,3 +190,19 @@ def test_telegram_cooldown_non_negative(tmp_path):
 def test_telegram_enabled_must_be_bool(tmp_path):
     with pytest.raises(ConfigError, match="telegram.enabled"):
         load_config(write(tmp_path, MINIMAL + '\n[telegram]\nenabled = "yes"\n'))
+
+
+def test_telegram_token_hidden_from_repr(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nbot_token = "SECRET"\n'))
+    assert cfg.telegram.bot_token == "SECRET"
+    assert "SECRET" not in repr(cfg)
+
+
+def test_telegram_chat_id_accepts_int(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + "\n[telegram]\nchat_id = 1115872433\n"))
+    assert cfg.telegram.chat_id == "1115872433"
+
+
+def test_telegram_base_url_trailing_slash_stripped(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nbase_url = "http://example.test/"\n'))
+    assert cfg.telegram.base_url == "http://example.test"
