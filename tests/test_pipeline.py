@@ -268,3 +268,50 @@ def test_backlog_respects_stop(store, live):
     p._stop.set()
     p.sweep()
     assert len(store.species_backlog()) == 2
+
+
+def classified_unchecked(store, n, is_bird=True):
+    evs = [add(store, i) for i in range(n)]
+    for ev in evs:
+        store.update_classification(ev.capture_id, is_bird, 0.9, None, None)
+    unchecked(store, [ev.capture_id for ev in evs])
+    return evs
+
+
+def test_backlog_limit_per_sweep(store, live):
+    from birdy.pipeline import SPECIES_BACKLOG_PER_SWEEP
+
+    evs = classified_unchecked(store, SPECIES_BACKLOG_PER_SWEEP + 10)
+    Pipeline(store, SpeciesFake(), live).sweep()
+    left = store.species_backlog(limit=1000)
+    assert sorted(c.id for c in left) == sorted(ev.capture_id for ev in evs[:10])
+
+
+class NotBirdFake(FakeClassifier):
+    def classify(self, image_path, roi_bbox, threshold=None):
+        super().classify(image_path, roi_bbox, threshold)
+        return Prediction(is_bird=False, confidence=0.2)
+
+
+def test_backlog_never_demotes(store, live):
+    (ev,) = classified_unchecked(store, 1, is_bird=True)
+    Pipeline(store, NotBirdFake(), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.confidence == 0.9 and c.species_checked is True
+
+
+def test_backlog_rescues_non_bird(store, live):
+    (ev,) = classified_unchecked(store, 1, is_bird=False)
+    Pipeline(store, SpeciesFake(), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.species == "Robin"
+
+
+def test_backlog_yields_to_queue(store, live):
+    classified_unchecked(store, 5)
+    p = Pipeline(store, SpeciesFake(), live)
+    live_ev = add(store, 30)  # pending row with a queued event
+    assert p.submit(live_ev)
+    p.sweep()  # the pending loop handles live_ev's row; the queue still holds its event
+    assert store.get(live_ev.capture_id).status == "done"
+    assert len(store.species_backlog()) == 5

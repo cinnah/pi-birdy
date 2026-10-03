@@ -13,7 +13,7 @@ from pathlib import Path
 from birdy.classifier import Classifier
 from birdy.live import LiveConfig
 from birdy.motion import roi_bbox
-from birdy.store import Store
+from birdy.store import Capture, Store
 
 log = logging.getLogger(__name__)
 
@@ -96,26 +96,39 @@ class Pipeline:
                 continue
             self.process(c.id, self._store.photos_dir / c.path)
         # Rows classified before species recognition existed: re-run the (two-stage)
-        # classifier so they get a species. Bounded per sweep to keep the Pi responsive.
+        # classifier so they get a species. Bounded per sweep to keep the Pi responsive,
+        # and yields to live events (the remainder drains on the next sweep).
+        processed = with_species = rescued = 0
         for c in self._store.species_backlog(limit=SPECIES_BACKLOG_PER_SWEEP):
-            if self._stop.is_set():
+            if self._stop.is_set() or self._queue.qsize():
                 break
-            self._backfill_species(c.id, self._store.photos_dir / c.path)
+            got_species, was_rescued = self._backfill_species(c)
+            processed += 1
+            with_species += got_species
+            rescued += was_rescued
+        if processed:
+            remaining = len(self._store.species_backlog(limit=10_000))
+            log.info("backfill: %d rows, %d with species, %d rescued, %d remaining", processed, with_species, rescued, remaining)
 
-    def _backfill_species(self, capture_id: int, path: Path) -> None:
+    def _backfill_species(self, c: Capture) -> tuple[bool, bool]:
+        """Re-classify an already-classified row; returns (got_species, rescued)."""
         cfg = self._live.get()
+        path = self._store.photos_dir / c.path
         try:
             pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
-            self._store.update_classification(capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence)
-            if pred.species:
-                log.info("backfill capture %d: %s %.2f", capture_id, pred.species, pred.species_confidence)
+            # Never demote: a row already judged a bird stays a bird (with its old confidence).
+            is_bird = bool(c.is_bird) or pred.is_bird
+            confidence = pred.confidence if pred.is_bird else c.confidence
+            self._store.update_classification(c.id, is_bird, confidence, pred.species, pred.species_confidence)
+            return bool(pred.species), (not c.is_bird) and pred.is_bird
         except Exception:
             # Unlike live processing, a failure here must not flip a `done` row to `error`.
-            log.exception("species backfill failed for capture %d; marking checked", capture_id)
+            log.exception("species backfill failed for capture %d; marking checked", c.id)
             try:
-                self._store.mark_species_checked(capture_id)
+                self._store.mark_species_checked(c.id)
             except Exception:
-                log.exception("mark_species_checked failed for capture %d", capture_id)
+                log.exception("mark_species_checked failed for capture %d", c.id)
+            return False, False
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick
