@@ -104,3 +104,28 @@ def test_periodic_sweep_runs(store):
         assert wait_until(lambda: store.pending() == [])
     finally:
         p.stop()
+
+
+def test_store_error_does_not_kill_worker(store, monkeypatch):
+    real_update = store.update_classification
+    calls = {"n": 0}
+
+    def flaky_update(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("db write failed")
+        return real_update(*args, **kwargs)
+
+    monkeypatch.setattr(store, "update_classification", flaky_update)
+    p = Pipeline(store, FakeClassifier(), roi_bbox=None)
+    p.start()
+    try:
+        first = add(store, 0)
+        second = add(store, 1)
+        p.submit(first)
+        p.submit(second)
+        assert wait_until(lambda: store.get(second.capture_id).status == "done")
+        assert store.get(first.capture_id).status == "error"
+        assert p._thread.is_alive()
+    finally:
+        p.stop()

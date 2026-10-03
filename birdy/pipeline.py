@@ -67,11 +67,22 @@ class Pipeline:
             log.exception("classification failed for %s", path)
             self._store.mark_error(capture_id)
             return
-        self._store.update_classification(capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence)
+        try:
+            self._store.update_classification(capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence)
+        except Exception:
+            log.exception("storing classification failed for capture %d", capture_id)
+            try:
+                self._store.mark_error(capture_id)
+            except Exception:
+                log.exception("mark_error failed for capture %d; left pending", capture_id)
+            return
         log.info("capture %d: bird=%s p=%.2f", capture_id, pred.is_bird, pred.confidence)
 
     def sweep(self) -> None:
         for c in self._store.pending():
+            current = self._store.get(c.id)
+            if current is None or current.status != "pending":
+                continue
             self.process(c.id, self._store.photos_dir / c.path)
 
     def _run(self) -> None:
@@ -82,7 +93,10 @@ class Pipeline:
             except queue.Empty:
                 ev = None
             if ev is not None:
-                self.process(ev.capture_id, ev.path)
+                try:
+                    self.process(ev.capture_id, ev.path)
+                except Exception:
+                    log.exception("processing capture %d failed", ev.capture_id)
             if time.monotonic() >= next_sweep:
                 try:
                     self.sweep()
