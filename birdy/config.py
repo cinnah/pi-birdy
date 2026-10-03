@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,7 +80,7 @@ class Config:
 
 
 def _size(v: Any, name: str) -> tuple[int, int]:
-    if not (isinstance(v, list) and len(v) == 2 and all(isinstance(i, int) for i in v)):
+    if not (isinstance(v, list) and len(v) == 2 and all(isinstance(i, int) and not isinstance(i, bool) for i in v)):
         raise ConfigError(f"{name} must be [width, height]")
     return (v[0], v[1])
 
@@ -89,7 +90,7 @@ def _roi(v: Any) -> tuple[Point, ...]:
         raise ConfigError("motion.roi must be a list of at least 3 [x, y] points")
     pts = []
     for p in v:
-        if not (isinstance(p, list) and len(p) == 2 and all(isinstance(i, int) for i in p)):
+        if not (isinstance(p, list) and len(p) == 2 and all(isinstance(i, int) and not isinstance(i, bool) for i in p)):
             raise ConfigError("motion.roi points must be [x, y] integers")
         pts.append((p[0], p[1]))
     return tuple(pts)
@@ -105,9 +106,12 @@ def _num(section: dict[str, Any], name: str, key: str, default: Any, cast: type)
     if isinstance(v, bool):
         raise ConfigError(f"{name}.{key} must be a {cast.__name__}")
     try:
-        return cast(v)
+        v = cast(v)
     except (TypeError, ValueError):
         raise ConfigError(f"{name}.{key} must be a {cast.__name__}") from None
+    if cast is float and not math.isfinite(v):
+        raise ConfigError(f"{name}.{key} must be a finite number")
+    return v
 
 
 def _path(base: Path, section: dict[str, Any], name: str, key: str, default: str) -> Path:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -104,19 +105,28 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
 def save_settings(path: Path, current: Config, patch: SettingsPatch) -> Config:
     """Validate `current` + `patch`, write `path` atomically, return the new Config.
 
-    On ConfigError nothing is written and the temp file is removed.
+    On any failure the original file is untouched and the temp file is removed.
     """
-    path = Path(path)
+    # Resolve so a symlinked birdy.toml has its target rewritten, not the link replaced.
+    path = Path(path).resolve()
     data = apply_patch(config_to_dict(current), patch)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(HEADER + tomli_w.dumps(data))
     try:
+        with open(tmp, "w") as f:
+            f.write(HEADER + tomli_w.dumps(data))
+            f.flush()
+            os.fsync(f.fileno())
+        if path.exists():
+            shutil.copymode(path, tmp)
         new = load_config(tmp)
-    except ConfigError:
+        os.replace(tmp, path)
+    except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    os.replace(tmp, path)
     return new
+
+
+_TYPE_WORDS = {int: "an integer", float: "a number"}
 
 
 def _num(form: Mapping[str, str], field: str, cast: type, optional: bool = False):
@@ -130,7 +140,7 @@ def _num(form: Mapping[str, str], field: str, cast: type, optional: bool = False
         # int("7.5") raises, so fractional input for an int field is rejected rather than truncated.
         return cast(raw.strip())
     except ValueError:
-        raise ConfigError(f"{key} must be a {cast.__name__}") from None
+        raise ConfigError(f"{key} must be {_TYPE_WORDS[cast]}") from None
 
 
 def _roi(form: Mapping[str, str]) -> tuple[Point, ...]:

@@ -132,3 +132,128 @@ def test_parse_form_missing_field():
     del form["min_area"]
     with pytest.raises(ConfigError, match="motion.min_area"):
         parse_settings_form(form)
+
+
+FULL_TOML = """
+[site]
+name = "full"
+lat = 38.72
+lon = -9.14
+
+[camera]
+main_size = [1920, 1080]
+lores_size = [640, 480]
+jpeg_quality = 80
+
+[motion]
+roi = [[10, 20], [600, 20], [600, 400]]
+pixel_threshold = 31
+min_area = 222
+background_alpha = 0.2
+cooldown_seconds = 7.5
+
+[daylight]
+margin_minutes = 45
+
+[classifier]
+model = "m/model.tflite"
+labels = "m/labels.txt"
+bird_classes = "m/birds.txt"
+threshold = 0.65
+
+[retention]
+non_bird_days = 14
+
+[storage]
+data_dir = "store"
+
+[web]
+host = "127.0.0.1"
+port = 9001
+"""
+
+
+def test_full_config_roundtrip(tmp_path):
+    from birdy.config import Config
+
+    path = tmp_path / "birdy.toml"
+    path.write_text(FULL_TOML)
+    cfg = load_config(path)
+    # sanity: every section really differs from the defaults
+    defaults = load_config(_write_minimal(tmp_path / "min.toml"))
+    for f in dataclasses.fields(Config):
+        assert getattr(cfg, f.name) != getattr(defaults, f.name), f.name
+    save_settings(path, cfg, default_patch(cfg))
+    assert load_config(path) == cfg
+
+
+def _write_minimal(p: Path) -> Path:
+    p.write_text('[site]\nname = "full"\n[motion]\nroi = [[0, 0], [1, 0], [1, 1]]\n')
+    return p
+
+
+def test_config_to_dict_covers_every_field(tmp_path):
+    from birdy.config import Config
+
+    path = tmp_path / "birdy.toml"
+    path.write_text(FULL_TOML)
+    for cfg in (load_config(path), load_config(_write_minimal(tmp_path / "min.toml"))):
+        d = config_to_dict(cfg)
+        for section in dataclasses.fields(Config):
+            sub = getattr(cfg, section.name)
+            for f in dataclasses.fields(sub):
+                if getattr(sub, f.name) is None:
+                    assert f.name not in d[section.name]
+                else:
+                    assert f.name in d[section.name], f"{section.name}.{f.name}"
+
+
+def test_save_cleans_tmp_on_oserror(config_path, config, monkeypatch):
+    import birdy.settings
+
+    def boom(path):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(birdy.settings, "load_config", boom)
+    before = config_path.read_bytes()
+    with pytest.raises(OSError):
+        save_settings(config_path, config, default_patch(config, min_area=1))
+    assert config_path.read_bytes() == before
+    assert not config_path.with_suffix(".toml.tmp").exists()
+
+
+def test_save_follows_symlink(tmp_path, config):
+    real = tmp_path / "real" / "birdy.toml"
+    real.parent.mkdir()
+    real.write_text("placeholder")
+    link = tmp_path / "birdy-link.toml"
+    link.symlink_to(real)
+    save_settings(link, config, default_patch(config, min_area=5))
+    assert link.is_symlink()
+    assert load_config(real).motion.min_area == 5
+
+
+def test_save_preserves_file_mode(config_path, config):
+    config_path.chmod(0o640)
+    save_settings(config_path, config, default_patch(config, min_area=5))
+    assert config_path.stat().st_mode & 0o777 == 0o640
+
+
+def test_parse_form_strips_whitespace():
+    p = parse_settings_form({**FORM, "non_bird_days": " 7 ", "background_alpha": " 0.1 "})
+    assert p.non_bird_days == 7 and p.background_alpha == 0.1
+
+
+def test_parse_form_error_wording():
+    with pytest.raises(ConfigError, match="motion.min_area must be an integer"):
+        parse_settings_form({**FORM, "min_area": "abc"})
+    with pytest.raises(ConfigError, match="site.lat must be a number"):
+        parse_settings_form({**FORM, "lat": "north"})
+
+
+def test_parse_form_rejects_inf(config_path, config):
+    patch = parse_settings_form({**FORM, "cooldown_seconds": "inf"})
+    before = config_path.read_bytes()
+    with pytest.raises(ConfigError, match="motion.cooldown_seconds"):
+        save_settings(config_path, config, patch)
+    assert config_path.read_bytes() == before

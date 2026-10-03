@@ -118,3 +118,22 @@ def test_example_config_loads():
     cfg = load_config(Path(__file__).resolve().parents[1] / "birdy.toml.example")
     assert cfg.site.name == "home"
     assert len(cfg.motion.roi) == 4
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan"])
+def test_float_must_be_finite(tmp_path, value):
+    p = write(tmp_path, MINIMAL.replace("[motion]", f"[motion]\ncooldown_seconds = {value}"))
+    with pytest.raises(ConfigError, match="motion.cooldown_seconds must be a finite number"):
+        load_config(p)
+
+
+def test_roi_rejects_booleans(tmp_path):
+    p = write(tmp_path, '[site]\nname = "t"\n[motion]\nroi = [[true, 0], [10, 0], [10, 10]]\n')
+    with pytest.raises(ConfigError, match="motion.roi"):
+        load_config(p)
+
+
+def test_size_rejects_booleans(tmp_path):
+    p = write(tmp_path, MINIMAL + "\n[camera]\nlores_size = [true, 240]\n")
+    with pytest.raises(ConfigError, match="camera.lores_size"):
+        load_config(p)
