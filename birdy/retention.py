@@ -6,6 +6,7 @@ import logging
 import threading
 from datetime import datetime
 
+from birdy.live import LiveConfig
 from birdy.store import Store
 
 log = logging.getLogger(__name__)
@@ -23,9 +24,9 @@ def run_once(store: Store, non_bird_days: int, now: datetime | None = None) -> i
 
 
 class RetentionJob:
-    def __init__(self, store: Store, non_bird_days: int, interval: float = 3600.0) -> None:
+    def __init__(self, store: Store, live: LiveConfig, interval: float = 3600.0) -> None:
         self._store = store
-        self._days = non_bird_days
+        self._live = live
         self._interval = interval
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="retention", daemon=True)
@@ -40,6 +41,6 @@ class RetentionJob:
     def _run(self) -> None:
         while not self._stop.wait(self._interval):
             try:
-                run_once(self._store, self._days)
+                run_once(self._store, self._live.get().retention.non_bird_days)
             except Exception:
                 log.exception("retention run failed")

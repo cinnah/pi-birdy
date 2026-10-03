@@ -42,9 +42,25 @@ def test_low_disk_warns(store, caplog, monkeypatch):
     assert "low disk" in caplog.text
 
 
-def test_job_thread_runs_periodically(store):
+def test_job_thread_runs_periodically(store, live):
     add_non_bird(store, T0 - timedelta(days=10))
-    job = RetentionJob(store, non_bird_days=7, interval=0.1)
+    job = RetentionJob(store, live, interval=0.1)
+    job.start()
+    try:
+        end = time.monotonic() + 3
+        while time.monotonic() < end and store.count("all") != 0:
+            time.sleep(0.02)
+        assert store.count("all") == 0
+    finally:
+        job.stop()
+
+
+def test_job_uses_current_days(store, live, config):
+    import dataclasses
+
+    add_non_bird(store, T0 - timedelta(days=3))  # younger than the default 7 days
+    live.replace(dataclasses.replace(config, retention=dataclasses.replace(config.retention, non_bird_days=1)))
+    job = RetentionJob(store, live, interval=0.1)
     job.start()
     try:
         end = time.monotonic() + 3
