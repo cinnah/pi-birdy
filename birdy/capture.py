@@ -12,6 +12,7 @@ import numpy as np
 
 from birdy.config import Config
 from birdy.daylight import DaylightGate
+from birdy.live import LiveConfig
 from birdy.motion import MotionDetector
 from birdy.pipeline import MotionEvent, Pipeline
 from birdy.state import RuntimeState
@@ -84,17 +85,44 @@ def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int) -> None
     log.info("captured %s (motion %d)", rel_path, score)
 
 
+def _build_tunables(cfg: Config) -> tuple[MotionDetector, DaylightGate]:
+    # MotionDetector's default warmup_frames (10) suppresses triggers while
+    # auto-exposure settles after the camera session starts, and again for ~1 s
+    # after a settings change rebuilds the detector.
+    detector = MotionDetector(
+        frame_size=cfg.camera.lores_size,
+        roi=cfg.motion.roi,
+        pixel_threshold=cfg.motion.pixel_threshold,
+        min_area=cfg.motion.min_area,
+        background_alpha=cfg.motion.background_alpha,
+        cooldown_seconds=cfg.motion.cooldown_seconds,
+    )
+    gate = DaylightGate(cfg.site.lat, cfg.site.lon, cfg.daylight.margin_minutes)
+    return detector, gate
+
+
 def run_capture(
-    config: Config,
+    live: LiveConfig,
     store: Store,
     pipeline: Pipeline,
     state: RuntimeState,
-    gate: DaylightGate,
     stop: threading.Event,
 ) -> None:
     global _low_disk_warned
     paused_logged = False
+    version = live.version
+    config = live.get()  # camera settings are read once per session
+    detector, gate = _build_tunables(config)
+
+    def refresh_tunables() -> None:
+        nonlocal version, detector, gate
+        if live.version != version:
+            version = live.version
+            detector, gate = _build_tunables(live.get())
+            log.info("settings applied (v%d)", version)
+
     while not stop.is_set():
+        refresh_tunables()
         if not gate.is_active(datetime.now().astimezone()):
             state.update(state="daylight_paused", motion_score=0)
             if not paused_logged:
@@ -106,16 +134,11 @@ def run_capture(
             log.info("daylight window open; starting camera")
             paused_logged = False
 
-        # MotionDetector's default warmup_frames (10) suppresses triggers while
-        # auto-exposure settles after the camera session starts.
-        detector = MotionDetector(
-            frame_size=config.camera.lores_size,
-            roi=config.motion.roi,
-            pixel_threshold=config.motion.pixel_threshold,
-            min_area=config.motion.min_area,
-            background_alpha=config.motion.background_alpha,
-            cooldown_seconds=config.motion.cooldown_seconds,
-        )
+        # Read version before the snapshot: a replace() landing between the two
+        # reads then triggers a (redundant) rebuild rather than being skipped.
+        version = live.version
+        config = live.get()
+        detector, gate = _build_tunables(config)
         try:
             with camera_session(config) as picam2:
                 state.update(state="capturing")
@@ -123,6 +146,7 @@ def run_capture(
                 last_gate_check = time.monotonic()
                 consecutive_errors = 0
                 while not stop.is_set():
+                    refresh_tunables()
                     if time.monotonic() - last_gate_check > GATE_RECHECK:
                         last_gate_check = time.monotonic()
                         if not gate.is_active(datetime.now().astimezone()):

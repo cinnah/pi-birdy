@@ -13,7 +13,6 @@ from pathlib import Path
 
 from birdy.classifier import ImageNetBirdClassifier
 from birdy.config import Config, ConfigError, load_config
-from birdy.motion import roi_bbox
 from birdy.store import Store
 
 log = logging.getLogger("birdy")
@@ -44,26 +43,31 @@ def _classifier(config: Config) -> ImageNetBirdClassifier:
     )
 
 
-def cmd_run(config: Config) -> int:
+def cmd_run(config: Config, config_path: Path) -> int:
     import uvicorn
 
     from birdy.capture import run_capture
-    from birdy.daylight import DaylightGate
+    from birdy.live import LiveConfig
     from birdy.pipeline import Pipeline
     from birdy.retention import RetentionJob
     from birdy.state import RuntimeState
+    from birdy.watcher import ConfigWatcher
     from birdy.web.app import create_app
 
+    live = LiveConfig(config)
     store = Store(config.storage.data_dir)
+    # Startup config only: site name isn't live-editable and lat/lon in the DB are informational.
     store.set_site(config.site.name, config.site.lat, config.site.lon)
     state = RuntimeState()
 
-    pipeline = Pipeline(store, _classifier(config), roi_bbox(config.motion.roi))
+    pipeline = Pipeline(store, _classifier(config), live)
     pipeline.start()
-    retention = RetentionJob(store, config.retention.non_bird_days)
+    retention = RetentionJob(store, live)
     retention.start()
+    watcher = ConfigWatcher(config_path, live)
+    watcher.start()
 
-    app = create_app(store, state, config.motion.roi, queue_depth=pipeline.queue_depth)
+    app = create_app(store, state, live, config_path, queue_depth=pipeline.queue_depth)
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
     web_thread = threading.Thread(target=server.run, name="web", daemon=True)
     web_thread.start()
@@ -72,10 +76,9 @@ def cmd_run(config: Config) -> int:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
 
-    gate = DaylightGate(config.site.lat, config.site.lon, config.daylight.margin_minutes)
     log.info(
         "birdy starting: site=%s daylight_gate=%s web=%s:%d",
-        config.site.name, gate.enabled, config.web.host, config.web.port,
+        config.site.name, config.site.lat is not None, config.web.host, config.web.port,
     )
     try:
         # If the port is taken, uvicorn sys.exit(1)s inside its thread; without this
@@ -87,13 +90,14 @@ def cmd_run(config: Config) -> int:
         if not server.started:
             log.error("web server failed to start on %s:%d", config.web.host, config.web.port)
             return 1
-        run_capture(config, store, pipeline, state, gate, stop)
+        run_capture(live, store, pipeline, state, stop)
         return 0
     except Exception:
         # capture.py already logged the traceback via log.exception.
         return 1
     finally:
         server.should_exit = True
+        watcher.stop()
         pipeline.stop()
         retention.stop()
         store.close()
@@ -158,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"config error: {args.config}: {e}", file=sys.stderr)
         return 2
     if args.command == "run":
-        return cmd_run(config)
+        return cmd_run(config, Path(args.config))
     if args.command == "roi":
         return cmd_roi(config, args.out)
     if args.command == "classify":

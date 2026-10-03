@@ -96,3 +96,23 @@ def test_missing_config_exits_2(tmp_path):
     assert proc.returncode == 2
     assert "config error" in proc.stderr
     assert "Traceback" not in proc.stderr
+
+
+def test_run_wires_live_config_and_exits_without_camera(tmp_path):
+    """On the Mac picamera2 is missing: `run` must start everything, then exit 1 cleanly."""
+    if not (ROOT / "models" / "mobilenet_v2_1.0_224_quant.tflite").exists():
+        pytest.skip("model missing")
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text(
+        '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n[storage]\ndata_dir = "data"\n[web]\nport = 8791\n'
+        f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
+        f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "birdy.cli", "--config", str(cfg), "run"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 1, proc.stderr
+    assert "birdy starting" in proc.stderr
+    assert "picamera2" in proc.stderr
+    assert "Traceback" not in proc.stderr.split("camera session failed")[0]  # no errors before the expected one
