@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Two public-domain/CC photos used only by the classifier integration test.
+# `blue_tit.jpg` is a crop of a real Pi capture (committed, no download).
 set -euo pipefail
 cd "$(dirname "$0")"
 UA="birdy-tests/0.1 (github.com; contact via repo)"

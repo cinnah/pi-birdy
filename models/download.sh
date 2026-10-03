@@ -10,4 +10,8 @@ cp "$tmp/mobilenet_v2_1.0_224_quant.tflite" .
 curl -sSL -o imagenet_labels.txt \
   https://raw.githubusercontent.com/tensorflow/tensorflow/v2.15.0/tensorflow/lite/java/demo/app/src/main/assets/labels_mobilenet_quant_v1_224.txt
 rm -rf "$tmp"
+coral=https://raw.githubusercontent.com/google-coral/test_data/master
+curl -sSL -o mobilenet_v2_1.0_224_inat_bird_quant.tflite "$coral/mobilenet_v2_1.0_224_inat_bird_quant.tflite"
+curl -sSL -o inat_bird_labels.txt "$coral/inat_bird_labels.txt"
+echo "species model: $(du -h mobilenet_v2_1.0_224_inat_bird_quant.tflite | cut -f1), labels: $(wc -l < inat_bird_labels.txt) lines"
 echo "model: $(du -h mobilenet_v2_1.0_224_quant.tflite | cut -f1), labels: $(wc -l < imagenet_labels.txt) lines"
