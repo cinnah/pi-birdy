@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "birdy"
+version = "0.1.0"
+description = "Bird feeder camera for Raspberry Pi"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy<2; platform_machine == 'aarch64'",
+    "ai-edge-litert>=2.0",
+    "astral>=3.2",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "numpy",
+    "opencv-python-headless>=4.8",
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+birdy = "birdy.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["birdy*"]
+
+[tool.setuptools.package-data]
+birdy = ["web/templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
