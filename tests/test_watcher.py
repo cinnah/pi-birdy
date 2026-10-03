@@ -87,3 +87,38 @@ def test_thread_picks_up_change(config_path, live):
         assert live.get().motion.min_area == 9
     finally:
         w.stop()
+
+
+def test_restart_only_change_warns(config_path, live, caplog):
+    w = ConfigWatcher(config_path, live)
+    config_path.write_text(config_path.read_text() + "\n[web]\nport = 8123\n")
+    bump_mtime(config_path)
+    with caplog.at_level(logging.WARNING):
+        assert w.check_once() is True
+    assert live.get().web.port == 8123
+    assert "restart" in caplog.text
+
+
+def test_save_settings_then_watch_is_noop(config_path, live):
+    from birdy.settings import SettingsPatch, save_settings
+
+    w = ConfigWatcher(config_path, live)
+    cur = live.get()
+    patch = SettingsPatch(
+        roi=cur.motion.roi,
+        pixel_threshold=cur.motion.pixel_threshold,
+        min_area=200,
+        background_alpha=cur.motion.background_alpha,
+        cooldown_seconds=cur.motion.cooldown_seconds,
+        classifier_threshold=cur.classifier.threshold,
+        lat=cur.site.lat,
+        lon=cur.site.lon,
+        margin_minutes=cur.daylight.margin_minutes,
+        non_bird_days=cur.retention.non_bird_days,
+    )
+    new = save_settings(config_path, cur, patch)
+    live.replace(new)  # what the web handler does
+    bump_mtime(config_path)  # make sure the watcher sees a new mtime
+    assert w.check_once() is False
+    assert live.version == 1
+    assert live.get().motion.min_area == 200

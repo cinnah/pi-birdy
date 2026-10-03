@@ -7,10 +7,16 @@ import threading
 import tomllib
 from pathlib import Path
 
-from birdy.config import ConfigError, load_config
+from birdy.config import Config, ConfigError, load_config
 from birdy.live import LiveConfig
 
 log = logging.getLogger(__name__)
+
+
+def _restart_only(cfg: Config) -> tuple:
+    """Settings only read at startup; changing them on disk needs a restart."""
+    c = cfg.classifier
+    return (cfg.camera, cfg.web, cfg.storage, c.model, c.labels, c.bird_classes)
 
 
 class ConfigWatcher:
@@ -41,6 +47,8 @@ class ConfigWatcher:
             return False
         if cfg == self._live.get():
             return False  # e.g. the settings page just wrote it
+        if _restart_only(cfg) != _restart_only(self._live.get()):
+            log.warning("%s: camera/web/storage/model settings changed; restart birdy to apply them", self._path)
         self._live.replace(cfg)
         log.info("settings reloaded from %s (v%d)", self._path, self._live.version)
         return True
