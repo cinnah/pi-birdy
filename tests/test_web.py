@@ -393,16 +393,17 @@ def test_classify_upload_non_bird(store, state, live, config_path):
     assert "species guesses" not in r.text
 
 
-def test_species_labelled_non_bird_in_dropdown_and_birds_filter(client, store):
+def test_species_labelled_non_bird_is_hidden(client, store):
     when = T0
     abs_path, rel = store.photo_path_for(when)
     cv2.imwrite(str(abs_path), np.full((60, 80, 3), 90, np.uint8))
     cid = store.add_capture(when, rel, 100)
-    store.update_classification(cid, False, 0.3, "Sparrow", 0.9)  # rescued-looking label on a non-bird row
-    r = client.get("/")
-    assert "Sparrow (1)" in r.text
-    r2 = client.get("/?filter=birds&species=Sparrow")
-    assert r2.status_code == 200 and "(0)" in r2.text and 'class="tile"' not in r2.text
+    store.update_classification(cid, False, 0.3, "Sparrow", 0.9)  # species label on a non-bird row
+    index = client.get("/").text
+    assert 'value="Sparrow"' not in index and "Sparrow (1)" not in index  # tile shows the label, dropdown doesn't
+    assert "Sparrow" not in client.get("/species").text
+    assert client.get("/?species=Sparrow").status_code == 400  # unknown: only bird rows count
+    assert client.get("/status").json()["last_species"] is None
 
 
 def test_status_last_species_returns_newest(client, store):
