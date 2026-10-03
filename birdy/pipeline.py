@@ -94,7 +94,11 @@ class Pipeline:
                 ev = None
             if ev is not None:
                 try:
-                    self.process(ev.capture_id, ev.path)
+                    current = self._store.get(ev.capture_id)
+                    if current is None or current.status != "pending":
+                        log.debug("capture %d no longer pending; skipping", ev.capture_id)
+                    else:
+                        self.process(ev.capture_id, ev.path)
                 except Exception:
                     log.exception("processing capture %d failed", ev.capture_id)
             if time.monotonic() >= next_sweep:

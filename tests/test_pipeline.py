@@ -129,3 +129,21 @@ def test_store_error_does_not_kill_worker(store, monkeypatch):
         assert p._thread.is_alive()
     finally:
         p.stop()
+
+
+def test_queued_event_already_classified_is_skipped(store):
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, roi_bbox=None)
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, False, 0.1, None, None)
+    p.submit(ev)
+    p.start()
+    try:
+        # Once the worker has taken the event off the queue, stop() joins the
+        # thread, so any processing of it has finished before we assert.
+        assert wait_until(lambda: p.queue_depth() == 0)
+    finally:
+        p.stop()
+    assert clf.calls == []
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.is_bird is False
