@@ -133,11 +133,12 @@ def create_app(
                 "non_bird_days": cfg.retention.non_bird_days,
             }
         )
-        if isinstance(values["roi"], str):
+        roi = values.get("roi", "")
+        if isinstance(roi, str):
             # re-rendering a failed POST: keep the raw string the browser sent
-            roi_json = values["roi"]
+            roi_json = roi
         else:
-            roi_json = json.dumps(values["roi"])
+            roi_json = json.dumps(roi)
         return {
             "v": values,
             "roi_json": roi_json,

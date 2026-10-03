@@ -1,3 +1,5 @@
+import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import cv2
@@ -5,6 +7,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from birdy.config import load_config
 from birdy.state import RuntimeState
 from birdy.store import Store
 from birdy.web.app import create_app
@@ -130,12 +133,6 @@ def test_pending_tile_renders(client, store):
     assert ">pending<" in r.text
 
 
-import json
-import re
-
-from birdy.config import load_config
-
-
 def post_settings(client, **overrides):
     form = {
         "roi": "[[40, 60], [280, 60], [280, 220], [40, 220]]",
@@ -246,6 +243,24 @@ def test_settings_post_missing_field_422(client):
     r = client.post("/settings", data=form, follow_redirects=False)
     assert r.status_code == 422
     assert re.search(r'<div class="row error">\s*<label for="min_area"', r.text)
+
+
+def test_settings_post_missing_roi_422(client, live):
+    form = {
+        "pixel_threshold": "25",
+        "min_area": "150",
+        "background_alpha": "0.05",
+        "cooldown_seconds": "3",
+        "classifier_threshold": "0.5",
+        "lat": "",
+        "lon": "",
+        "margin_minutes": "30",
+        "non_bird_days": "7",
+    }
+    r = client.post("/settings", data=form, follow_redirects=False)
+    assert r.status_code == 422
+    assert "motion.roi" in r.text
+    assert live.version == 0
 
 
 def test_settings_post_ignores_unknown_fields(client):

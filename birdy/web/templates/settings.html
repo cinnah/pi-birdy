@@ -34,7 +34,7 @@
 <form method="post" action="/settings" id="form" novalidate>
 <h2>Region of interest</h2>
 <canvas id="roi" width="{{ lores_w * 2 }}" height="{{ lores_h * 2 }}" data-saved='{{ saved_roi_json }}'></canvas>
-<div class="hint">Click to add a corner, drag to move it, click a corner to delete it (min 3). Coordinates are in the {{ lores_w }}×{{ lores_h }} analysis frame.</div>
+<div class="hint">Tap to add a corner, drag a corner to move it, tap a corner to delete it (min 3). Coordinates are in the {{ lores_w }}×{{ lores_h }} analysis frame.</div>
 <div class="readout">motion score <b id="score">–</b> <span class="hint">(green when ≥ min_area; state <span id="state">{{ status.state }}</span>)</span>
   <button type="button" id="reset">Reset polygon</button></div>
 <input type="hidden" name="roi" id="roi-field" value='{{ roi_json }}'>
@@ -86,7 +86,7 @@
   let pts;
   try { pts = JSON.parse(field.value); if (!Array.isArray(pts)) throw 0; }
   catch { pts = JSON.parse(JSON.stringify(saved)); }
-  const DRAG_THRESHOLD = 3;  // lores px: below this a press-and-release is a tap (delete), not a nudge
+  const DRAG_THRESHOLD = 3;  // lores px: below this a press-and-release is a tap (add/delete), not a drag
   let img = null, dragging = null, moved = false, downAt = null, loading = false;
 
   function draw() {
@@ -105,36 +105,39 @@
     const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
     return [Math.max(0, Math.min(W - 1, Math.round(x))), Math.max(0, Math.min(H - 1, Math.round(y)))];
   }
-  function hit(p) {
+  function hitRadius(e) { return e.pointerType === 'touch' ? 24 : 12; }  // CSS px; fingers are fat
+  function hit(p, cssRadius) {
     const r = canvas.getBoundingClientRect();
-    const radius = 12 * W / r.width;  // 12 CSS px, in lores units
-    let best = -1, bestD = radius;    // nearest corner within the radius
+    const radius = cssRadius * W / r.width;  // CSS px -> lores units
+    let best = -1, bestD = radius;           // nearest corner within the radius
     pts.forEach((q, i) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d <= bestD) { best = i; bestD = d; } });
     return best;
   }
   canvas.addEventListener('pointerdown', e => {
     e.preventDefault();
-    const p = toLores(e), i = hit(p);
+    const p = toLores(e), i = hit(p, hitRadius(e));
     moved = false; downAt = p; hint.textContent = '';
-    if (i >= 0) { dragging = i; canvas.setPointerCapture(e.pointerId); }
-    else { pts.push(p); draw(); }
+    dragging = i >= 0 ? i : null;  // empty space: just remember where; a corner is added on release if it was a tap
+    canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', e => {
-    if (dragging === null) return;
+    if (downAt === null) return;
     const p = toLores(e);
     if (!moved && Math.hypot(p[0] - downAt[0], p[1] - downAt[1]) < DRAG_THRESHOLD) return;
     moved = true;
+    if (dragging === null) return;
     if (p[0] !== pts[dragging][0] || p[1] !== pts[dragging][1]) { pts[dragging] = p; draw(); }
   });
   canvas.addEventListener('pointerup', e => {
-    if (dragging === null) return;
+    if (downAt === null) return;
     if (!moved) {
-      if (pts.length > 3) pts.splice(dragging, 1);
+      if (dragging === null) pts.push(downAt);           // tap on empty space: add a corner
+      else if (pts.length > 3) pts.splice(dragging, 1);  // tap on a corner: delete it
       else hint.textContent = 'need at least 3 points';
     }
-    dragging = null; draw();
+    dragging = null; downAt = null; draw();
   });
-  canvas.addEventListener('pointercancel', () => { dragging = null; draw(); });
+  canvas.addEventListener('pointercancel', () => { dragging = null; downAt = null; draw(); });
   document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(saved)); draw(); };
 
   function refreshFrame() {
