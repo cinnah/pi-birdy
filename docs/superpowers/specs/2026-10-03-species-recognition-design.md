@@ -66,9 +66,10 @@ Validation: both thresholds in [0, 1]; `rescue_threshold >= threshold`. `thresho
 - Migration at startup: if `captures` lacks `species_checked`, `ALTER TABLE captures ADD COLUMN species_checked INTEGER NOT NULL DEFAULT 0`. Idempotent (checked via `PRAGMA table_info`). Index `captures_species ON captures(species, captured_at DESC)`.
 - `update_classification(...)` sets `species_checked = 1` (every write now comes from the two-stage classifier).
 - `species_backlog(limit=50) -> list[Capture]`: `status = 'done' AND species_checked = 0`, newest first.
+- `count_species_backlog() -> int`: `COUNT(*)` of the same rows (the backfill summary log's "remaining").
 - `mark_species_checked(id)`: used when a backlog row fails, so one bad row can't loop forever.
 - `species_summary() -> list[SpeciesRow(species, count, first_seen, last_seen, best_capture_id, best_thumb_path)]`, ordered by `last_seen` desc.
-- `list_captures(filter, limit, offset, species=None)`, `count(filter, species=None)`: extra `AND species = ?` when given.
+- `list_captures(filter, limit, offset, species=None)`, `count(filter, species=None)`: extra `AND species = ? AND is_bird = 1` when given (the species filter means birds of that species, matching the dropdown counts).
 - `last_species() -> tuple[str, datetime] | None`.
 
 ### Pipeline
@@ -80,8 +81,8 @@ Validation: both thresholds in [0, 1]; `rescue_threshold >= threshold`. `thresho
 - Each sweep that processed rows logs one summary line: `backfill: N rows, N with species, N rescued, N remaining`.
 
 ### Web
-- `GET /`: species `<select>` next to the filter links, options from `species_summary()` ("All species" + each name with its count); `?species=<name>` filters; unknown name → 400 (same style as the filter check).
-- `GET /species`: table (species, count, first seen, last seen, best photo thumb → full-res), empty-state text, and the **Try a photo** form (`<input type="file" name="image" accept="image/*">`, `capture` attribute for phones).
+- `GET /`: species `<select>` next to the filter links, options from `species_summary()` ("All species" + each name with its count); `?species=<name>` filters (birds only, `is_bird = 1`); unknown name → 400 (same style as the filter check).
+- `GET /species`: table (species, count, first seen, last seen, best photo thumb → full-res), empty-state text, and the **Try a photo** form (`<input type="file" name="image" accept="image/*">`, no `capture` attribute, so a phone offers camera or library).
 - `POST /classify`: multipart image ≤ 10 MB → `cv2.imdecode` → the two-stage classifier's `classify_image(img_rgb)` (a path-free entry point; no ROI crop) → re-render `/species` with a result block: bird/not-bird with %, species top-3 with %. Nothing is written to disk or DB. Errors: no file / unreadable → 422; > 10 MB → 413.
 - `/status` adds `last_species` (name or null).
 - Settings page: two rows under Classifier (`species threshold`, `species rescue threshold`), range 0–1 step 0.01.
