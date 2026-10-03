@@ -2606,63 +2606,20 @@ ssh "$HOST" 'cd ~/pi-birdy && .venv/bin/pip install -q -e . && sudo systemctl re
 
 Run: `chmod +x deploy/install.sh deploy/deploy.sh`
 
-- [ ] **Step 4: Write `CLAUDE.md`**
+- [ ] **Step 4: Patch the existing `CLAUDE.md`**
 
-```markdown
-# CLAUDE.md
+`CLAUDE.md` already exists (committed in `194a886`) and matches the spec. Do not rewrite it; make these three edits so it matches the code:
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## What this is
-
-Birdy: a Raspberry Pi 4 + Camera v2.1 bird-feeder camera. Motion detection on a
-low-res stream, full-res still on trigger, local TFLite bird/not-bird filter,
-SQLite + photos on disk, LAN web page. Design spec:
-`docs/superpowers/specs/2026-10-03-capture-core-design.md`.
-
-## Commands
-
-- Venv: `/opt/homebrew/bin/python3.11 -m venv .venv && .venv/bin/pip install -e '.[dev]'` (3.11 matches the Pi)
-- Tests: `.venv/bin/pytest -q`; one file: `.venv/bin/pytest tests/test_motion.py -q`; one test: `.venv/bin/pytest tests/test_motion.py::test_cooldown_blocks_second_trigger -q`
-- Model + fixtures (once): `models/download.sh && tests/fixtures/download.sh`
-- Classify one image: `.venv/bin/birdy --config <toml> classify photo.jpg`
-- Deploy to the Pi: `deploy/deploy.sh` (rsync + restart; host `yassine@birdy.local`, SSH keys)
-- Pi logs: `ssh birdy.local journalctl -u birdy -f`
-- Pi web page: `http://birdy.local:8000`
-
-## Architecture
-
-One process, one systemd service, threads:
-
-- `capture.py` (main thread) — the ONLY module importing `picamera2`. Never
-  import it from anything that runs on the Mac. Lores YUV stream → `motion.py`;
-  on trigger, full-res JPEG → `store.add_capture()` (row is `pending`) →
-  `pipeline.submit(MotionEvent)`.
-- `pipeline.py` (worker thread) — classifies, writes result via
-  `store.update_classification()`; errors become `status='error'`, never crash.
-  Sweeps `pending` rows every 5 min (covers queue overflow / restarts).
-- `retention.py` (thread) — hourly purge of non-bird captures older than N days.
-- `web/app.py` (uvicorn thread) — read-only; reads `Store` and `RuntimeState`.
-- `store.py` — single sqlite connection + lock shared by all threads. Timestamps
-  stored as UTC ISO strings (so `<` comparisons work); converted to local in the
-  template. Photos `data/photos/YYYY/MM/DD/HHMMSS_mmm.jpg`, thumbs mirror that path.
-
-Classifier contract: `Classifier.classify(path, roi_bbox) -> Prediction`.
-`ImageNetBirdClassifier` sums ImageNet bird-class probabilities; a species model
-(sub-project 2) plugs in behind the same interface and fills `species` fields.
-
-Coordinates: ROI and `BBox` are in **lores** pixels; `crop_to_bbox` scales to the
-main-stream size.
-
-## Conventions
-
-- Config via `birdy.toml` only (gitignored); defaults live in `config.py`,
-  documented in `birdy.toml.example`. Add a key in all three places.
-- Pure logic (motion, daylight, store, classifier, pipeline, web) is tested on
-  the Mac; `capture.py` stays thin and is verified on the Pi.
-- On the Pi, `cv2`/`numpy`/`picamera2` come from apt via `--system-site-packages`;
-  the `numpy<2` marker in `pyproject.toml` keeps pip from breaking `cv2`.
-```
+1. In **Commands**, replace the venv line
+   `python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
+   with
+   `/opt/homebrew/bin/python3.11 -m venv .venv && .venv/bin/pip install -e ".[dev]"   # 3.11 matches the Pi`
+2. In **Conventions and gotchas**, replace
+   `- Timestamps are ISO 8601 local time with offset.`
+   with
+   `- \`captured_at\` is stored as **UTC** ISO 8601 (so string \`<\` comparisons are chronological) and converted to local time in the template. Photo *paths* use local time.`
+3. In **Conventions and gotchas**, after the `--system-site-packages` bullet, add:
+   `- \`pyproject.toml\` pins \`numpy<2\` on aarch64 only: the apt \`cv2\` is built against NumPy 1.x and a pip-installed NumPy 2 breaks \`import cv2\`. \`opencv-python-headless\` is a dev-only extra for the Mac.`
 
 - [ ] **Step 5: Commit**
 
