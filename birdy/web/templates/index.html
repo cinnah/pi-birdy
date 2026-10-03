@@ -44,7 +44,7 @@
   {% for f in ["all", "birds", "non-birds"] %}
     <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ f }}</a>
   {% endfor %}
-  <select name="species" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
+  <select name="species" title="count across all captures" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
     <option value="" {{ 'selected' if not species else '' }}>All species</option>
     {% for r in species_rows %}
     <option value="{{ r.species }}" {{ 'selected' if r.species == species else '' }}>{{ r.species }} ({{ r.count }})</option>

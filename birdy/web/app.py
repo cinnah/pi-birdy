@@ -14,7 +14,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
+from birdy.classifier import Prediction
 from birdy.config import ConfigError
 from birdy.live import LiveConfig
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
@@ -131,6 +133,16 @@ def create_app(
     def species_context(result: dict | None = None, error: str | None = None) -> dict:
         return {"rows": store.species_summary(), "result": result, "error": error, "status": status_payload()}
 
+    def _decode_and_classify(data: bytes) -> tuple[Prediction, list] | None:
+        """Decode an uploaded image and run both models; None if the bytes aren't an image."""
+        try:
+            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        except cv2.error:
+            return None
+        if img is None:
+            return None
+        return classifier.classify_image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
     @app.get("/species", response_class=HTMLResponse)
     def species_page(request: Request):
         return templates.TemplateResponse(request, "species.html", species_context())
@@ -145,20 +157,24 @@ def create_app(
             ctx = species_context(error="choose a photo first")
             return templates.TemplateResponse(request, "species.html", ctx, status_code=422)
         data = await upload.read(MAX_UPLOAD_BYTES + 1)
+        if not data:
+            ctx = species_context(error="choose a photo first")
+            return templates.TemplateResponse(request, "species.html", ctx, status_code=422)
         if len(data) > MAX_UPLOAD_BYTES:
             ctx = species_context(error="photo larger than 10 MB")
             return templates.TemplateResponse(request, "species.html", ctx, status_code=413)
-        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
+        # decode + inference can take a while on the Pi; keep the event loop free for /status etc.
+        outcome = await run_in_threadpool(_decode_and_classify, data)
+        if outcome is None:
             ctx = species_context(error="could not decode that file as an image")
             return templates.TemplateResponse(request, "species.html", ctx, status_code=422)
-        pred, top = classifier.classify_image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        pred, top = outcome
         result = {
             "is_bird": pred.is_bird,
             "confidence": pred.confidence,
             "species": pred.species,
             "top": [(label.common, label.latin, p) for label, p in top[:3]],
-            "filename": getattr(upload, "filename", "photo"),
+            "filename": upload.filename or "photo",
         }
         return templates.TemplateResponse(request, "species.html", species_context(result=result))
 

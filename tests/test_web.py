@@ -323,9 +323,10 @@ def test_species_page_empty(client):
 def test_species_page_table_and_best_photo(client, store):
     a = add(store, 0, True)
     b = add(store, 1, True)
+    store.update_classification(a.id, True, 0.9, "Robin", 0.95)  # a is the more confident Robin
     r = client.get("/species").text
     assert "Robin" in r and ">2<" in r
-    assert f"/photos/{b.path}" in r or f"/photos/{a.path}" in r  # best photo link present
+    assert f"/photos/{a.path}" in r and f"/photos/{b.path}" not in r
 
 
 def test_classify_upload_renders_result(client, classifier, store):
@@ -363,3 +364,52 @@ def test_status_last_species(client, store):
     assert client.get("/status").json()["last_species"] is None
     add(store, 0, True)
     assert client.get("/status").json()["last_species"] == "Robin"
+
+
+def test_classify_upload_empty_422(client):
+    r = client.post("/classify", files={"image": ("a.jpg", b"", "image/jpeg")})
+    assert r.status_code == 422 and "choose a photo first" in r.text
+
+
+def test_index_empty_species_param_shows_all(client, store):
+    bird = add(store, 0, True)
+    junk = add(store, 1, False)
+    r = client.get("/?species=")
+    assert r.status_code == 200
+    assert bird.thumb_path in r.text and junk.thumb_path in r.text
+
+
+class FakeNotABird:
+    def classify_image(self, img, threshold=None):
+        return Prediction(is_bird=False, confidence=0.12, species=None, species_confidence=None), []
+
+
+def test_classify_upload_non_bird(store, state, live, config_path):
+    c = TestClient(create_app(store, state, live, config_path, classifier=FakeNotABird()))
+    data = (Path(__file__).parent / "fixtures" / "cat.jpg").read_bytes()
+    r = c.post("/classify", files={"image": ("cat.jpg", data, "image/jpeg")})
+    assert r.status_code == 200
+    assert "not a bird (12% bird)" in r.text
+    assert "species guesses" not in r.text
+
+
+def test_species_labelled_non_bird_in_dropdown_and_birds_filter(client, store):
+    when = T0
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), np.full((60, 80, 3), 90, np.uint8))
+    cid = store.add_capture(when, rel, 100)
+    store.update_classification(cid, False, 0.3, "Sparrow", 0.9)  # rescued-looking label on a non-bird row
+    r = client.get("/")
+    assert "Sparrow (1)" in r.text
+    r2 = client.get("/?filter=birds&species=Sparrow")
+    assert r2.status_code == 200 and "(0)" in r2.text and 'class="tile"' not in r2.text
+
+
+def test_status_last_species_returns_newest(client, store):
+    add(store, 0, True)  # Robin at T0
+    when = T0 + timedelta(minutes=5)
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), np.full((60, 80, 3), 90, np.uint8))
+    cid = store.add_capture(when, rel, 100)
+    store.update_classification(cid, True, 0.9, "Blue Tit", 0.7)
+    assert client.get("/status").json()["last_species"] == "Blue Tit"

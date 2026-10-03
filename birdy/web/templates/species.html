@@ -16,6 +16,7 @@
   .banner { padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
   .banner.ok { background: #2a72; border: 1px solid var(--ok); } .banner.bad { background: #c662; border: 1px solid var(--bad); }
   button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--ok); background: var(--ok); color: #fff; font-weight: bold; cursor: pointer; }
+  @media (max-width: 480px) { th:nth-child(3), td:nth-child(3) { display: none } td img { width: 64px } }
 </style>
 </head>
 <body>
@@ -33,9 +34,11 @@
   <b>{{ result.filename }}</b>:
   {% if result.is_bird %}bird ({{ (result.confidence * 100) | round(0) | int }}%){% else %}not a bird ({{ (result.confidence * 100) | round(0) | int }}% bird){% endif %}
   {% if result.species %} — <b>{{ result.species }}</b>{% endif %}
-  <div class="hint">species guesses:
+  {% if result.top %}
+  <div class="hint">{% if not result.is_bird and not result.species %}species model's guesses (ignored — not a bird):{% else %}species guesses:{% endif %}
     {% for common, latin, p in result.top %}{{ common }} {{ (p * 100) | round(0) | int }}%{{ ", " if not loop.last else "" }}{% endfor %}
   </div>
+  {% endif %}
 </div>
 {% endif %}
 
