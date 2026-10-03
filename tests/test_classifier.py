@@ -119,12 +119,17 @@ class TestRealModel:
         full = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=None)
         with caplog.at_level("WARNING", logger="birdy.classifier"):
             zero = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(10, 10, 0, 0))
+            zero_again = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(10, 10, 0, 0))
             outside = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(1000, 1000, 50, 50))
-        assert zero.is_bird and outside.is_bird
-        assert zero.confidence == pytest.approx(full.confidence)
-        assert outside.confidence == pytest.approx(full.confidence)
+            outside_again = fresh.classify(FIXTURES / "bird.jpg", roi_bbox=BBox(1000, 1000, 50, 50))
+        for p in (zero, zero_again, outside, outside_again):
+            assert p.is_bird
+            assert p.confidence == pytest.approx(full.confidence)
         warnings = [r for r in caplog.records if r.name == "birdy.classifier" and r.levelname == "WARNING"]
-        assert len(warnings) == 1  # warned once per instance, not per call
+        # One warning per distinct bad bbox; repeating the same bbox stays quiet.
+        assert len(warnings) == 2
+        assert str(BBox(10, 10, 0, 0)) in warnings[0].getMessage()
+        assert str(BBox(1000, 1000, 50, 50)) in warnings[1].getMessage()
 
     @pytest.mark.skipif(not (FIXTURES / "bird.jpg").exists(), reason="fixture missing")
     def test_threshold_override(self, clf):

@@ -95,7 +95,7 @@ class ImageNetBirdClassifier:
         self._threshold = threshold
         self._lores_size = lores_size
         self._pad = pad
-        self._warned_empty_crop = False
+        self._warned_bbox: BBox | None = None
 
     def _probs(self, image_path: Path, roi_bbox: BBox | None) -> np.ndarray:
         img = cv2.imread(str(image_path))
@@ -104,11 +104,12 @@ class ImageNetBirdClassifier:
         if roi_bbox is not None:
             crop = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad)
             if crop.size == 0:
-                # The ROI is fixed for the whole run; a bad one must not turn
-                # every capture into an error, so fall back to the full frame.
-                if not self._warned_empty_crop:
+                # A bad ROI must not turn every capture into an error, so fall
+                # back to the full frame. Warn once per distinct bbox: the ROI is
+                # live-tunable, so a new bad one deserves its own warning.
+                if roi_bbox != self._warned_bbox:
                     log.warning("ROI %s yields an empty crop; using the full frame", roi_bbox)
-                    self._warned_empty_crop = True
+                    self._warned_bbox = roi_bbox
             else:
                 img = crop
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
