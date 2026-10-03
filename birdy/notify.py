@@ -109,6 +109,15 @@ def _multipart(fields: dict[str, str], file_field: str, path: Path) -> tuple[byt
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
+def _redact(text: str, token: str) -> str:
+    """Replace the bot token (raw or URL-encoded) with *** so it can't leak via error messages."""
+    if not token:
+        return text
+    for form in {token, urllib.parse.quote(token), urllib.parse.quote_plus(token)}:
+        text = text.replace(form, "***")
+    return text
+
+
 def _telegram_call(token: str, method: str, body: bytes, content_type: str, urlopen, timeout: float) -> dict:
     req = urllib.request.Request(
         f"{TELEGRAM_API}/bot{token}/{method}", data=body, headers={"Content-Type": content_type}, method="POST"
@@ -122,20 +131,21 @@ def _telegram_call(token: str, method: str, body: bytes, content_type: str, urlo
         except Exception:
             desc = ""
         # Never include the URL (it carries the token) in the message.
-        raise TelegramError(desc or f"HTTP {e.code}", e.code) from None
+        raise TelegramError(_redact(desc or f"HTTP {e.code}", token), e.code) from None
     except urllib.error.URLError as e:
-        raise TelegramError(f"network error: {e.reason}") from None
+        raise TelegramError(_redact(f"network error: {e.reason}", token)) from None
     except (OSError, http.client.HTTPException, ValueError) as e:
         # Timeouts, socket errors, truncated responses, non-JSON bodies: all one error type for callers.
-        raise TelegramError(f"network error: {type(e).__name__}: {e}") from None
+        # InvalidURL (e.g. whitespace in the token) quotes the request path, hence the redaction.
+        raise TelegramError(_redact(f"network error: {type(e).__name__}: {e}", token)) from None
     if not payload.get("ok"):
-        raise TelegramError(str(payload.get("description", "unknown error")))
+        raise TelegramError(_redact(str(payload.get("description", "unknown error")), token))
     return payload
 
 
 class HttpTelegramTransport:
     def __init__(self, token: str, timeout: float = 20.0, urlopen: Callable = urllib.request.urlopen) -> None:
-        self._token = token
+        self._token = token.strip()
         self._timeout = timeout
         self._urlopen = urlopen
 

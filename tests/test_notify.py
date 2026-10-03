@@ -415,3 +415,25 @@ def test_stop_interrupts_retry_sleep(live, config, store):
     n.stop()
     assert time.monotonic() - t0 < 1.0
     assert not n._thread.is_alive() and t.photos == []
+
+
+def test_invalid_url_error_redacts_token():
+    import http.client
+
+    def urlopen(req, timeout):
+        raise http.client.InvalidURL("URL can't contain control characters. '/botSECRET TOKEN/sendMessage'")
+
+    with pytest.raises(TelegramError) as ei:
+        HttpTelegramTransport("SECRET TOKEN", urlopen=urlopen).send_text("42", "hi")
+    assert "***" in str(ei.value) and "SECRET" not in str(ei.value)
+
+
+def test_transport_strips_token():
+    seen = {}
+
+    def urlopen(req, timeout):
+        seen["url"] = req.full_url
+        return FakeResponse({"ok": True})
+
+    HttpTelegramTransport("  TOKEN123\n", urlopen=urlopen).send_text("42", "hi")
+    assert seen["url"].endswith("/botTOKEN123/sendMessage")
