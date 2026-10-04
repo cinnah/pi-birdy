@@ -329,6 +329,9 @@ The live frame at full column width on a black ground, corner brackets, burned-i
 ### Publish Row
 When publishing is enabled, each grid tile gets a third burned-in bar under its stamps, on the same `osd-bar` black: a badge (`PUBLISHED` in amber text, `FORCED` as an amber block, `HIDDEN` dim and struck through) and 28px outline buttons in OSD white (Publish / Hide / Auto). On phones the badge takes its own line and the buttons split the width evenly.
 
+### Tile Action Bar and Delete
+Every grid tile ends in the action bar (the Publish Row above, plus Delete): Delete is the quietest button (dim OSD text, red border and text on hover). Destructive actions use a two-tap confirm instead of a modal: the first tap turns the button REC red with "Sure?" for 4 s, a second tap submits. The non-birds view adds a bulk bar above the grid (hairline box, plain-language note on automatic cleanup, small "Delete these N" button with the same two-tap confirm). On phones Delete takes its own full-width row.
+
 ### Save Bar
 Sticky at the bottom of the setup menu, opaque ground with a `rule-strong` top hairline: a mono uppercase state line ("NO UNSAVED CHANGES" / "N UNSAVED CHANGES", with an 8px amber square when dirty) and an 11px dim mono line under it saying whether it applies live, then the primary SAVE button (min 120px).
 

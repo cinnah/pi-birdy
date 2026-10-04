@@ -550,6 +550,10 @@ def test_settings_post_saves_publish_fields(client, live):
 class FakePublisher:
     def __init__(self):
         self.calls = []
+        self.forgotten = []
+
+    def forget(self, capture):
+        self.forgotten.append(capture.id)
 
     def set_manual(self, capture_id, state):
         self.calls.append((capture_id, state))
@@ -662,3 +666,40 @@ def test_camera_switch_with_site_holds_until_next_change(client, state, live):
     assert state.override == "on"
     assert state.override_until is not None and state.override_until > datetime.now().astimezone()
     assert "Turn" in client.get("/").text
+
+
+def test_delete_capture_removes_it_and_redirects_back(pclient, store, publisher):
+    a = add(store, 0, True)
+    photo = store.photos_dir / a.path
+    r = pclient.post(f"/captures/{a.id}/delete", data={"next": "/?filter=birds&page=2"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=birds&page=2"
+    assert store.get(a.id) is None and not photo.exists()
+    assert publisher.forgotten == [a.id]
+
+
+def test_delete_capture_without_publisher_and_bad_input(client, store):
+    a = add(store, 0, False)
+    r = client.post(f"/captures/{a.id}/delete", data={"next": "//evil"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert store.get(a.id) is None
+    assert client.post("/captures/999/delete").status_code == 404
+
+
+def test_delete_non_birds_bulk_only_deletes_non_birds(pclient, store, publisher):
+    bird = add(store, 0, True)
+    junk1, junk2 = add(store, 1, False), add(store, 2, False)
+    r = pclient.post("/captures/delete-non-birds", data={"ids": [str(bird.id), str(junk1.id), str(junk2.id), "x"], "next": "/?filter=non-birds"},
+                     follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=non-birds"
+    assert store.get(bird.id) is not None
+    assert store.get(junk1.id) is None and store.get(junk2.id) is None
+
+
+def test_index_has_delete_buttons_and_bulk_only_on_non_birds(client, store):
+    a = add(store, 0, True)
+    j = add(store, 1, False)
+    html = client.get("/?filter=all").text
+    assert f'action="/captures/{a.id}/delete"' in html and f'action="/captures/{j.id}/delete"' in html
+    assert "/captures/delete-non-birds" not in html
+    html = client.get("/?filter=non-birds").text
+    assert "/captures/delete-non-birds" in html and f'name="ids" value="{j.id}"' in html

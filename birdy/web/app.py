@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,8 @@ from birdy.notify import TelegramError
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
 from birdy.state import RuntimeState
 from birdy.store import FILTERS, Store
+
+log = logging.getLogger(__name__)
 
 PAGE_SIZE = 50
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -111,6 +114,7 @@ def create_app(
                 "species_rows": summary,
                 "status": status_payload(),
                 "publishing": publisher is not None,
+                "non_bird_days": live.get().retention.non_bird_days,
             },
         )
 
@@ -341,5 +345,40 @@ def create_app(
         except KeyError:
             raise HTTPException(status_code=404, detail="unknown capture") from None
         return RedirectResponse(nxt, status_code=303)
+
+    def _grid_next(form) -> str:
+        nxt = str(form.get("next", "/"))
+        # only the review grid itself: rules out //host, /\host and absolute URLs
+        return nxt if nxt == "/" or nxt.startswith("/?") else "/"
+
+    def _forget(captures) -> None:
+        if publisher is None:
+            return
+        for c in captures:
+            try:
+                publisher.forget(c)
+            except Exception:  # the photo is gone either way; the next full rank catches up
+                log.exception("publish: forget failed for capture %d", c.id)
+
+    @app.post("/captures/{capture_id}/delete")
+    async def capture_delete(capture_id: int, request: Request):
+        """Delete one photo for good (row, photo, thumbnail), bird or not."""
+        form = await request.form()
+        deleted = await run_in_threadpool(store.delete_capture, capture_id)
+        if deleted is None:
+            raise HTTPException(status_code=404, detail="unknown capture")
+        await run_in_threadpool(_forget, [deleted])
+        log.info("deleted capture %d (%s) from the web page", deleted.id, deleted.path)
+        return RedirectResponse(_grid_next(form), status_code=303)
+
+    @app.post("/captures/delete-non-birds")
+    async def captures_delete_non_birds(request: Request):
+        """Bulk delete from the non-birds view: only non-bird and error rows among `ids` are deleted."""
+        form = await request.form()
+        ids = [int(v) for v in form.getlist("ids") if str(v).isdigit()]
+        deleted = await run_in_threadpool(store.delete_non_birds, ids)
+        await run_in_threadpool(_forget, deleted)
+        log.info("deleted %d non-bird captures from the web page", len(deleted))
+        return RedirectResponse(_grid_next(form), status_code=303)
 
     return app

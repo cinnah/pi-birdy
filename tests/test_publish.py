@@ -575,3 +575,15 @@ def test_write_manifest_removes_tmp_on_failure(live, store, config, monkeypatch)
     with pytest.raises(OSError):
         pub._write_manifest([], None)
     assert list(pub.mirror_dir.glob("manifest.json*")) == []
+
+
+def test_forget_deleted_capture_frees_its_slot(live, store, config):
+    pub = make(live, store, config, per_species_per_day=1)
+    a = bird(store, T0, "Robin", 0.9)
+    b = bird(store, T0 + timedelta(minutes=1), "Robin", 0.7)
+    pub.evaluate(b)
+    assert (store.get(a.id).published, store.get(b.id).published) == ("auto", None)
+    deleted = store.delete_capture(a.id)
+    pub.forget(deleted)                     # the next-best photo takes the freed slot
+    assert store.get(b.id).published == "auto"
+    pub.forget(None)                        # nothing to do, no error

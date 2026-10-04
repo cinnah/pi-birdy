@@ -202,6 +202,19 @@ class Publisher:
                 self._rank(c.species, c.captured_at)  # a freed or taken slot moves other photos
         self.notify()
 
+    def forget(self, capture: Capture | None) -> None:
+        """A capture was deleted: re-rank its species/day (it may have held a slot) and sync soon.
+
+        The deleted row is already gone from the DB, so the next mirror sync drops its web copy and
+        the server drops it on the following rsync (`--delete`).
+        """
+        if capture is None:
+            return
+        if capture.is_bird and capture.species and capture.status == "done":
+            with self._lock:
+                self._rank(capture.species, capture.captured_at)
+        self.notify()
+
     def notify(self) -> None:
         """Ask the worker to sync soon (debounced)."""
         self._wake.set()

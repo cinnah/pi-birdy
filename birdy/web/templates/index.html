@@ -29,23 +29,34 @@
   .tile { display: flex; flex-direction: column; background: var(--osd-bar); outline: 1px solid var(--rule); outline-offset: 0; }
   .tile:hover { outline: 2px solid var(--ink); }
   .tile a.photo { display: block; text-decoration: none; color: inherit; }
-  .pub {
+  /* the tile's action bar: burned in under the stamps, badge on its own line, buttons share the width */
+  .acts {
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: auto;
     padding: 5px 6px 6px; border-top: 1px solid #2b2f2c; background: var(--osd-bar);
     font: 700 11px/1 var(--mono); font-stretch: 81%; letter-spacing: 0.06em; text-transform: uppercase;
   }
-  .pub .badge { color: var(--osd-amber); margin-right: auto; }
-  .pub .badge.forced { color: var(--osd-bar); background: var(--osd-amber); padding: 3px 4px; }
-  .pub .badge.off { color: #a3aaa5; text-decoration: line-through; }
-  .pub .pb {
-    min-height: 28px; padding: 0 8px; margin-left: auto; cursor: pointer; border-radius: 0;
+  .acts form { display: contents; }
+  .acts .badge { width: 100%; margin: 2px 0 3px; color: var(--osd-amber); }
+  .acts .badge.forced { width: auto; margin-right: 100%; color: var(--osd-bar); background: var(--osd-amber); padding: 3px 4px; }
+  .acts .badge.off { color: #a3aaa5; text-decoration: line-through; }
+  .acts .pb {
+    flex: 1; min-height: 28px; padding: 0 6px; cursor: pointer; border-radius: 0;
     border: 1px solid #4a504b; background: transparent; color: var(--osd);
-    font: inherit; letter-spacing: inherit; text-transform: inherit;
+    font: inherit; letter-spacing: inherit; text-transform: inherit; white-space: nowrap;
   }
-  .pub .badge ~ .pb { margin-left: 0; }
-  .pub .pb + .pb { margin-left: 0; }
-  .pub .pb:hover { border-color: var(--osd); }
-  .pub .pb:active { background: var(--osd); color: var(--osd-bar); }
+  .acts .pb:hover { border-color: var(--osd); }
+  .acts .pb:active { background: var(--osd); color: var(--osd-bar); }
+  .acts .pb.del { flex: 0 1 auto; color: #a3aaa5; }
+  .acts .pb.del:hover { color: #ff4d3d; border-color: #ff4d3d; }
+  .pb.armed, .btn.armed { background: #ff4d3d; border-color: #ff4d3d; color: #0c0d0c; }
+
+  .bulk {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 12px;
+    border: 1px solid var(--rule-strong); font-size: 13px; color: var(--dim);
+  }
+  .bulk p { margin: 0; flex: 1; min-width: 16em; }
+  .bulk b { color: var(--ink); font-family: var(--mono); }
+  .bulk .btn.armed { color: #0c0d0c; }
   .tile img, .tile .nothumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
   .tile .nothumb { display: grid; place-items: center; color: #7d8580; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; }
   .tile .stamp + .stamp { padding-top: 0; }
@@ -65,9 +76,7 @@
     .filters { gap: 10px; }
     .filters select { flex: 1 1 100%; min-width: 0; order: 3; }
     .tile a.photo .stamp:last-child { flex-direction: column; gap: 1px; }
-    .pub .badge { width: 100%; margin: 2px 0 3px; }
-    .pub .badge.forced { width: auto; margin-right: 100%; }
-    .pub .pb, .pub .badge ~ .pb { flex: 1; margin-left: 0; }
+    .acts .pb.del { flex: 1 1 100%; }
     .tile .sp { order: -1; }
   }
 </style>
@@ -101,6 +110,17 @@
   </nav>
 
   {% if captures %}
+  {% if filter == 'non-birds' %}
+  {% set junk = captures | selectattr('is_bird', 'false') | list %}
+  {% if junk %}
+  <form class="bulk" method="post" action="/captures/delete-non-birds" data-confirm="Delete {{ junk | length }}? Tap again">
+    <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    {% for c in junk %}<input type="hidden" name="ids" value="{{ c.id }}">{% endfor %}
+    <p><b>{{ junk | length }}</b> non-bird photos on this page. They're deleted automatically after {{ non_bird_days }} days; this deletes them now. Birds are never included.</p>
+    <button class="btn sm" type="submit">Delete these {{ junk | length }}</button>
+  </form>
+  {% endif %}
+  {% endif %}
   <div class="grid">
     {% for c in captures %}
     {% set t = c.captured_at | local_time %}
@@ -118,6 +138,8 @@
         {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
       </div>
     </a>
+    {% set here = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+    <div class="acts">
     {% if publishing %}
     <form method="post" action="/captures/{{ c.id }}/publish" class="pub">
       <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
@@ -129,6 +151,11 @@
       {% if c.published in ('forced', 'hidden') %}<button name="state" value="auto" class="pb">Auto</button>{% endif %}
     </form>
     {% endif %}
+    <form method="post" action="/captures/{{ c.id }}/delete" data-confirm="Sure?">
+      <input type="hidden" name="next" value="{{ here }}">
+      <button class="pb del" type="submit" aria-label="Delete this photo">Delete</button>
+    </form>
+    </div>
     </div>
     {% endfor %}
   </div>
@@ -145,4 +172,18 @@
     {% if page < pages %}<a class="btn" href="/?filter={{ filter }}&page={{ page + 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">older</a>{% endif %}
   </div>
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Deleting can't be undone: the first tap arms the button, a second tap within 4 s submits.
+document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener('submit', e => {
+  const b = f.querySelector('button[type=submit]');
+  if (b.dataset.armed) return;
+  e.preventDefault();
+  const label = b.textContent;
+  b.dataset.armed = '1'; b.textContent = f.dataset.confirm; b.classList.add('armed');
+  setTimeout(() => { delete b.dataset.armed; b.textContent = label; b.classList.remove('armed'); }, 4000);
+}));
+</script>
 {% endblock %}

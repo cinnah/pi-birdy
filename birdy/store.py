@@ -409,16 +409,41 @@ class Store:
                 " WHERE (is_bird = 0 OR status = 'error') AND published IS NULL AND captured_at < ?",
                 (cutoff,),
             ).fetchall()
-        deleted = 0
         for row in rows:
-            # Row first: an orphan file is harmless, a row without its file is a broken tile.
-            with self._lock, self._conn:
-                self._conn.execute("DELETE FROM captures WHERE id = ?", (row["id"],))
-            for p in (self.photos_dir / row["path"], self.thumbs_dir / row["thumb_path"] if row["thumb_path"] else None):
-                if p is not None:
-                    p.unlink(missing_ok=True)
-            deleted += 1
-        return deleted
+            self._delete_row_and_files(row["id"], row["path"], row["thumb_path"])
+        return len(rows)
+
+    def delete_capture(self, capture_id: int) -> Capture | None:
+        """Delete one capture (row + photo + thumbnail), whatever it is; returns it, or None if unknown.
+
+        Used by the grid's Delete button. Bird photos are never auto-deleted, but a person may.
+        """
+        c = self.get(capture_id)
+        if c is None:
+            return None
+        self._delete_row_and_files(c.id, c.path, c.thumb_path)
+        return c
+
+    def delete_non_birds(self, capture_ids: list[int]) -> list[Capture]:
+        """Delete those of `capture_ids` that are non-birds or errors; birds and pending rows are kept.
+
+        Used by the grid's bulk delete on the non-birds view; returns what was deleted.
+        """
+        out = []
+        for cid in capture_ids:
+            c = self.get(cid)
+            if c is not None and (c.is_bird is False or c.status == "error"):
+                self._delete_row_and_files(c.id, c.path, c.thumb_path)
+                out.append(c)
+        return out
+
+    def _delete_row_and_files(self, capture_id: int, path: str, thumb_path: str | None) -> None:
+        # Row first: an orphan file is harmless, a row without its file is a broken tile.
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM captures WHERE id = ?", (capture_id,))
+        for p in (self.photos_dir / path, self.thumbs_dir / thumb_path if thumb_path else None):
+            if p is not None:
+                p.unlink(missing_ok=True)
 
     def disk_free_bytes(self) -> int:
         return shutil.disk_usage(self.data_dir).free

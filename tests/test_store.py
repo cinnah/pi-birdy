@@ -445,3 +445,26 @@ def test_purge_keeps_rows_with_any_published_state(store):
     assert store.purge_non_birds(older_than_days=7, now=T0) == 1
     assert store.get(forced).published == "forced"
     assert store.get(plain) is None
+
+
+def test_delete_capture_removes_row_and_files(store):
+    cid = add(store, T0)
+    c = store.get(cid)
+    photo, thumb = store.photos_dir / c.path, store.thumbs_dir / c.thumb_path
+    assert photo.exists() and thumb.exists()
+    deleted = store.delete_capture(cid)
+    assert deleted is not None and deleted.id == cid
+    assert store.get(cid) is None
+    assert not photo.exists() and not thumb.exists()
+    assert store.delete_capture(cid) is None  # already gone
+
+
+def test_delete_non_birds_skips_birds_and_pending(store):
+    bird, junk, err, pending = (add(store, T0 + timedelta(minutes=i)) for i in range(4))
+    store.update_classification(bird, True, 0.9, "Robin", 0.8)
+    store.update_classification(junk, False, 0.1, None, None)
+    store.mark_error(err)
+    gone = store.delete_non_birds([bird, junk, err, pending, 999])
+    assert sorted(c.id for c in gone) == sorted([junk, err])
+    assert store.get(bird) is not None and store.get(pending) is not None
+    assert store.get(junk) is None and store.get(err) is None
