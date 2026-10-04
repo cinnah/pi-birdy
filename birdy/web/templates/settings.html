@@ -334,7 +334,10 @@
   const canvas = document.getElementById('roi'), ctx = canvas.getContext('2d');
   const field = document.getElementById('roi-field'), hint = document.getElementById('roi-hint');
   const form = document.getElementById('form');
-  const saved = JSON.parse(canvas.dataset.saved);  // polygon in effect; Reset goes back to this
+  const saved = JSON.parse(canvas.dataset.saved);  // polygon in effect
+  // Reset: a straight rectangle centred in the frame, 1/8 margin on every side
+  const mx = Math.round(W / 8), my = Math.round(H / 8);
+  const DEFAULT_ROI = [[mx, my], [W - 1 - mx, my], [W - 1 - mx, H - 1 - my], [mx, H - 1 - my]];
   let pts;
   try { pts = JSON.parse(field.value); if (!Array.isArray(pts)) throw 0; }
   catch { pts = JSON.parse(JSON.stringify(saved)); }
@@ -410,7 +413,7 @@
     dragging = null; downAt = null; draw();
   });
   canvas.addEventListener('pointercancel', () => { dragging = null; downAt = null; draw(); });
-  document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(saved)); hint.textContent = ''; draw(); };
+  document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(DEFAULT_ROI)); hint.textContent = ''; draw(); };
 
   function refreshFrame() {
     if (loading) return;  // don't pile up requests on a slow link
