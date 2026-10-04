@@ -1,213 +1,534 @@
 {
-  "schemaVersion": 2,
-  "generatedAt": "2026-10-05T00:00:00+01:00",
-  "title": "Design System: Birdy gallery",
-  "scope": {
-    "designMd": "gallery/DESIGN.md",
-    "artifact": ["gallery/index.html", "gallery/site.html", "gallery/species.html", "gallery/app.js", "gallery/style.css", "gallery/fonts/"],
-    "note": "Separate from the root DESIGN.md / .impeccable/design.json, which record the Pi's LAN interface (trail-cam OSD world). The two systems share nothing."
-  },
-  "extensions": {
-    "colorMeta": {
-      "paper": { "role": "neutral", "displayName": "Eye-ease Paper", "canonical": "oklch(95.5% 0.016 122)", "tonalRamp": ["oklch(15% 0.016 122)", "oklch(25% 0.016 122)", "oklch(35% 0.016 122)", "oklch(48% 0.016 122)", "oklch(60% 0.016 122)", "oklch(72% 0.016 122)", "oklch(84% 0.016 122)", "oklch(95% 0.016 122)"] },
-      "paper-on-desk": { "role": "neutral", "displayName": "Paper on Desk (dark scheme)", "canonical": "oklch(92.7% 0.018 121)", "tonalRamp": ["oklch(15% 0.018 121)", "oklch(25% 0.018 121)", "oklch(35% 0.018 121)", "oklch(48% 0.018 121)", "oklch(60% 0.018 121)", "oklch(72% 0.018 121)", "oklch(84% 0.018 121)", "oklch(95% 0.018 121)"] },
-      "desk-dark": { "role": "neutral", "displayName": "Dark Desk (dark scheme)", "canonical": "oklch(23.4% 0.009 256)", "tonalRamp": ["oklch(15% 0.009 256)", "oklch(25% 0.009 256)", "oklch(35% 0.009 256)", "oklch(48% 0.009 256)", "oklch(60% 0.009 256)", "oklch(72% 0.009 256)", "oklch(84% 0.009 256)", "oklch(95% 0.009 256)"] },
-      "ink": { "role": "neutral", "displayName": "Blue-black Ink", "canonical": "oklch(28.2% 0.033 258)", "tonalRamp": ["oklch(15% 0.033 258)", "oklch(25% 0.033 258)", "oklch(35% 0.033 258)", "oklch(48% 0.033 258)", "oklch(60% 0.033 258)", "oklch(72% 0.033 258)", "oklch(84% 0.033 258)", "oklch(95% 0.033 258)"] },
-      "rule": { "role": "neutral", "displayName": "Rule Blue", "canonical": "oklch(72.8% 0.058 261)", "tonalRamp": ["oklch(15% 0.058 261)", "oklch(25% 0.058 261)", "oklch(35% 0.058 261)", "oklch(48% 0.058 261)", "oklch(60% 0.058 261)", "oklch(72% 0.058 261)", "oklch(84% 0.058 261)", "oklch(95% 0.058 261)"] },
-      "rule-ink": { "role": "neutral", "displayName": "Rule Ink", "canonical": "oklch(48.7% 0.075 260)", "tonalRamp": ["oklch(15% 0.075 260)", "oklch(25% 0.075 260)", "oklch(35% 0.075 260)", "oklch(48% 0.075 260)", "oklch(60% 0.075 260)", "oklch(72% 0.075 260)", "oklch(84% 0.075 260)", "oklch(95% 0.075 260)"] },
-      "ledger-red": { "role": "primary", "displayName": "Ledger Red", "canonical": "oklch(52.5% 0.162 28)", "tonalRamp": ["oklch(15% 0.162 28)", "oklch(25% 0.162 28)", "oklch(35% 0.162 28)", "oklch(48% 0.162 28)", "oklch(60% 0.162 28)", "oklch(72% 0.162 28)", "oklch(84% 0.162 28)", "oklch(95% 0.162 28)"] },
-      "tint": { "role": "neutral", "displayName": "Finger Tint", "canonical": "rgba(70, 96, 138, 0.09)", "note": "Rule ink at 9% alpha; row hover and today's column." },
-      "selection": { "role": "neutral", "displayName": "Selection", "canonical": "oklch(87.2% 0.031 259)", "tonalRamp": ["oklch(15% 0.031 259)", "oklch(25% 0.031 259)", "oklch(35% 0.031 259)", "oklch(48% 0.031 259)", "oklch(60% 0.031 259)", "oklch(72% 0.031 259)", "oklch(84% 0.031 259)", "oklch(95% 0.031 259)"] },
-      "photo-well": { "role": "neutral", "displayName": "Photo Well", "canonical": "oklch(14.9% 0.002 107)", "tonalRamp": ["oklch(15% 0.002 107)", "oklch(25% 0.002 107)", "oklch(35% 0.002 107)", "oklch(48% 0.002 107)", "oklch(60% 0.002 107)", "oklch(72% 0.002 107)", "oklch(84% 0.002 107)", "oklch(95% 0.002 107)"] },
-      "evidence-backdrop": { "role": "neutral", "displayName": "Evidence Backdrop", "canonical": "rgba(18, 22, 28, 0.82)", "note": "dialog::backdrop only." }
-    },
-    "cssVariables": {
-      "--paper": "{colors.paper} (dark scheme: {colors.paper-on-desk})",
-      "--desk": "{colors.paper} (dark scheme: {colors.desk-dark})",
-      "--ink": "{colors.ink}",
-      "--rule": "{colors.rule}",
-      "--rule-ink": "{colors.rule-ink}",
-      "--red": "{colors.ledger-red}",
-      "--tint": "{colors.tint}",
-      "--sel": "{colors.selection}",
-      "--print": "\"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif",
-      "--type": "\"Courier Prime\", \"Courier New\", Courier, monospace",
-      "--ease": "cubic-bezier(.2, .7, .2, 1)",
-      "--n": "feeder column count on .daily (set inline by app.js)",
-      "--d": "day column count on .mgrid (default 30)",
-      "--w": "print width cap per rank (460/340/250px; 100%/76%/58% for a single feeder)",
-      "--i": "row index for the fill stagger, capped at 12"
-    },
-    "typographyMeta": {
-      "masthead": { "displayName": "Masthead", "purpose": "The word birdy in the top margin; uppercase, tracked 0.2em." },
-      "label": { "displayName": "Printed Label", "purpose": "Every printed field name and section heading; uppercase, rule ink. Also nav, tagline, ledger heads, scroll hint, filter label, weekday beside a log day, feeder name under a phone cell." },
-      "grid-head": { "displayName": "Grid Head", "purpose": "Day numbers and hours across the monthly sheet; not uppercase. Its 10px month abbreviation is uppercase and tracked 0.14em." },
-      "body": { "displayName": "Body", "purpose": "Page default (Libre Franklin 15px, tabular numerals); little text reaches it unstyled." },
-      "small-print": { "displayName": "Small Print", "purpose": "Place and local time under a feeder's name in the column head." },
-      "foot": { "displayName": "Foot", "purpose": "Provenance line and record-kept-since under the closing red rule." },
-      "sheet-date": { "displayName": "Sheet Date", "purpose": "The date on the daily sheet, a feeder's name on its month, a species' name on its card; red when today." },
-      "typed-name": { "displayName": "Typed Name", "purpose": "Species names in rows, feeder names in heads, the day in the photo log, the bird's name under a log print." },
-      "typed": { "displayName": "Typed Value", "purpose": "Counts, times, totals, monthly and ledger cells, the sheet number, the typed value at the right of a section heading." },
-      "typed-entry": { "displayName": "Typed Entry", "purpose": "The line under a print (count, time, who) and the dialog caption; line-height 1.4." },
-      "typed-note": { "displayName": "Typed Note", "purpose": "Italic; the note under the head and every empty-state line, in rule ink." },
-      "typed-control": { "displayName": "Typed Control", "purpose": "The filter select; 16px so phones do not zoom on focus." }
-    },
-    "fonts": [
-      { "family": "Libre Franklin", "file": "gallery/fonts/LibreFranklin.woff2", "weights": "400 700 (variable)", "licence": "gallery/fonts/OFL-LibreFranklin.txt", "preloaded": true },
-      { "family": "Courier Prime", "file": "gallery/fonts/CourierPrime-Regular.woff2", "weights": "400", "licence": "gallery/fonts/OFL-CourierPrime.txt", "preloaded": true },
-      { "family": "Courier Prime", "file": "gallery/fonts/CourierPrime-Bold.woff2", "weights": "700", "licence": "gallery/fonts/OFL-CourierPrime.txt" },
-      { "family": "Courier Prime", "file": "gallery/fonts/CourierPrime-Italic.woff2", "weights": "400 italic", "licence": "gallery/fonts/OFL-CourierPrime.txt" }
-    ],
-    "rules": [
-      { "name": "rule", "value": "1px solid var(--rule)", "purpose": "Every printed line: row rules, column rules, head, ledger, section and log-day rules." },
-      { "name": "frame", "value": "1px solid var(--ink)", "purpose": "Print and thumbnail frames, dialog buttons, the select's underline, the phone month's cut edge." },
-      { "name": "double-rule", "value": "3px double var(--red)", "purpose": "Masthead bottom and foot top only." },
-      { "name": "link-underline", "value": "text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px", "purpose": "Text links on hover; prints never underline." }
-    ],
-    "focus": { "name": "focus-ring", "value": "outline: 2px solid var(--red); outline-offset: 2px", "purpose": ":focus-visible on every focusable element." },
-    "shadows": [
-      { "name": "sheet-on-desk", "value": "0 18px 50px rgba(0, 0, 0, .45)", "purpose": "The sheet in dark mode at min-width 720px only; the paper lying on the dark desk." },
-      { "name": "evidence-on-desk", "value": "0 24px 70px rgba(0, 0, 0, .5)", "purpose": "The open evidence dialog, over the evidence-backdrop." }
-    ],
-    "motion": [
-      { "name": "ease", "value": "cubic-bezier(.2, .7, .2, 1)", "purpose": "The only easing; used by the fill and the sharpen." },
-      { "name": "fill", "value": "@keyframes fill { from { opacity: 0; transform: translateY(4px); } } ; animation: fill .4s var(--ease) both; animation-delay: calc(var(--i, 0) * 40ms)", "purpose": "Rows (.daily .row), log days (.log), monthly grids (.mgrid) and ledgers (.ledger) fill in once on load; --i is the row index capped at 12 (max 480ms delay)." },
-      { "name": "sharpen", "value": "transition: filter .3s var(--ease); dialog[aria-busy=true] img { filter: blur(4px) }", "purpose": "The evidence print shows the loaded thumbnail blurred and sharpens when the full-size file lands." },
-      { "name": "reduced-motion", "value": "@media (prefers-reduced-motion: reduce) { .daily .row, .log, .mgrid, .ledger { animation: none } dialog img { transition: none } }", "purpose": "Holds the sheet as a single still." }
-    ],
-    "breakpoints": [
-      { "name": "phone", "value": "max-width: 719px", "purpose": "Rows become species sections with cells two-up; monthly sheet narrows and shows the scroll hint and cut edge; print grids go to two columns." },
-      { "name": "desk", "value": "min-width: 720px and prefers-color-scheme: dark", "purpose": "The sheet gets 24px of dark desk above and below and the sheet-on-desk shadow." }
-    ],
-    "layout": {
-      "sheet": { "maxWidth": "1320px", "minHeight": "100vh", "padding": "0 clamp(16px, 4vw, 48px) 40px", "phonePadding": "0 16px 32px" },
-      "dailyRow": { "columns": "minmax(150px, 230px) repeat(var(--n, 1), minmax(0, 1fr))", "cellPadding": "10px 12px 12px 0", "ruledCellPaddingLeft": "12px", "phone": "1fr 1fr with 0 12px gap; species spans 1 / -1; rank-1 cell spans 1 / -1" },
-      "printWidthCaps": { "multi": ["460px", "340px", "250px"], "single": ["100%", "76%", "58%"], "phone": "none" },
-      "monthGrid": { "columns": "minmax(150px, 190px) repeat(var(--d, 30), minmax(28px, 1fr)) 56px", "minWidth": "1040px", "phone": "minmax(120px, 140px) repeat(var(--d, 30), minmax(24px, 1fr)) 48px, min 900px", "opensScrolledTo": "right edge (today)" },
-      "hourGrid": { "columns": "minmax(150px, 190px) repeat(24, minmax(28px, 1fr)) 56px", "minWidth": "880px", "phone": "min 760px" },
-      "ledger": { "columns": "minmax(150px, 1fr) 7ch 10ch 10ch", "phone": "1fr 6ch 8ch 8ch at 14px" },
-      "prints": { "columns": "repeat(auto-fill, minmax(210px, 1fr))", "gap": "18px 16px", "phone": "repeat(2, minmax(0, 1fr)) gap 14px 10px" },
-      "strip": { "columns": "repeat(auto-fill, minmax(230px, 1fr))", "gap": "18px 16px" },
-      "touchTargets": { "hit": ".hit { display: inline-block; padding: 12px 0; margin: -12px 0 }", "controls": "44px minimum (select, dialog buttons, dialog caption)" }
-    },
-    "darkMode": {
-      "mechanism": "color-scheme: light dark; @media (prefers-color-scheme: dark) :root { --desk: #1b1e22; --paper: #e5e9dc }",
-      "doctrine": "The same sheet on a dark desk. Ink, rule, rule-ink, red and tint are unchanged; only the desk and the paper shade move."
-    }
-  },
-  "components": [
-    {
-      "name": "Masthead",
-      "kind": "nav",
-      "refersTo": "masthead",
-      "description": "The letterhead in the top margin: birdy at the left, the nav or tagline at the right, closed by the red double rule.",
-      "html": "<header class=\"ds-mast\"><h1><a class=\"ds-hit\" href=\"#\">birdy</a></h1><nav><a class=\"ds-hit\" href=\"#\">Daily record</a></nav></header>",
-      "css": ".ds-mast { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 0 10px; border-bottom: 3px double var(--red, #b5392f); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); } .ds-mast h1 { margin: 0; font: 700 13px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase; } .ds-mast nav { margin: 0; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); } .ds-mast a { color: inherit; text-decoration: none; } .ds-mast a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-mast a:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { display: inline-block; padding: 12px 0; margin: -12px 0; }"
-    },
-    {
-      "name": "Sheet head",
-      "kind": "custom",
-      "refersTo": "sheet-date",
-      "description": "The form's heading: the date typed large (red when today), the sheet number at the right margin under a printed label.",
-      "html": "<header class=\"ds-head\"><h2 class=\"ds-today\">Sunday 5 October 2026</h2><div class=\"ds-meta\"><p class=\"ds-label\">Sheet</p>No. 312</div></header>",
-      "css": ".ds-head { display: grid; grid-template-columns: 1fr auto; gap: 2px 24px; align-items: end; padding: 24px 0 12px; border-bottom: 1px solid var(--rule, #93a8cc); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); } .ds-head h2 { grid-row: 1; margin: 0; font: 400 clamp(26px, 4vw, 40px)/1.1 \"Courier Prime\", \"Courier New\", Courier, monospace; letter-spacing: -0.01em; text-wrap: balance; } .ds-head h2.ds-today { color: var(--red, #b5392f); } .ds-meta { grid-column: 2; grid-row: 1; align-self: end; text-align: right; font: 15px/1.5 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-label { margin: 0 0 2px; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); }"
-    },
-    {
-      "name": "Printed label",
-      "kind": "chip",
-      "refersTo": "label",
-      "description": "The printed field name: tracked uppercase Libre Franklin in rule ink. Also the section heading, with its typed value at the right margin.",
-      "html": "<h3 class=\"ds-sec\"><span>Last 30 days</span><span class=\"ds-typed\">6 Sep – 5 Oct</span></h3>",
-      "css": ".ds-sec { margin: 0; padding: 0 0 8px; border-bottom: 1px solid var(--rule, #93a8cc); font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; background: var(--paper, #eef2e6); } .ds-sec .ds-typed { font: 400 15px/1.3 \"Courier Prime\", \"Courier New\", Courier, monospace; letter-spacing: 0; text-transform: none; color: var(--ink, #1f2a3a); }"
-    },
-    {
-      "name": "Ruled row with print",
-      "kind": "card",
-      "refersTo": "row-cell",
-      "description": "One species row of the daily sheet: species and tally at the left, then one ruled cell per feeder holding the day's best print with its typed count and time. Hover washes the row with tint.",
-      "html": "<div class=\"ds-row\" style=\"--n:2\"><div class=\"ds-species\"><a class=\"ds-hit\" href=\"#\">Eurasian Blue Tit</a><span class=\"ds-tally\">×12 · 2 feeders</span></div><figure class=\"ds-cell\"><a class=\"ds-print\" href=\"#\"><img alt=\"\" src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3C/svg%3E\"></a><figcaption class=\"ds-entry\"><span class=\"ds-n\">×7</span><span class=\"ds-t ds-latest\">18:51</span></figcaption></figure><div class=\"ds-cell ds-blank\">—</div></div>",
-      "css": ".ds-row { display: grid; grid-template-columns: minmax(150px, 230px) repeat(var(--n, 1), minmax(0, 1fr)); border-bottom: 1px solid var(--rule, #93a8cc); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); font-variant-numeric: tabular-nums; } .ds-row > * { min-width: 0; padding: 10px 12px 12px 0; margin: 0; } .ds-row > * + * { border-left: 1px solid var(--rule, #93a8cc); padding-left: 12px; } .ds-row:hover { background: var(--tint, rgba(70, 96, 138, .09)); } .ds-species a { display: inline-block; font: 700 17px/1.3 \"Courier Prime\", \"Courier New\", Courier, monospace; color: inherit; text-decoration: none; } .ds-species a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-species a:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { padding: 12px 0; margin: -12px 0; } .ds-tally { display: block; font: 15px/1.5 \"Courier Prime\", \"Courier New\", Courier, monospace; color: var(--rule-ink, #46608a); } .ds-print { display: block; width: 100%; max-width: 250px; } .ds-print img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--ink, #1f2a3a); background: var(--rule, #93a8cc); } .ds-entry { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0 0; font: 15px/1.4 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-entry .ds-n { min-width: 3ch; text-align: right; white-space: nowrap; } .ds-entry .ds-latest { color: var(--red, #b5392f); } .ds-blank { font: 15px/1.4 \"Courier Prime\", \"Courier New\", Courier, monospace; color: var(--rule-ink, #46608a); }"
-    },
-    {
-      "name": "Feeder head",
-      "kind": "nav",
-      "refersTo": "feeder-head-name",
-      "description": "A column head that links to the feeder's month: the name typed bold, place and local time printed beneath in rule ink.",
-      "html": "<a class=\"ds-feeder ds-hit\" href=\"#\"><b>Yassine</b><span>Sintra, PT · <span class=\"ds-now\">14:02</span> local</span></a>",
-      "css": ".ds-feeder { display: inline-block; color: var(--ink, #1f2a3a); text-decoration: none; background: var(--paper, #eef2e6); } .ds-feeder b { display: block; font: 700 17px/1.3 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-feeder > span { display: block; font: 13px/1.4 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; color: var(--rule-ink, #46608a); } .ds-feeder .ds-now { font-family: \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-feeder:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-feeder:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { padding: 12px 0; margin: -12px 0; }"
-    },
-    {
-      "name": "Monthly ledger cells",
-      "kind": "custom",
-      "refersTo": "month-cell",
-      "description": "A slice of the species × days grid: grid heads in rule ink (today red), centred typed counts, today's column washed with tint, bold totals ruled to the left.",
-      "html": "<div class=\"ds-mgrid\" style=\"--d:4\"><div class=\"ds-mh ds-sp\"><small>Species</small>visits per day</div><div class=\"ds-mh\"><small>Oct</small>2</div><div class=\"ds-mh\"><small></small>3</div><div class=\"ds-mh\"><small></small>4</div><div class=\"ds-mh ds-today\"><small></small>5</div><div class=\"ds-mh ds-mt\"><small>&nbsp;</small>Total</div><div class=\"ds-sp\"><a href=\"#\">Eurasian Blue Tit</a></div><div class=\"ds-mc\">3</div><div class=\"ds-mc\"></div><div class=\"ds-mc\">5</div><div class=\"ds-mc ds-today\">7</div><div class=\"ds-mt\">15</div></div>",
-      "css": ".ds-mgrid { display: grid; grid-template-columns: minmax(150px, 190px) repeat(var(--d, 30), minmax(28px, 1fr)) 56px; color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); font-variant-numeric: tabular-nums; } .ds-mgrid > * { padding: 7px 0; border-bottom: 1px solid var(--rule, #93a8cc); font: 15px/1.5 \"Courier Prime\", \"Courier New\", Courier, monospace; text-align: center; min-width: 0; } .ds-mgrid .ds-sp { position: sticky; left: 0; background: var(--paper, #eef2e6); text-align: left; padding-right: 10px; border-right: 1px solid var(--rule, #93a8cc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-mgrid .ds-sp a { display: block; padding: 11px 0; margin: -11px 0; color: inherit; text-decoration: none; } .ds-mgrid .ds-sp a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-mgrid .ds-mh { font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .06em; color: var(--rule-ink, #46608a); padding-top: 10px; } .ds-mgrid .ds-mh small { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; min-height: 13px; } .ds-mgrid .ds-mh.ds-today { color: var(--red, #b5392f); } .ds-mgrid .ds-mc.ds-today { background: var(--tint, rgba(70, 96, 138, .09)); } .ds-mgrid .ds-mt { font-weight: 700; border-left: 1px solid var(--rule, #93a8cc); }"
-    },
-    {
-      "name": "Filter select",
-      "kind": "input",
-      "refersTo": "select",
-      "description": "The photo-log filter: a printed label and a typed select with nothing but a 1px ink underline, 44px tall, square.",
-      "html": "<label class=\"ds-filter\">Show <select class=\"ds-select\"><option>all species</option><option>Eurasian Blue Tit</option><option>European Robin</option></select></label>",
-      "css": ".ds-filter { display: inline-flex; align-items: center; gap: 10px; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); background: var(--paper, #eef2e6); } .ds-select { min-height: 44px; padding: 4px 28px 4px 4px; font: 16px \"Courier Prime\", \"Courier New\", Courier, monospace; color: var(--ink, #1f2a3a); background: transparent; border: 0; border-bottom: 1px solid var(--ink, #1f2a3a); border-radius: 0; } .ds-select:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; }"
-    },
-    {
-      "name": "Evidence dialog",
-      "kind": "custom",
-      "refersTo": "evidence-dialog",
-      "description": "A print lifted off the sheet onto the desk: paper surface, ink-framed photo on a dark well, typed caption, the day's thumbnails as framed buttons (current one red), and 44px ink-bordered prev/next/close buttons.",
-      "html": "<div class=\"ds-dialog ds-has-strip\"><figure><img alt=\"\" src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3C/svg%3E\"><figcaption><span>Eurasian Blue Tit · 18:51</span><span class=\"ds-count\">2 / 5</span></figcaption><div class=\"ds-thumbs\"><button type=\"button\" aria-label=\"Photo 1 of 5\"></button><button type=\"button\" class=\"ds-on\" aria-label=\"Photo 2 of 5\" aria-current=\"true\"></button><button type=\"button\" aria-label=\"Photo 3 of 5\"></button></div></figure><button class=\"ds-prev\" type=\"button\" aria-label=\"Previous photo\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\"><path d=\"M15 5l-7 7 7 7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\"/></svg></button><button class=\"ds-next\" type=\"button\" aria-label=\"Next photo\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\"><path d=\"M9 5l7 7-7 7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\"/></svg></button><button class=\"ds-close\" type=\"button\" aria-label=\"Close\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\"/></svg></button></div>",
-      "css": ".ds-dialog { position: relative; display: inline-block; border: 0; padding: 0; background: var(--paper, #eef2e6); color: var(--ink, #1f2a3a); box-shadow: 0 24px 70px rgba(0, 0, 0, .5); font-variant-numeric: tabular-nums; } .ds-dialog figure { margin: 0; padding: 14px 14px 12px; } .ds-dialog figure > img { display: block; width: 320px; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid var(--ink, #1f2a3a); background: #0b0b0a; transition: filter .3s cubic-bezier(.2, .7, .2, 1); } .ds-dialog figcaption { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; padding: 8px 56px 0 0; font: 15px/1.4 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-dialog .ds-count { color: var(--rule-ink, #46608a); white-space: nowrap; } .ds-thumbs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 2px; } .ds-thumbs button { position: static; width: 76px; height: 57px; padding: 0; border: 1px solid var(--ink, #1f2a3a); background: var(--rule, #93a8cc); cursor: pointer; } .ds-thumbs button.ds-on { border-color: var(--red, #b5392f); outline: 1px solid var(--red, #b5392f); outline-offset: 0; } .ds-dialog > button { position: absolute; width: 44px; height: 44px; padding: 0; border: 1px solid var(--ink, #1f2a3a); background: var(--paper, #eef2e6); color: var(--ink, #1f2a3a); cursor: pointer; display: grid; place-items: center; border-radius: 0; } .ds-dialog .ds-close { bottom: 12px; right: 14px; } .ds-dialog .ds-prev, .ds-dialog .ds-next { top: 50%; transform: translateY(-50%); } .ds-dialog .ds-prev { left: 14px; } .ds-dialog .ds-next { right: 14px; } .ds-dialog button:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; }"
-    },
-    {
-      "name": "Foot",
-      "kind": "custom",
-      "refersTo": "foot",
-      "description": "The closing double red rule with the provenance line and record-kept-since in small print.",
-      "html": "<footer class=\"ds-foot\"><span>Recorded automatically by a camera at each window · the best photos of each species per day</span><span>Record kept since 12 September 2026</span></footer>",
-      "css": ".ds-foot { margin-top: 40px; padding-top: 10px; border-top: 3px double var(--red, #b5392f); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 24px; font: 12px/1.5 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; color: var(--rule-ink, #46608a); background: var(--paper, #eef2e6); }"
-    }
+ "schemaVersion": 2,
+ "generatedAt": "2026-10-05T00:00:00+01:00",
+ "title": "Design System: Birdy gallery",
+ "scope": {
+  "designMd": "gallery/DESIGN.md",
+  "artifact": [
+   "gallery/index.html",
+   "gallery/site.html",
+   "gallery/species.html",
+   "gallery/app.js",
+   "gallery/style.css",
+   "gallery/fonts/"
   ],
-  "narrative": {
-    "northStar": "The Recording Sheet",
-    "overview": "The gallery is a printed daily record, one sheet per day: species down the left, one ruled column per feeder, and in every cell the day's best photograph pasted on the paper with its count and last time typed beneath. The form itself is printed (Libre Franklin, tracked uppercase labels in blue rule ink on eye-ease green paper); what happened is typed on it (Courier Prime for every species name, count, time and date). The reader is a fellow collaborator comparing feeders during the day, so the sheet is dense, aligned and legible, never showy. The build refuses the photo-card grid and the stats dashboard: there are no cards, no boxes, no panels, only rules, columns and prints.\n\nHierarchy comes from the ledger's own devices, not from colour or weight. Rank is carried by row size (the busiest species gets the widest print), every number sits in a fixed-width digit column, and a single ledger red is held back for today and the latest entry. The sheet keeps one 1px ink weight for every rule and every print frame, and no greys: secondary text is simply the same blue as the printed rules, dark enough to read. Dark mode does not restyle the sheet; it puts the same paper on a dark desk and lets it cast a shadow.\n\nMotion is a single gesture: the rows fill in once, top to bottom, when the sheet loads; the only other movement is a print sharpening from its thumbnail inside the evidence dialog. Nothing hovers, slides or glows. Under reduced motion the sheet is a single still.",
-    "keyCharacteristics": [
-      "One sheet, one paper (`paper`), one ink (`ink`), one rule colour (`rule`), one accent (`ledger-red`)",
-      "Printed form in Libre Franklin, typed entries in Courier Prime; the role decides the face",
-      "Square corners everywhere; prints wear a 1px ink frame like a pasted photograph",
-      "Secondary text is rule ink, never a grey",
-      "Rank by size, counts in digit columns, red only for today and the latest entry",
-      "Photos are the content of every cell, never thumbnails in a sidebar"
-    ],
-    "rules": [
-      { "name": "The One Red Rule", "body": "Ledger red marks the present and the focus, and nothing else: today, the latest entry, the current thumbnail, the keyboard focus ring, the two double rules that close the sheet. A new surface that wants a second accent does not get one.", "section": "colors" },
-      { "name": "The No Grey Rule", "body": "There is no grey in the palette. Anything that would be \"muted\" is rule ink (`rule-ink`); anything that would be a \"light border\" is rule blue (`rule`). Both are the same hue as the printed form.", "section": "colors" },
-      { "name": "The One Ink Weight Rule", "body": "Every rule, frame and underline is 1px solid. The only heavier line is the 3px double rule in ledger red at the masthead and the foot.", "section": "colors" },
-      { "name": "The Print-or-Typed Rule", "body": "Every string is either printed (Libre Franklin) or typed (Courier Prime); the role decides, never the size. Values are typed. Field names are printed. No third face, and no system display face.", "section": "typography" },
-      { "name": "The Two Weights Rule", "body": "Courier Prime is 400 for values and 700 for names and totals; Libre Franklin is 400 for prose and 600–700 for labels and the masthead. Nothing is lighter than 400 and nothing is bolder than 700.", "section": "typography" },
-      { "name": "The Flat Sheet Rule", "body": "Nothing on the sheet casts a shadow. The sheet itself casts one only when there is a desk beneath it (dark mode, wide viewport); the evidence dialog casts one because it is a second object on the desk.", "section": "elevation" }
-    ],
-    "dos": [
-      "Do type every value in Courier Prime (species, counts, times, dates, feeder names as headings) and print every field name in Libre Franklin at `label`: 600, 11px, tracked 0.14em, uppercase, rule ink.",
-      "Do keep every rule, frame and underline at 1px solid, in rule blue for the printed form and ink for frames; reserve the 3px double red rule for the masthead and the foot.",
-      "Do use ledger red only for today, the latest entry, the marked thumbnail, errors and the focus ring.",
-      "Do set secondary text in rule ink (`rule-ink`) and loading placeholders in rule blue (`rule`).",
-      "Do carry rank by size (print width caps 460 / 340 / 250px, or 100% / 76% / 58% for a single feeder) and keep counts in a right-aligned 3ch digit column.",
-      "Do frame every photograph 1px ink at 4:3 and let it fill its cell; on a phone, keep a species' cells adjacent (two-up under the species line).",
-      "Do give every text link the `.hit` 12px vertical hit area and every control a 44px minimum.",
-      "Do keep dark mode as the same sheet (`paper-on-desk`) on a dark desk (`desk-dark`) with the sheet-on-desk shadow at ≥720px; never invert the paper.",
-      "Do let rows fill in once on load (0.4s, 40ms stagger, capped at the twelfth row) and hold everything still under reduced motion."
-    ],
-    "donts": [
-      "Don't use grey anywhere: no grey text, grey borders, grey placeholders or grey disabled states.",
-      "Don't round a corner, add a card, a box, a panel, a pill or a filled button; content is a run of ruled rows and a print on the paper.",
-      "Don't put an eyebrow or kicker above a heading; a section heading is the label itself, with its typed value at the right margin.",
-      "Don't make photos secondary: no thumbnail rails, no icon-sized prints, no cropping to a square.",
-      "Don't introduce a second accent, a tinted background other than `tint`, or a coloured fill for state; today's column is a 9% wash, not a highlight bar.",
-      "Don't add a system or third typeface, a weight below 400 or above 700, or a glyph icon font; the three dialog icons are inline SVG strokes.",
-      "Don't add hover motion, transitions on rules or rows, or a second load animation; the fill and the sharpen are the whole motion grammar.",
-      "Don't cast shadows on the sheet; only the sheet itself (dark desk) and the evidence dialog cast one."
+  "note": "Separate from the root DESIGN.md / .impeccable/design.json, which record the Pi's LAN interface (trail-cam OSD world). The two systems share nothing."
+ },
+ "extensions": {
+  "colorMeta": {
+   "paper": {
+    "role": "neutral",
+    "displayName": "Eye-ease Paper",
+    "canonical": "oklch(95.5% 0.016 122)",
+    "tonalRamp": [
+     "oklch(15% 0.016 122)",
+     "oklch(25% 0.016 122)",
+     "oklch(35% 0.016 122)",
+     "oklch(48% 0.016 122)",
+     "oklch(60% 0.016 122)",
+     "oklch(72% 0.016 122)",
+     "oklch(84% 0.016 122)",
+     "oklch(95% 0.016 122)"
     ]
+   },
+   "paper-on-desk": {
+    "role": "neutral",
+    "displayName": "Paper on Desk (dark scheme)",
+    "canonical": "oklch(92.7% 0.018 121)",
+    "tonalRamp": [
+     "oklch(15% 0.018 121)",
+     "oklch(25% 0.018 121)",
+     "oklch(35% 0.018 121)",
+     "oklch(48% 0.018 121)",
+     "oklch(60% 0.018 121)",
+     "oklch(72% 0.018 121)",
+     "oklch(84% 0.018 121)",
+     "oklch(95% 0.018 121)"
+    ]
+   },
+   "desk-dark": {
+    "role": "neutral",
+    "displayName": "Dark Desk (dark scheme)",
+    "canonical": "oklch(23.4% 0.009 256)",
+    "tonalRamp": [
+     "oklch(15% 0.009 256)",
+     "oklch(25% 0.009 256)",
+     "oklch(35% 0.009 256)",
+     "oklch(48% 0.009 256)",
+     "oklch(60% 0.009 256)",
+     "oklch(72% 0.009 256)",
+     "oklch(84% 0.009 256)",
+     "oklch(95% 0.009 256)"
+    ]
+   },
+   "ink": {
+    "role": "neutral",
+    "displayName": "Blue-black Ink",
+    "canonical": "oklch(28.2% 0.033 258)",
+    "tonalRamp": [
+     "oklch(15% 0.033 258)",
+     "oklch(25% 0.033 258)",
+     "oklch(35% 0.033 258)",
+     "oklch(48% 0.033 258)",
+     "oklch(60% 0.033 258)",
+     "oklch(72% 0.033 258)",
+     "oklch(84% 0.033 258)",
+     "oklch(95% 0.033 258)"
+    ]
+   },
+   "rule": {
+    "role": "neutral",
+    "displayName": "Rule Blue",
+    "canonical": "oklch(72.8% 0.058 261)",
+    "tonalRamp": [
+     "oklch(15% 0.058 261)",
+     "oklch(25% 0.058 261)",
+     "oklch(35% 0.058 261)",
+     "oklch(48% 0.058 261)",
+     "oklch(60% 0.058 261)",
+     "oklch(72% 0.058 261)",
+     "oklch(84% 0.058 261)",
+     "oklch(95% 0.058 261)"
+    ]
+   },
+   "rule-ink": {
+    "role": "neutral",
+    "displayName": "Rule Ink",
+    "canonical": "oklch(48.7% 0.075 260)",
+    "tonalRamp": [
+     "oklch(15% 0.075 260)",
+     "oklch(25% 0.075 260)",
+     "oklch(35% 0.075 260)",
+     "oklch(48% 0.075 260)",
+     "oklch(60% 0.075 260)",
+     "oklch(72% 0.075 260)",
+     "oklch(84% 0.075 260)",
+     "oklch(95% 0.075 260)"
+    ]
+   },
+   "ledger-red": {
+    "role": "primary",
+    "displayName": "Ledger Red",
+    "canonical": "oklch(52.5% 0.162 28)",
+    "tonalRamp": [
+     "oklch(15% 0.162 28)",
+     "oklch(25% 0.162 28)",
+     "oklch(35% 0.162 28)",
+     "oklch(48% 0.162 28)",
+     "oklch(60% 0.162 28)",
+     "oklch(72% 0.162 28)",
+     "oklch(84% 0.162 28)",
+     "oklch(95% 0.162 28)"
+    ]
+   },
+   "tint": {
+    "role": "neutral",
+    "displayName": "Finger Tint",
+    "canonical": "rgba(70, 96, 138, 0.09)",
+    "note": "Rule ink at 9% alpha; row hover and today's column."
+   },
+   "selection": {
+    "role": "neutral",
+    "displayName": "Selection",
+    "canonical": "oklch(87.2% 0.031 259)",
+    "tonalRamp": [
+     "oklch(15% 0.031 259)",
+     "oklch(25% 0.031 259)",
+     "oklch(35% 0.031 259)",
+     "oklch(48% 0.031 259)",
+     "oklch(60% 0.031 259)",
+     "oklch(72% 0.031 259)",
+     "oklch(84% 0.031 259)",
+     "oklch(95% 0.031 259)"
+    ]
+   },
+   "photo-well": {
+    "role": "neutral",
+    "displayName": "Photo Well",
+    "canonical": "oklch(14.9% 0.002 107)",
+    "tonalRamp": [
+     "oklch(15% 0.002 107)",
+     "oklch(25% 0.002 107)",
+     "oklch(35% 0.002 107)",
+     "oklch(48% 0.002 107)",
+     "oklch(60% 0.002 107)",
+     "oklch(72% 0.002 107)",
+     "oklch(84% 0.002 107)",
+     "oklch(95% 0.002 107)"
+    ]
+   },
+   "evidence-backdrop": {
+    "role": "neutral",
+    "displayName": "Evidence Backdrop",
+    "canonical": "rgba(18, 22, 28, 0.82)",
+    "note": "dialog::backdrop only."
+   }
+  },
+  "cssVariables": {
+   "--paper": "{colors.paper} (dark scheme: {colors.paper-on-desk})",
+   "--desk": "{colors.paper} (dark scheme: {colors.desk-dark})",
+   "--ink": "{colors.ink}",
+   "--rule": "{colors.rule}",
+   "--rule-ink": "{colors.rule-ink}",
+   "--red": "{colors.ledger-red}",
+   "--tint": "{colors.tint}",
+   "--sel": "{colors.selection}",
+   "--print": "\"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif",
+   "--type": "\"Courier Prime\", \"Courier New\", Courier, monospace",
+   "--ease": "cubic-bezier(.2, .7, .2, 1)",
+   "--n": "feeder column count on .daily (set inline by app.js)",
+   "--d": "day column count on .mgrid (default 30)",
+   "--w": "print width cap per rank (460/340/250px; 100%/76%/58% for a single feeder)",
+   "--i": "row index for the fill stagger, capped at 12"
+  },
+  "typographyMeta": {
+   "masthead": {
+    "displayName": "Masthead",
+    "purpose": "The word birdy in the top margin; uppercase, tracked 0.2em."
+   },
+   "label": {
+    "displayName": "Printed Label",
+    "purpose": "Every printed field name and section heading; uppercase, rule ink. Also nav, tagline, ledger heads, scroll hint, filter label, weekday beside a log day, feeder name under a phone cell."
+   },
+   "grid-head": {
+    "displayName": "Grid Head",
+    "purpose": "Day numbers and hours across the monthly sheet; not uppercase. Its 10px month abbreviation is uppercase and tracked 0.14em."
+   },
+   "body": {
+    "displayName": "Body",
+    "purpose": "Page default (Libre Franklin 15px, tabular numerals); little text reaches it unstyled."
+   },
+   "small-print": {
+    "displayName": "Small Print",
+    "purpose": "Place and local time under a feeder's name in the column head."
+   },
+   "foot": {
+    "displayName": "Foot",
+    "purpose": "Provenance line and record-kept-since under the closing red rule."
+   },
+   "sheet-date": {
+    "displayName": "Sheet Date",
+    "purpose": "The date on the daily sheet, a feeder's name on its month, a species' name on its card; red when today."
+   },
+   "typed-name": {
+    "displayName": "Typed Name",
+    "purpose": "Species names in rows, feeder names in heads, the day in the photo log, the bird's name under a log print."
+   },
+   "typed": {
+    "displayName": "Typed Value",
+    "purpose": "Counts, times, totals, monthly and ledger cells, the sheet number, the typed value at the right of a section heading."
+   },
+   "typed-entry": {
+    "displayName": "Typed Entry",
+    "purpose": "The line under a print (count, time, who) and the dialog caption; line-height 1.4."
+   },
+   "typed-note": {
+    "displayName": "Typed Note",
+    "purpose": "Italic; the note under the head and every empty-state line, in rule ink."
+   },
+   "typed-control": {
+    "displayName": "Typed Control",
+    "purpose": "The filter select; 16px so phones do not zoom on focus."
+   }
+  },
+  "fonts": [
+   {
+    "family": "Libre Franklin",
+    "file": "gallery/fonts/LibreFranklin.woff2",
+    "weights": "400 700 (variable)",
+    "licence": "gallery/fonts/OFL-LibreFranklin.txt",
+    "preloaded": true
+   },
+   {
+    "family": "Courier Prime",
+    "file": "gallery/fonts/CourierPrime-Regular.woff2",
+    "weights": "400",
+    "licence": "gallery/fonts/OFL-CourierPrime.txt",
+    "preloaded": true
+   },
+   {
+    "family": "Courier Prime",
+    "file": "gallery/fonts/CourierPrime-Bold.woff2",
+    "weights": "700",
+    "licence": "gallery/fonts/OFL-CourierPrime.txt"
+   },
+   {
+    "family": "Courier Prime",
+    "file": "gallery/fonts/CourierPrime-Italic.woff2",
+    "weights": "400 italic",
+    "licence": "gallery/fonts/OFL-CourierPrime.txt"
+   }
+  ],
+  "rules": [
+   {
+    "name": "rule",
+    "value": "1px solid var(--rule)",
+    "purpose": "Every printed line: row rules, column rules, head, ledger, section and log-day rules."
+   },
+   {
+    "name": "frame",
+    "value": "1px solid var(--ink)",
+    "purpose": "Print and thumbnail frames, dialog buttons, the select's underline, the phone month's cut edge."
+   },
+   {
+    "name": "double-rule",
+    "value": "3px double var(--red)",
+    "purpose": "Masthead bottom and foot top only."
+   },
+   {
+    "name": "link-underline",
+    "value": "text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px",
+    "purpose": "Text links on hover; prints never underline."
+   }
+  ],
+  "focus": {
+   "name": "focus-ring",
+   "value": "outline: 2px solid var(--red); outline-offset: 2px",
+   "purpose": ":focus-visible on every focusable element."
+  },
+  "shadows": [
+   {
+    "name": "sheet-on-desk",
+    "value": "0 18px 50px rgba(0, 0, 0, .45)",
+    "purpose": "The sheet in dark mode at min-width 720px only; the paper lying on the dark desk."
+   },
+   {
+    "name": "evidence-on-desk",
+    "value": "0 24px 70px rgba(0, 0, 0, .5)",
+    "purpose": "The open evidence dialog, over the evidence-backdrop."
+   }
+  ],
+  "motion": [
+   {
+    "name": "ease",
+    "value": "cubic-bezier(.2, .7, .2, 1)",
+    "purpose": "The only easing; used by the fill and the sharpen."
+   },
+   {
+    "name": "fill",
+    "value": "@keyframes fill { from { opacity: 0; transform: translateY(4px); } } ; animation: fill .4s var(--ease) both; animation-delay: calc(var(--i, 0) * 40ms)",
+    "purpose": "Rows (.daily .row), log days (.log), monthly grids (.mgrid) and ledgers (.ledger) fill in once on load; --i is the row index capped at 12 (max 480ms delay)."
+   },
+   {
+    "name": "sharpen",
+    "value": "transition: filter .3s var(--ease); dialog[aria-busy=true] img { filter: blur(4px) }",
+    "purpose": "The evidence print shows the loaded thumbnail blurred and sharpens when the full-size file lands."
+   },
+   {
+    "name": "reduced-motion",
+    "value": "@media (prefers-reduced-motion: reduce) { .daily .row, .log, .mgrid, .ledger { animation: none } dialog img { transition: none } }",
+    "purpose": "Holds the sheet as a single still."
+   }
+  ],
+  "breakpoints": [
+   {
+    "name": "phone",
+    "value": "max-width: 719px",
+    "purpose": "Rows become species sections with cells two-up; monthly sheet narrows and shows the scroll hint and cut edge; print grids go to two columns."
+   },
+   {
+    "name": "desk",
+    "value": "min-width: 720px and prefers-color-scheme: dark",
+    "purpose": "The sheet gets 24px of dark desk above and below and the sheet-on-desk shadow."
+   }
+  ],
+  "layout": {
+   "sheet": {
+    "maxWidth": "1320px",
+    "minHeight": "100vh",
+    "padding": "0 clamp(16px, 4vw, 48px) 40px",
+    "phonePadding": "0 16px 32px"
+   },
+   "dailyRow": {
+    "columns": "minmax(150px, 230px) repeat(var(--n, 1), minmax(0, 1fr))",
+    "cellPadding": "10px 12px 12px 0",
+    "ruledCellPaddingLeft": "12px",
+    "phone": "1fr 1fr with 0 12px gap; species spans 1 / -1; rank-1 cell spans 1 / -1"
+   },
+   "printWidthCaps": {
+    "multi": [
+     "460px",
+     "340px",
+     "250px"
+    ],
+    "single": [
+     "100%",
+     "76%",
+     "58%"
+    ],
+    "phone": "none"
+   },
+   "monthGrid": {
+    "columns": "minmax(150px, 190px) repeat(var(--d, 30), minmax(28px, 1fr)) 56px",
+    "minWidth": "1040px",
+    "phone": "minmax(120px, 140px) repeat(var(--d, 30), minmax(24px, 1fr)) 48px, min 900px",
+    "opensScrolledTo": "right edge (today)"
+   },
+   "hourGrid": {
+    "columns": "minmax(150px, 190px) repeat(24, minmax(28px, 1fr)) 56px",
+    "minWidth": "880px",
+    "phone": "min 760px"
+   },
+   "ledger": {
+    "columns": "minmax(150px, 1fr) 7ch 10ch 10ch",
+    "phone": "1fr 6ch 8ch 8ch at 14px"
+   },
+   "prints": {
+    "columns": "repeat(auto-fill, minmax(210px, 1fr))",
+    "gap": "18px 16px",
+    "phone": "repeat(2, minmax(0, 1fr)) gap 14px 10px"
+   },
+   "strip": {
+    "columns": "repeat(auto-fill, minmax(230px, 1fr))",
+    "gap": "18px 16px"
+   },
+   "touchTargets": {
+    "hit": ".hit { display: inline-block; padding: 12px 0; margin: -12px 0 }",
+    "controls": "44px minimum (select, dialog buttons, dialog caption)"
+   }
+  },
+  "darkMode": {
+   "mechanism": "color-scheme: light dark; @media (prefers-color-scheme: dark) :root { --desk: #1b1e22; --paper: #e5e9dc }",
+   "doctrine": "The same sheet on a dark desk. Ink, rule, rule-ink, red and tint are unchanged; only the desk and the paper shade move."
   }
+ },
+ "components": [
+  {
+   "name": "Masthead",
+   "kind": "nav",
+   "refersTo": "masthead",
+   "description": "The letterhead in the top margin: birdy at the left, the nav or tagline at the right, closed by the red double rule.",
+   "html": "<header class=\"ds-mast\"><h1><a class=\"ds-hit\" href=\"#\">birdy</a></h1><nav><a class=\"ds-hit\" href=\"#\">Daily record</a></nav></header>",
+   "css": ".ds-mast { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 0 10px; border-bottom: 3px double var(--red, #b5392f); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); } .ds-mast h1 { margin: 0; font: 700 13px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase; } .ds-mast nav { margin: 0; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); } .ds-mast a { color: inherit; text-decoration: none; } .ds-mast a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-mast a:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { display: inline-block; padding: 12px 0; margin: -12px 0; }"
+  },
+  {
+   "name": "Sheet head",
+   "kind": "custom",
+   "refersTo": "sheet-date",
+   "description": "The form's heading: the date typed large (red when today), the sheet number at the right margin under a printed label.",
+   "html": "<header class=\"ds-head\"><h2 class=\"ds-today\">Sunday 5 October 2026</h2><div class=\"ds-meta\"><p class=\"ds-label\">Sheet</p>No. 312</div></header>",
+   "css": ".ds-head { display: grid; grid-template-columns: 1fr auto; gap: 2px 24px; align-items: end; padding: 24px 0 12px; border-bottom: 1px solid var(--rule, #93a8cc); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); } .ds-head h2 { grid-row: 1; margin: 0; font: 400 clamp(26px, 4vw, 40px)/1.1 \"Courier Prime\", \"Courier New\", Courier, monospace; letter-spacing: -0.01em; text-wrap: balance; } .ds-head h2.ds-today { color: var(--red, #b5392f); } .ds-meta { grid-column: 2; grid-row: 1; align-self: end; text-align: right; font: 15px/1.5 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-label { margin: 0 0 2px; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); }"
+  },
+  {
+   "name": "Printed label",
+   "kind": "chip",
+   "refersTo": "label",
+   "description": "The printed field name: tracked uppercase Libre Franklin in rule ink. Also the section heading, with its typed value at the right margin.",
+   "html": "<h3 class=\"ds-sec\"><span>Last 30 days</span><span class=\"ds-typed\">6 Sep – 5 Oct</span></h3>",
+   "css": ".ds-sec { margin: 0; padding: 0 0 8px; border-bottom: 1px solid var(--rule, #93a8cc); font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; background: var(--paper, #eef2e6); } .ds-sec .ds-typed { font: 400 15px/1.3 \"Courier Prime\", \"Courier New\", Courier, monospace; letter-spacing: 0; text-transform: none; color: var(--ink, #1f2a3a); }"
+  },
+  {
+   "name": "Ruled row with print",
+   "kind": "card",
+   "refersTo": "row-cell",
+   "description": "One species row of the daily sheet: species and tally at the left, then one ruled cell per feeder holding the day's best print with its typed count and time. Hover washes the row with tint.",
+   "html": "<div class=\"ds-row\" style=\"--n:2\"><div class=\"ds-species\"><a class=\"ds-hit\" href=\"#\">Eurasian Blue Tit</a><span class=\"ds-tally\">×12 · 2 feeders</span></div><figure class=\"ds-cell\"><a class=\"ds-print\" href=\"#\"><img alt=\"\" src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3C/svg%3E\"></a><figcaption class=\"ds-entry\"><span class=\"ds-n\">×7</span><span class=\"ds-t ds-latest\">18:51</span></figcaption></figure><div class=\"ds-cell ds-blank\">—</div></div>",
+   "css": ".ds-row { display: grid; grid-template-columns: minmax(150px, 230px) repeat(var(--n, 1), minmax(0, 1fr)); border-bottom: 1px solid var(--rule, #93a8cc); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); font-variant-numeric: tabular-nums; } .ds-row > * { min-width: 0; padding: 10px 12px 12px 0; margin: 0; } .ds-row > * + * { border-left: 1px solid var(--rule, #93a8cc); padding-left: 12px; } .ds-row:hover { background: var(--tint, rgba(70, 96, 138, .09)); } .ds-species a { display: inline-block; font: 700 17px/1.3 \"Courier Prime\", \"Courier New\", Courier, monospace; color: inherit; text-decoration: none; } .ds-species a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-species a:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { padding: 12px 0; margin: -12px 0; } .ds-tally { display: block; font: 15px/1.5 \"Courier Prime\", \"Courier New\", Courier, monospace; color: var(--rule-ink, #46608a); } .ds-print { display: block; width: 100%; max-width: 250px; } .ds-print img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--ink, #1f2a3a); background: var(--rule, #93a8cc); } .ds-entry { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0 0; font: 15px/1.4 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-entry .ds-n { min-width: 3ch; text-align: right; white-space: nowrap; } .ds-entry .ds-latest { color: var(--red, #b5392f); } .ds-blank { font: 15px/1.4 \"Courier Prime\", \"Courier New\", Courier, monospace; color: var(--rule-ink, #46608a); }"
+  },
+  {
+   "name": "Feeder head",
+   "kind": "nav",
+   "refersTo": "feeder-head-name",
+   "description": "A column head that links to the feeder's month: the name typed bold, place and local time printed beneath in rule ink.",
+   "html": "<a class=\"ds-feeder ds-hit\" href=\"#\"><b>Yassine</b><span>Sintra, PT · <span class=\"ds-now\">14:02</span> local</span></a>",
+   "css": ".ds-feeder { display: inline-block; color: var(--ink, #1f2a3a); text-decoration: none; background: var(--paper, #eef2e6); } .ds-feeder b { display: block; font: 700 17px/1.3 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-feeder > span { display: block; font: 13px/1.4 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; color: var(--rule-ink, #46608a); } .ds-feeder .ds-now { font-family: \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-feeder:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-feeder:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { padding: 12px 0; margin: -12px 0; }"
+  },
+  {
+   "name": "Monthly ledger cells",
+   "kind": "custom",
+   "refersTo": "month-cell",
+   "description": "A slice of the species × days grid: grid heads in rule ink (today red), centred typed counts, today's column washed with tint, bold totals ruled to the left.",
+   "html": "<div class=\"ds-mgrid\" style=\"--d:4\"><div class=\"ds-mh ds-sp\"><small>Species</small>visits per day</div><div class=\"ds-mh\"><small>Oct</small>2</div><div class=\"ds-mh\"><small></small>3</div><div class=\"ds-mh\"><small></small>4</div><div class=\"ds-mh ds-today\"><small></small>5</div><div class=\"ds-mh ds-mt\"><small>&nbsp;</small>Total</div><div class=\"ds-sp\"><a href=\"#\">Eurasian Blue Tit</a></div><div class=\"ds-mc\">3</div><div class=\"ds-mc\"></div><div class=\"ds-mc\">5</div><div class=\"ds-mc ds-today\">7</div><div class=\"ds-mt\">15</div></div>",
+   "css": ".ds-mgrid { display: grid; grid-template-columns: minmax(150px, 190px) repeat(var(--d, 30), minmax(28px, 1fr)) 56px; color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); font-variant-numeric: tabular-nums; } .ds-mgrid > * { padding: 7px 0; border-bottom: 1px solid var(--rule, #93a8cc); font: 15px/1.5 \"Courier Prime\", \"Courier New\", Courier, monospace; text-align: center; min-width: 0; } .ds-mgrid .ds-sp { position: sticky; left: 0; background: var(--paper, #eef2e6); text-align: left; padding-right: 10px; border-right: 1px solid var(--rule, #93a8cc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-mgrid .ds-sp a { display: block; padding: 11px 0; margin: -11px 0; color: inherit; text-decoration: none; } .ds-mgrid .ds-sp a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-mgrid .ds-mh { font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .06em; color: var(--rule-ink, #46608a); padding-top: 10px; } .ds-mgrid .ds-mh small { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; min-height: 13px; } .ds-mgrid .ds-mh.ds-today { color: var(--red, #b5392f); } .ds-mgrid .ds-mc.ds-today { background: var(--tint, rgba(70, 96, 138, .09)); } .ds-mgrid .ds-mt { font-weight: 700; border-left: 1px solid var(--rule, #93a8cc); }"
+  },
+  {
+   "name": "Filter select",
+   "kind": "input",
+   "refersTo": "select",
+   "description": "The photo-log filter: a printed label and a typed select with nothing but a 1px ink underline, 44px tall, square.",
+   "html": "<label class=\"ds-filter\">Show <select class=\"ds-select\"><option>all species</option><option>Eurasian Blue Tit</option><option>European Robin</option></select></label>",
+   "css": ".ds-filter { display: inline-flex; align-items: center; gap: 10px; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); background: var(--paper, #eef2e6); } .ds-select { min-height: 44px; padding: 4px 28px 4px 4px; font: 16px \"Courier Prime\", \"Courier New\", Courier, monospace; color: var(--ink, #1f2a3a); background: transparent; border: 0; border-bottom: 1px solid var(--ink, #1f2a3a); border-radius: 0; } .ds-select:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; }"
+  },
+  {
+   "name": "Evidence dialog",
+   "kind": "custom",
+   "refersTo": "evidence-dialog",
+   "description": "The evidence dialog: the photo as large as the viewport allows with nothing on it (its left third steps back, the rest forward; arrow keys step too), then one bar with the caption, the day's thumbnails as framed buttons (current one red) and a borderless close cross.",
+   "html": "<div class=\"ds-dialog\"><figure><img class=\"ds-photo\" src=\"\" alt=\"European Robin · 4 Oct 2026, 18:51 · 95%\" width=\"320\" height=\"240\"><figcaption><span class=\"ds-cap\">European Robin · 4 Oct 2026, 18:51 · 95%</span><span class=\"ds-count ds-sr\">Photo 1 of 3</span><div class=\"ds-thumbs\" role=\"group\" aria-label=\"The day's photos\"><button type=\"button\" class=\"on\" aria-current=\"true\" aria-label=\"Photo 1 of 3\"></button><button type=\"button\" aria-label=\"Photo 2 of 3\"></button><button type=\"button\" aria-label=\"Photo 3 of 3\"></button></div><button class=\"ds-close\" type=\"button\" aria-label=\"Close\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\"/></svg></button></figcaption></figure></div>",
+   "css": ".ds-dialog { display: inline-block; border: 0; padding: 0; background: var(--paper, #eef2e6); color: var(--ink, #1f2a3a); box-shadow: 0 24px 70px rgba(0, 0, 0, .5); font-variant-numeric: tabular-nums; } .ds-dialog figure { margin: 0; padding: 10px 10px 6px; } .ds-dialog figure > img { display: block; width: 320px; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid var(--ink, #1f2a3a); background: #0b0b0a; cursor: pointer; transition: filter .3s cubic-bezier(.2, .7, .2, 1); } .ds-dialog figcaption { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 4px 0 0; font: 15px/1.4 \"Courier Prime\", \"Courier New\", Courier, monospace; } .ds-dialog .ds-cap { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } .ds-thumbs { display: flex; gap: 6px; flex: none; } .ds-thumbs button { width: 48px; height: 36px; padding: 0; border: 1px solid var(--ink, #1f2a3a); background: var(--rule, #93a8cc); cursor: pointer; border-radius: 0; } .ds-thumbs button.on { border-color: var(--red, #b5392f); outline: 1px solid var(--red, #b5392f); outline-offset: 0; } .ds-dialog .ds-close { flex: none; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: var(--ink, #1f2a3a); cursor: pointer; display: grid; place-items: center; } .ds-dialog .ds-close:hover { color: var(--red, #b5392f); } .ds-dialog button:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; }"
+  },
+  {
+   "name": "Foot",
+   "kind": "custom",
+   "refersTo": "foot",
+   "description": "The closing double red rule with the provenance line and record-kept-since in small print.",
+   "html": "<footer class=\"ds-foot\"><span>Recorded automatically by a camera at each window · the best photos of each species per day</span><span>Record kept since 12 September 2026</span></footer>",
+   "css": ".ds-foot { margin-top: 40px; padding-top: 10px; border-top: 3px double var(--red, #b5392f); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 24px; font: 12px/1.5 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; color: var(--rule-ink, #46608a); background: var(--paper, #eef2e6); }"
+  }
+ ],
+ "narrative": {
+  "northStar": "The Recording Sheet",
+  "overview": "The gallery is a printed daily record, one sheet per day: species down the left, one ruled column per feeder, and in every cell the day's best photograph pasted on the paper with its count and last time typed beneath. The form itself is printed (Libre Franklin, tracked uppercase labels in blue rule ink on eye-ease green paper); what happened is typed on it (Courier Prime for every species name, count, time and date). The reader is a fellow collaborator comparing feeders during the day, so the sheet is dense, aligned and legible, never showy. The build refuses the photo-card grid and the stats dashboard: there are no cards, no boxes, no panels, only rules, columns and prints.\n\nHierarchy comes from the ledger's own devices, not from colour or weight. Rank is carried by row size (the busiest species gets the widest print), every number sits in a fixed-width digit column, and a single ledger red is held back for today and the latest entry. The sheet keeps one 1px ink weight for every rule and every print frame, and no greys: secondary text is simply the same blue as the printed rules, dark enough to read. Dark mode does not restyle the sheet; it puts the same paper on a dark desk and lets it cast a shadow.\n\nMotion is a single gesture: the rows fill in once, top to bottom, when the sheet loads; the only other movement is a print sharpening from its thumbnail inside the evidence dialog. Nothing hovers, slides or glows. Under reduced motion the sheet is a single still.",
+  "keyCharacteristics": [
+   "One sheet, one paper (`paper`), one ink (`ink`), one rule colour (`rule`), one accent (`ledger-red`)",
+   "Printed form in Libre Franklin, typed entries in Courier Prime; the role decides the face",
+   "Square corners everywhere; prints wear a 1px ink frame like a pasted photograph",
+   "Secondary text is rule ink, never a grey",
+   "Rank by size, counts in digit columns, red only for today and the latest entry",
+   "Photos are the content of every cell, never thumbnails in a sidebar"
+  ],
+  "rules": [
+   {
+    "name": "The One Red Rule",
+    "body": "Ledger red marks the present and the focus, and nothing else: today, the latest entry, the current thumbnail, the keyboard focus ring, the two double rules that close the sheet. A new surface that wants a second accent does not get one.",
+    "section": "colors"
+   },
+   {
+    "name": "The No Grey Rule",
+    "body": "There is no grey in the palette. Anything that would be \"muted\" is rule ink (`rule-ink`); anything that would be a \"light border\" is rule blue (`rule`). Both are the same hue as the printed form.",
+    "section": "colors"
+   },
+   {
+    "name": "The One Ink Weight Rule",
+    "body": "Every rule, frame and underline is 1px solid. The only heavier line is the 3px double rule in ledger red at the masthead and the foot.",
+    "section": "colors"
+   },
+   {
+    "name": "The Print-or-Typed Rule",
+    "body": "Every string is either printed (Libre Franklin) or typed (Courier Prime); the role decides, never the size. Values are typed. Field names are printed. No third face, and no system display face.",
+    "section": "typography"
+   },
+   {
+    "name": "The Two Weights Rule",
+    "body": "Courier Prime is 400 for values and 700 for names and totals; Libre Franklin is 400 for prose and 600–700 for labels and the masthead. Nothing is lighter than 400 and nothing is bolder than 700.",
+    "section": "typography"
+   },
+   {
+    "name": "The Flat Sheet Rule",
+    "body": "Nothing on the sheet casts a shadow. The sheet itself casts one only when there is a desk beneath it (dark mode, wide viewport); the evidence dialog casts one because it is a second object on the desk.",
+    "section": "elevation"
+   }
+  ],
+  "dos": [
+   "Do type every value in Courier Prime (species, counts, times, dates, feeder names as headings) and print every field name in Libre Franklin at `label`: 600, 11px, tracked 0.14em, uppercase, rule ink.",
+   "Do keep every rule, frame and underline at 1px solid, in rule blue for the printed form and ink for frames; reserve the 3px double red rule for the masthead and the foot.",
+   "Do use ledger red only for today, the latest entry, the marked thumbnail, errors and the focus ring.",
+   "Do set secondary text in rule ink (`rule-ink`) and loading placeholders in rule blue (`rule`).",
+   "Do carry rank by size (print width caps 460 / 340 / 250px, or 100% / 76% / 58% for a single feeder) and keep counts in a right-aligned 3ch digit column.",
+   "Do frame every photograph 1px ink at 4:3 and let it fill its cell; on a phone, keep a species' cells adjacent (two-up under the species line).",
+   "Do give every text link the `.hit` 12px vertical hit area and every control a 44px minimum.",
+   "Do keep dark mode as the same sheet (`paper-on-desk`) on a dark desk (`desk-dark`) with the sheet-on-desk shadow at ≥720px; never invert the paper.",
+   "Do let rows fill in once on load (0.4s, 40ms stagger, capped at the twelfth row) and hold everything still under reduced motion."
+  ],
+  "donts": [
+   "Don't use grey anywhere: no grey text, grey borders, grey placeholders or grey disabled states.",
+   "Don't round a corner, add a card, a box, a panel, a pill or a filled button; content is a run of ruled rows and a print on the paper.",
+   "Don't put an eyebrow or kicker above a heading; a section heading is the label itself, with its typed value at the right margin.",
+   "Don't make photos secondary: no thumbnail rails, no icon-sized prints, no cropping to a square.",
+   "Don't introduce a second accent, a tinted background other than `tint`, or a coloured fill for state; today's column is a 9% wash, not a highlight bar.",
+   "Don't add a system or third typeface, a weight below 400 or above 700, or a glyph icon font; the three dialog icons are inline SVG strokes.",
+   "Don't add hover motion, transitions on rules or rows, or a second load animation; the fill and the sharpen are the whole motion grammar.",
+   "Don't cast shadows on the sheet; only the sheet itself (dark desk) and the evidence dialog cast one."
+  ]
+ }
 }

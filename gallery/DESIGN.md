@@ -229,14 +229,14 @@ components:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
     rounded: "{rounded.none}"
-    padding: "14px 14px 12px"
+    padding: "10px 10px 6px"
   evidence-photo:
     backgroundColor: "{colors.photo-well}"
     rounded: "{rounded.none}"
   evidence-caption:
     textColor: "{colors.ink}"
     typography: "{typography.typed-entry}"
-    padding: "8px 56px 0 0"
+    padding: "4px 0 0"
     height: "44px"
   evidence-count:
     textColor: "{colors.rule-ink}"
@@ -251,13 +251,13 @@ components:
     backgroundColor: "{colors.rule}"
     rounded: "{rounded.none}"
     padding: "0"
-    width: "76px"
-    height: "57px"
+    width: "48px"
+    height: "36px"
   thumb-button-on:
     backgroundColor: "{colors.rule}"
     rounded: "{rounded.none}"
-    width: "76px"
-    height: "57px"
+    width: "48px"
+    height: "36px"
   error:
     textColor: "{colors.ledger-red}"
     typography: "{typography.typed}"
@@ -418,12 +418,12 @@ Every corner is square: `border-radius: 0` is the only radius, including the sel
 - **Select:** transparent, borderless except a 1px ink bottom border, `typed-control` 16px in ink, 44px minimum height, `4px 28px 4px 4px` padding, square. The browser's native arrow is kept. Focus shows the shared ring.
 
 ### Evidence dialog
-- **Character:** a print lifted off the sheet onto the desk, with the day's neighbours a key away.
-- **Surface:** paper background, ink text, no border, no radius, `max 96vw × 96vh`, the "evidence on desk" shadow over `evidence-backdrop`. The figure pads `14px 14px 12px` (10px on a phone).
-- **Photo:** `width: min(96vw - 28px, 117vh - 110px)` (`117vh - 200px` with a strip), 4:3 contained, 1px ink frame on `photo-well`. While the full-size file loads (`aria-busy`) it shows the thumbnail blurred 4px and sharpens with `filter .3s` on the shared ease.
-- **Caption:** flex space-between, 44px minimum height, `8px 56px 0 0` (room for the close button), `typed-entry`; the "n / m" count in rule ink.
-- **Thumbnail strip:** wrapping flex, 8px gaps, `10px 0 2px`; each thumb a 76×57px button with a 1px ink border on rule blue, cover-cropped image. The current one (`.on`) swaps its border to ledger red and adds a 1px red outline, offset 0. Hidden when the cell has one photo.
-- **Buttons** (`dialog-button`): 44×44px, 1px ink border, paper background, ink 24px stroke icons (1.25 stroke, inline SVG), absolutely placed: previous/next vertically centred at the sides (14px in), close at the bottom right (12/14px). Hidden rather than disabled when there is nothing to step to.
+- **Character:** the photo lifted off the sheet onto the desk, as large as the viewport allows, with nothing on it; the day's neighbours sit in the bar beneath, a tap or a key away.
+- **Surface:** paper background, ink text, no border, no radius, up to the full viewport, the "evidence on desk" shadow over `evidence-backdrop`. The figure pads `10px 10px 6px` (`8px 8px 4px` on a phone).
+- **Photo:** `width: min(100vw - 20px, (100vh - 20px - 54px) * 4/3)`, 4:3 contained, 1px ink frame on `photo-well`. While the full-size file loads (`aria-busy`) it shows the thumbnail blurred 4px and sharpens with `filter .3s` on the shared ease. The photo is the stepping control: its left third goes back, the rest forward; a lone photo closes on tap. Arrow keys step too.
+- **Bar** (`figcaption`): one 44px row, `4px 0 0`, `typed-entry`: the caption (ellipsis on one line) grows, then the thumbnail strip, then the close control. "Photo n of m" is spoken only (`.sr`). On a phone the bar wraps: caption on its own line, strip and close on the next.
+- **Thumbnail strip:** flex, 6px gaps; each thumb a 48×36px button with a 1px ink border on rule blue, cover-cropped image. The current one (`.on`) swaps its border to ledger red and adds a 1px red outline, offset 0. Hidden when the cell has one photo.
+- **Close** (`dialog-button`): 44×44px, borderless on the paper, a 24px 1.25-stroke inline SVG cross in ink that turns ledger red on hover. There are no previous/next buttons and nothing is ever placed over the photo.
 
 ### Helpers
 - **`.hit`:** inline-block with `12px 0` padding and matching negative margins, giving text links a 44px-class touch target without moving the type.

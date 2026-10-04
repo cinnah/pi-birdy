@@ -97,15 +97,14 @@ const BIRDY = (() => {
     const dlg = document.getElementById("lightbox");
     if (!dlg) return;
     const img = dlg.querySelector("img"), cap = dlg.querySelector(".cap"), cnt = dlg.querySelector(".count");
-    const prev = dlg.querySelector(".prev"), next = dlg.querySelector(".next"), thumbs = dlg.querySelector(".thumbs");
+    const thumbs = dlg.querySelector(".thumbs");
     let items = [], i = 0, token = 0;
     const show = () => {
       const it = items[i], t = ++token;
       // The thumbnail is already loaded: show it at full size now and sharpen into the real photo when it lands.
       img.src = it.thumb; img.alt = it.caption; cap.textContent = it.caption;
-      cnt.textContent = items.length > 1 ? `${i + 1} / ${items.length}` : "";
-      prev.hidden = next.hidden = thumbs.hidden = items.length < 2;
-      dlg.classList.toggle("has-strip", items.length > 1);
+      cnt.textContent = items.length > 1 ? `Photo ${i + 1} of ${items.length}` : "";
+      thumbs.hidden = items.length < 2;
       // the strip: every photo of the cell as a framed thumbnail, the current one marked in red
       thumbs.innerHTML = items.length > 1 ? items.map((x, k) => `<button type="button" class="${k === i ? "on" : ""}" aria-label="Photo ${k + 1} of ${items.length}" aria-current="${k === i}"><img src="${esc(x.thumb)}" alt=""></button>`).join("") : "";
       dlg.setAttribute("aria-busy", "true");
@@ -125,10 +124,10 @@ const BIRDY = (() => {
       show();
       dlg.showModal();
     });
-    prev.addEventListener("click", (e) => { e.stopPropagation(); step(-1); });
-    thumbs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; e.stopPropagation(); i = [...thumbs.children].indexOf(b); show(); });
-    next.addEventListener("click", (e) => { e.stopPropagation(); step(1); });
-    dlg.addEventListener("click", (e) => { if (!e.target.closest(".prev, .next, .thumbs")) dlg.close(); });
+    thumbs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; i = [...thumbs.children].indexOf(b); show(); });
+    // Nothing sits on the photo: its left third steps back, the rest steps forward; a lone photo closes on tap.
+    img.addEventListener("click", (e) => { if (items.length < 2) return dlg.close(); const r = img.getBoundingClientRect(); step(e.clientX - r.left < r.width / 3 ? -1 : 1); });
+    dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest(".close")) dlg.close(); });
     dlg.addEventListener("keydown", (e) => { if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1); });
     dlg.addEventListener("close", () => { token++; img.removeAttribute("src"); img.alt = ""; dlg.removeAttribute("aria-busy"); });
   }
