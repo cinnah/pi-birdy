@@ -299,6 +299,7 @@ def _bird(store, when, species, conf, is_bird=True):
 def test_fresh_db_has_publish_columns(store):
     cols = {r["name"] for r in store._conn.execute("PRAGMA table_info(captures)")}
     assert {"published", "web_path"} <= cols
+    assert "captures_published" in {r["name"] for r in store._conn.execute("PRAGMA index_list(captures)")}
 
 
 def test_migration_adds_publish_columns_to_old_db(tmp_path):
@@ -360,24 +361,30 @@ def test_set_web_path_and_stale_web_paths(store):
     assert sorted(store.stale_web_paths()) == [(a, "2026/10/04/x.jpg"), (b, "2026/10/04/y.jpg")]
 
 
+def _local(d, h, m=0):
+    return datetime(d.year, d.month, d.day, h, m).astimezone()   # naive -> local zone, DST-correct
+
+
 def test_publish_stats(store):
     now = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc).astimezone()
-    today9 = now.replace(hour=9, minute=0)
+    today = now.date()
+    today9 = _local(today, 9)
+    yday9 = _local(today - timedelta(days=1), 9)
+    old9 = _local(today - timedelta(days=40), 9)
     _bird(store, today9, "Robin", 0.9)
     _bird(store, today9 + timedelta(minutes=5), "Robin", 0.8)
-    _bird(store, today9 - timedelta(days=1), "Wren", 0.9)
-    _bird(store, today9 - timedelta(days=40), "Wren", 0.9)   # outside per_day but counted in totals
+    _bird(store, yday9, "Wren", 0.9)
+    _bird(store, old9, "Wren", 0.9)   # outside per_day but counted in totals
     _bird(store, today9, None, None)                          # bird without species
     _bird(store, today9, "Cat", 0.9, is_bird=False)           # not a bird: ignored everywhere
     s = store.publish_stats(now)
     assert s["total_birds"] == 5
     assert s["species_count"] == 2
-    assert s["first_capture"] == (today9 - timedelta(days=40)).date().isoformat()
+    assert s["first_capture"] == old9.date().isoformat()
     assert s["last_capture_at"] == (today9 + timedelta(minutes=5)).isoformat(timespec="seconds")
     assert len(s["per_day"]) == 30 and s["per_day"][-1] == {"day": now.date().isoformat(), "birds": 3}
     assert s["per_day"][-2]["birds"] == 1
-    # per_hour covers every bird (all 5 are at 09:xx local; the 40-day-old one may shift an hour across DST).
-    assert len(s["per_hour"]) == 24 and sum(s["per_hour"]) == 5 and s["per_hour"][9] >= 4
+    assert len(s["per_hour"]) == 24 and s["per_hour"][9] == 5
     assert s["species"][0] == {
         "name": "Robin", "count": 2,
         "first": today9.date().isoformat(), "last": (today9 + timedelta(minutes=5)).isoformat(timespec="seconds"),

@@ -296,12 +296,14 @@ class Store:
     # --- publishing -------------------------------------------------------
 
     def set_published(self, capture_id: int, state: str | None) -> None:
+        """Set the publish state (one of PUBLISHED_STATES); an unknown id is a silent no-op."""
         if state not in PUBLISHED_STATES:
             raise ValueError(f"bad published state {state!r}")
         with self._lock, self._conn:
             self._conn.execute("UPDATE captures SET published = ? WHERE id = ?", (state, capture_id))
 
     def set_web_path(self, capture_id: int, web_path: str | None) -> None:
+        """Record (or clear) the web-sized copy's relative path; an unknown id is a silent no-op."""
         with self._lock, self._conn:
             self._conn.execute("UPDATE captures SET web_path = ? WHERE id = ?", (web_path, capture_id))
 
@@ -316,6 +318,7 @@ class Store:
         return [_row_to_capture(r) for r in rows]
 
     def published(self) -> list[Capture]:
+        """Captures on the gallery ('auto' or 'forced'), newest first."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM captures WHERE published IN ('auto', 'forced') ORDER BY captured_at DESC, id DESC"
@@ -323,6 +326,7 @@ class Store:
         return [_row_to_capture(r) for r in rows]
 
     def manual_states(self) -> dict[int, str]:
+        """Manual overrides as {capture id: 'forced' | 'hidden'}."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT id, published FROM captures WHERE published IN ('forced', 'hidden')"
