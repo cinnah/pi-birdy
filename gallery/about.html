@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>birdy — about</title>
+<meta name="description" content="What birdy is: a Raspberry Pi camera at a window, a daily record of the feeder's visitors, a sheet shared between friends' windows. How it works, the rig, how to join, and credits.">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef2e6">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b1e22">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23eef2e6'/%3E%3Cpath d='M0 9.5h32M0 15.5h32M0 21.5h32M0 27.5h32' stroke='%2393a8cc' stroke-width='1'/%3E%3Cpath d='M0 4.5h32' stroke='%23b5392f' stroke-width='1'/%3E%3Cpath d='M0 6.5h32' stroke='%23b5392f' stroke-width='1'/%3E%3Ccircle cx='14' cy='17' r='5.5' fill='%231f2a3a'/%3E%3Cpath d='M14 22c4 0 7-2 9-6l4 1-3 4c-3 3-7 4-10 4z' fill='%231f2a3a'/%3E%3Cpath d='M7 18l3-1.5v3z' fill='%231f2a3a'/%3E%3Ccircle cx='12.5' cy='16' r='1.1' fill='%23eef2e6'/%3E%3C/svg%3E">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/CourierPrime-Regular.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/LibreFranklin.woff2">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="about">
+<div class="sheet about">
+<header class="mast">
+  <h1><a class="hit" href="index.html">birdy</a></h1>
+  <nav><a class="hit" href="index.html">Daily record</a></nav>
+</header>
+<main id="main">
+<div class="head">
+  <h2>About this record<span class="sub">A camera at the window, one sheet a day, a column per feeder</span></h2>
+  <div class="meta"><p class="label">Notes</p>Sintra, October 2026</div>
+</div>
+<nav class="index typed" aria-label="On this page"><a href="#why">Why</a> · <a href="#how">How it works</a> · <a href="#rig">The rig</a> · <a href="#join">Join the record</a> · <a href="#code">Code</a> · <a href="#refs">References</a></nav>
+<article>
+
+<section id="why">
+<h3 class="label">Why</h3>
+<p>There is a feeder outside my window in Sintra and I wanted to know who comes to it. Not roughly, not "the blue tits are back", but which species, how often, at what hour, with a photo for every visit.</p>
+<p>The first part is that this is a weekend's build. A Raspberry Pi 4, the standard camera module, a shower basket with suction cups to hang it on the glass, and a feeder a metre away. The code watches a low-resolution stream for movement, takes a still, asks two small models running on the Pi whether it is a bird and which one, and files the answer. Nothing leaves the house except the photos I choose to publish.</p>
+<p>The second part is the one I care about most. A record of one window is a diary; a record of several windows is a dataset. Every feeder that joins gets a column on the daily sheet, so the same species can be compared across gardens on the same day: who had the goldfinches, when the robin starts, what arrives first after rain. It is a collaboration between friends who happen to have windows.</p>
+<p>The third part is honesty. The species model is three megabytes and it is wrong sometimes. The record keeps the confidence of every guess, the review page lets us correct or delete, and nothing is averaged away. A sheet with a visible mistake is worth more than a chart that hides one.</p>
+<p>If you have a window, a feeder and a free weekend, <a href="#join">there is a column waiting</a>.</p>
+</section>
+
+<section id="how">
+<h3 class="label">How it works</h3>
+<ol>
+<li>The camera streams a small 320×240 picture. Inside a region you draw around the feeder, each frame is compared with a slowly updating background. Enough change there is a trigger; everything outside the region (curtains, branches, reflections) is ignored.</li>
+<li>The camera takes a full-size still.</li>
+<li>A small model on the Pi (MobileNetV2 trained on ImageNet) looks at the crop around the movement and gives the probability that it is a bird, summed over every bird class it knows.</li>
+<li>A second model (the iNaturalist bird classifier, 965 species) names the species. A confident species guess can rescue a frame the first model turned down.</li>
+<li>Photo, thumbnail and a row with time, species and both confidences go into SQLite on the Pi. A page on the home network shows the day's captures, lets the household tune the region and thresholds live, and delete what is wrong. Optionally a Telegram message goes out for chosen species.</li>
+<li>The best photos of each species, per day, are shrunk to 1600 px and copied with rsync into that feeder's folder on a plain web server. These gallery pages read each folder's manifest in the browser; the server runs no code.</li>
+</ol>
+<pre aria-label="Flow of one visit">camera ──▶ motion inside the drawn region ──▶ still photo
+                                                 │
+                              bird or not? ◀─────┘   MobileNetV2 · ImageNet
+                                   │
+                              which species?          iNaturalist birds · 965
+                                   │
+                              row + photo + thumb ──▶ SQLite ──▶ review page (LAN)
+                                   │
+                              best of the day, per species ──rsync──▶ web server ──▶ this record</pre>
+</section>
+
+<section id="rig">
+<h3 class="label">The rig</h3>
+<figure>
+<div class="plate" role="img" aria-label="Placeholder for a photo of the rig: the Pi and camera in a shower basket on the window, the feeder outside"><span class="typed">Photo of the rig to follow</span></div>
+<figcaption>The Pi and its camera in a shower basket hung on the window glass; the feeder a metre outside.</figcaption>
+</figure>
+<dl>
+<dt>Computer</dt><dd>Raspberry Pi 4, Raspberry Pi OS Lite (64-bit)</dd>
+<dt>Camera</dt><dd>Camera Module v2.1, 8 MP, fixed focus from about a metre to infinity, no night vision</dd>
+<dt>Power</dt><dd>The official USB-C supply</dd>
+<dt>Storage</dt><dd>A microSD card, 16 GB or more; photos live on it</dd>
+<dt>Mount</dt><dd>A shower basket with suction cups, found by chance. It hangs on the window glass and holds the Pi and the camera at exactly the right height</dd>
+<dt>Outside</dt><dd>A feeder about a metre from the window</dd>
+<dt>Cost</dt><dd>About €100 all in, less if a Pi is already in a drawer</dd>
+</dl>
+<p>The lens sits flush against the glass, indoors, so there is no weatherproofing to do. The camera only runs between sunrise and sunset; at night the Pi sleeps. This is one working setup, not the only one: anything that holds a Pi camera still at a window will do.</p>
+</section>
+
+<section id="join">
+<h3 class="label">Join the record</h3>
+<p>You need a Raspberry Pi 4 with a camera module, a window with a feeder outside it, and a home network. You get a column on the daily record next to the other feeders, your own monthly sheet, and your birds on the species cards.</p>
+<p>Your Pi keeps its own photos and database. Once a quarter of an hour it copies its published photos and a manifest to its own folder on the shared server over an SSH key that can reach only that folder. Nothing else is shared, and you choose what is published from your review page.</p>
+<p>Write to <a href="mailto:yassine@e-xperience.pt">yassine@e-xperience.pt</a> and I will set up your folder and send you the install notes.</p>
+</section>
+
+<section id="code">
+<h3 class="label">Code</h3>
+<p>The code is at <span class="typed">github.com/cinnah/pi-birdy</span>. The repository is private while the project settles; email for access and it is yours.</p>
+<p>Python 3.13 on the Pi: picamera2, OpenCV, LiteRT (TensorFlow Lite), SQLite, FastAPI, rsync. The gallery pages are plain HTML, CSS and JavaScript with no build step and no dependencies.</p>
+</section>
+
+<section id="refs">
+<h3 class="label">References and credits</h3>
+<dl>
+<dt>Inspiration</dt><dd><a href="https://github.com/thjkral/BirdDetection">thjkral/BirdDetection</a>, the project that showed a Pi and a camera could do this</dd>
+<dt>Bird gate</dt><dd>MobileNetV2 1.0 224, quantised, from the TensorFlow hosted models (<a href="https://arxiv.org/abs/1801.04381">paper</a>). Apache-2.0</dd>
+<dt>Species</dt><dd>iNaturalist bird classifier (MobileNetV2, 965 classes) from <a href="https://github.com/google-coral/test_data">google-coral/test_data</a>. Apache-2.0</dd>
+<dt>Camera</dt><dd><a href="https://github.com/raspberrypi/picamera2">picamera2</a> and libcamera, Raspberry Pi</dd>
+<dt>Inference</dt><dd><a href="https://github.com/google-ai-edge/LiteRT">LiteRT</a> (ai-edge-litert), Google</dd>
+<dt>Daylight</dt><dd><a href="https://github.com/sffjunkie/astral">astral</a></dd>
+<dt>Review page</dt><dd><a href="https://fastapi.tiangolo.com">FastAPI</a></dd>
+<dt>Server</dt><dd><a href="https://caddyserver.com">Caddy</a>, serving static files</dd>
+<dt>Type</dt><dd><a href="https://github.com/impallari/Libre-Franklin">Libre Franklin</a> by Impallari Type and <a href="https://quoteunquoteapps.com/courierprime/">Courier Prime</a> by Quote-Unquote Apps, both under the <a href="https://openfontlicense.org">SIL Open Font License</a></dd>
+<dt>Photos</dt><dd>© each feeder's owner</dd>
+</dl>
+</section>
+
+</article>
+<footer class="foot"><a class="hit" href="index.html">Back to the daily record</a></footer>
+</main>
+</div>
+</body>
+</html>
