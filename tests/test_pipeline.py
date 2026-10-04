@@ -423,3 +423,40 @@ def test_backfill_without_species_does_not_call_publisher(store, live):
     unchecked(store, [ev.capture_id])
     p.sweep()
     assert pub.evaluated == []
+    assert store.species_backlog() == []
+
+
+def test_process_skips_publisher_without_species(store, live):
+    pub = FakePublisher()
+    p = Pipeline(store, FakeClassifier(), live, publisher=pub)
+    ev = add(store, 0)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert pub.evaluated == []
+    assert store.get(ev.capture_id).status == "done"
+
+
+def test_backfill_publisher_error_keeps_row_done_and_checked(store, live, caplog):
+    pub = FakePublisher(raise_exc=RuntimeError("boom"))
+    p = Pipeline(store, SpeciesFake(), live, publisher=pub)
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    with caplog.at_level(logging.ERROR):
+        p.sweep()
+    assert "publish decision failed" in caplog.text
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.species_checked is True and c.species == "Robin"
+    assert store.species_backlog() == []
+
+
+def test_failed_backfill_does_not_call_publisher(store, live):
+    pub = FakePublisher()
+    ev = add(store, 0)
+    p = Pipeline(store, SpeciesFake(fail_on={ev.path.name}), live, publisher=pub)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p.sweep()
+    assert pub.evaluated == []
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.species_checked is True
+    assert store.species_backlog() == []

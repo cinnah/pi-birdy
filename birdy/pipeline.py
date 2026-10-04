@@ -102,7 +102,7 @@ class Pipeline:
                     log.info("alert queued for capture %d (%s)", capture_id, reason)
             except Exception:
                 log.exception("alert decision failed for capture %d", capture_id)
-        if self._publisher is not None:
+        if self._publisher is not None and pred.is_bird and pred.species:
             try:
                 self._publisher.evaluate(self._store.get(capture_id))
             except Exception:
