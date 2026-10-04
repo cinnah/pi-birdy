@@ -15,6 +15,7 @@ import cv2
 log = logging.getLogger(__name__)
 
 THUMB_WIDTH = 400
+PUBLISHED_STATES = (None, "auto", "forced", "hidden")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS site (
@@ -45,6 +46,7 @@ FILTERS = {
     "all": "1 = 1",
     "birds": "is_bird = 1",
     "non-birds": "is_bird = 0",
+    "published": "published IN ('auto', 'forced')",
 }
 
 
@@ -61,6 +63,8 @@ class Capture:
     species_confidence: float | None
     status: str
     species_checked: bool
+    published: str | None = None   # None | 'auto' | 'forced' | 'hidden'
+    web_path: str | None = None    # relative path of the web-sized copy under data/publish/photos
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,8 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         species_confidence=row["species_confidence"],
         status=row["status"],
         species_checked=bool(row["species_checked"]),
+        published=row["published"],
+        web_path=row["web_path"],
     )
 
 
@@ -114,13 +120,19 @@ class Store:
         with self._lock, self._conn:
             self._conn.executescript(SCHEMA)
             cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(captures)")}
-            if "species_checked" not in cols:
-                try:
-                    self._conn.execute("ALTER TABLE captures ADD COLUMN species_checked INTEGER NOT NULL DEFAULT 0")
-                except sqlite3.OperationalError as e:
-                    # Another process (service vs `birdy purge`) migrated between our check and ALTER.
-                    if "duplicate column" not in str(e):
-                        raise
+            for name, decl in (
+                ("species_checked", "INTEGER NOT NULL DEFAULT 0"),
+                ("published", "TEXT"),
+                ("web_path", "TEXT"),
+            ):
+                if name not in cols:
+                    try:
+                        self._conn.execute(f"ALTER TABLE captures ADD COLUMN {name} {decl}")
+                    except sqlite3.OperationalError as e:
+                        # Another process (service vs `birdy purge`) migrated between our check and ALTER.
+                        if "duplicate column" not in str(e):
+                            raise
+            self._conn.execute("CREATE INDEX IF NOT EXISTS captures_published ON captures(published)")
 
     # --- site -------------------------------------------------------------
 
@@ -280,6 +292,92 @@ class Store:
                 " ORDER BY captured_at DESC LIMIT 1"
             ).fetchone()
         return None if row is None else (row["species"], _from_db_time(row["captured_at"]))
+
+    # --- publishing -------------------------------------------------------
+
+    def set_published(self, capture_id: int, state: str | None) -> None:
+        if state not in PUBLISHED_STATES:
+            raise ValueError(f"bad published state {state!r}")
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE captures SET published = ? WHERE id = ?", (state, capture_id))
+
+    def set_web_path(self, capture_id: int, web_path: str | None) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE captures SET web_path = ? WHERE id = ?", (web_path, capture_id))
+
+    def species_day_candidates(self, species: str, start: datetime, end: datetime) -> list[Capture]:
+        """Classified birds of one species captured in [start, end), best confidence first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM captures WHERE is_bird = 1 AND status = 'done' AND species = ?"
+                " AND captured_at >= ? AND captured_at < ? ORDER BY species_confidence DESC, id ASC",
+                (species, _to_db_time(start), _to_db_time(end)),
+            ).fetchall()
+        return [_row_to_capture(r) for r in rows]
+
+    def published(self) -> list[Capture]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM captures WHERE published IN ('auto', 'forced') ORDER BY captured_at DESC, id DESC"
+            ).fetchall()
+        return [_row_to_capture(r) for r in rows]
+
+    def manual_states(self) -> dict[int, str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, published FROM captures WHERE published IN ('forced', 'hidden')"
+            ).fetchall()
+        return {int(r["id"]): r["published"] for r in rows}
+
+    def stale_web_paths(self) -> list[tuple[int, str]]:
+        """Captures that still have a web copy but are no longer published."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, web_path FROM captures WHERE web_path IS NOT NULL"
+                " AND (published IS NULL OR published = 'hidden') ORDER BY id"
+            ).fetchall()
+        return [(int(r["id"]), r["web_path"]) for r in rows]
+
+    def publish_stats(self, now: datetime | None = None, days: int = 30) -> dict:
+        """Aggregate numbers for the gallery dashboard, over ALL bird captures (published or not).
+
+        Times are local (the Pi's zone); `per_day` has `days` entries ending today, `per_hour` 24.
+        """
+        now = (now or datetime.now(timezone.utc)).astimezone()
+        with self._lock:
+            rows = self._conn.execute("SELECT captured_at, species FROM captures WHERE is_bird = 1").fetchall()
+        today = now.date()
+        per_day = {today - timedelta(days=i): 0 for i in range(days)}
+        per_hour = [0] * 24
+        by_species: dict[str, list] = {}  # name -> [count, first, last]
+        first = last = None
+        for r in rows:
+            t = _from_db_time(r["captured_at"]).astimezone()
+            d = t.date()
+            if d in per_day:
+                per_day[d] += 1
+            per_hour[t.hour] += 1
+            first = t if first is None or t < first else first
+            last = t if last is None or t > last else last
+            if r["species"]:
+                s = by_species.setdefault(r["species"], [0, t, t])
+                s[0] += 1
+                s[1] = min(s[1], t)
+                s[2] = max(s[2], t)
+        species = [
+            {"name": n, "count": c, "first": f.date().isoformat(), "last": l.isoformat(timespec="seconds")}
+            for n, (c, f, l) in by_species.items()
+        ]
+        species.sort(key=lambda s: (-s["count"], s["name"]))
+        return {
+            "total_birds": len(rows),
+            "species_count": len(by_species),
+            "first_capture": None if first is None else first.date().isoformat(),
+            "last_capture_at": None if last is None else last.isoformat(timespec="seconds"),
+            "species": species,
+            "per_day": [{"day": d.isoformat(), "birds": per_day[d]} for d in sorted(per_day)],
+            "per_hour": per_hour,
+        }
 
     # --- maintenance ------------------------------------------------------
 
