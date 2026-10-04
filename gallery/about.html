@@ -16,7 +16,7 @@
 <div class="sheet about">
 <header class="mast">
   <h1><a class="hit" href="index.html">birdy</a></h1>
-  <nav><a class="hit" href="index.html">Daily record</a></nav>
+  <nav aria-label="Site"><a class="hit" href="index.html">Daily record</a></nav>
 </header>
 <main id="main">
 <div class="head">
@@ -45,15 +45,15 @@
 <li>Photo, thumbnail and a row with time, species and both confidences go into SQLite on the Pi. A page on the home network shows the day's captures, lets the household tune the region and thresholds live, and delete what is wrong. Optionally a Telegram message goes out for chosen species.</li>
 <li>The best photos of each species, per day, are shrunk to 1600 px and copied with rsync into that feeder's folder on a plain web server. These gallery pages read each folder's manifest in the browser; the server runs no code.</li>
 </ol>
-<pre aria-label="Flow of one visit">camera ──▶ motion inside the drawn region ──▶ still photo
-                                                 │
-                              bird or not? ◀─────┘   MobileNetV2 · ImageNet
-                                   │
-                              which species?          iNaturalist birds · 965
-                                   │
-                              row + photo + thumb ──▶ SQLite ──▶ review page (LAN)
-                                   │
-                              best of the day, per species ──rsync──▶ web server ──▶ this record</pre>
+<pre aria-label="Flow of one visit">camera ─▶ motion in the drawn region ─▶ still photo
+                                             │
+          bird or not?   MobileNetV2 ◀───────┘
+               │
+          which species?   iNaturalist birds, 965
+               │
+          row + photo + thumb ─▶ SQLite ─▶ review page
+               │
+          best of the day ─rsync─▶ web server ─▶ here</pre>
 </section>
 
 <section id="rig">

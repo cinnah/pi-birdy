@@ -47,7 +47,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoratio
 /* masthead: printed on the top margin, closed by the red double rule */
 .mast { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 0 10px; border-bottom: 3px double var(--red); }
 .mast h1 { margin: 0; font: 700 13px/1.3 var(--print); letter-spacing: .2em; text-transform: uppercase; }
-.mast nav, .mast .tagline { margin: 0; font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); }
+.mast nav { margin: 0; font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); }
 .mast nav { display: flex; gap: 20px; }
 
 /* sheet head: label, the date typed large, the sheet number */
@@ -165,7 +165,6 @@ dialog .close:hover { color: var(--red); }
 .about li { margin: 0 0 .6em; }
 .about li::marker { font-family: var(--type); color: var(--rule-ink); }
 .about pre { margin: 0 0 1.2em; padding: 14px 16px; border: 1px solid var(--rule); font: 13px/1.45 var(--type); color: var(--ink); overflow-x: auto; }
-@media (min-width: 720px) { .about pre { width: min(820px, calc(100vw - 96px)); } }   /* the flow diagram is wider than the text column; let it run on into the margin */
 .about dl { display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 0 24px; margin: 0 0 1.2em; }
 .about dt { font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); padding: 8px 0 0; border-top: 1px solid var(--rule); }
 .about dd { margin: 0; padding: 6px 0 8px; border-top: 1px solid var(--rule); }
@@ -175,6 +174,12 @@ dialog .close:hover { color: var(--red); }
 .about .plate { aspect-ratio: 4 / 3; display: grid; place-items: center; background: var(--tint); font: 13px/1.5 var(--type); color: var(--rule-ink); letter-spacing: .02em; }
 .about figcaption { margin-top: 6px; font: 13px/1.5 var(--type); color: var(--rule-ink); }
 .about .foot a { color: var(--ink); }
+@media (min-width: 1000px) {
+  .about article { max-width: none; }
+  .about section { display: grid; grid-template-columns: 230px minmax(0, 62ch); column-gap: 24px; }
+  .about section > .label { grid-column: 1; margin: 2px 0 0; }
+  .about section > :not(.label) { grid-column: 2; }
+}
 
 @media (max-width: 719px) {
   .sheet { padding: 0 16px 32px; }
