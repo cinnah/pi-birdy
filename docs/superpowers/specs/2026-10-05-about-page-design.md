@@ -9,7 +9,7 @@ Decisions taken with the user on 2026-10-05:
 - The GitHub repo (`github.com/cinnah/pi-birdy`) stays **private** for now. The page prints the URL as text, says it is private while the project settles, and gives the email for access. No `href` to the repo until it is opened.
 - Contact is **email**: `yassine@e-xperience.pt` as a `mailto:` link.
 - **Less tutorial**: no step-by-step install. The page explains the parts and the pipeline, and points to the repo (via the email) for the install.
-- A **photo of the rig** will be supplied by the user. Until then the slot is absent (no placeholder).
+- A **photo of the rig** will be supplied by the user later. Until then a placeholder plate (ruled 4:3 frame in the paper tint, typed "Photo of the rig to follow", with the real caption) holds the slot so the layout can be judged now (user's request, 2026-10-05).
 
 ## Mode and place in the world
 
@@ -35,7 +35,7 @@ Static HTML, no `app.js`, no JavaScript at all. `<main>` is a single `<article>`
    4. A second model (Coral's iNaturalist bird classifier, 965 species) names the species; a confident species guess can rescue a frame the first model rejected.
    5. Photo, thumbnail and a row (time, species, confidence) go to SQLite on the Pi. A LAN page lets the household review, tune, and delete.
    6. The best photos per species per day are shrunk to 1600 px and rsynced to a static folder on a web server. The gallery pages read that folder's `manifest.json` in the browser; the server runs no code.
-3. **The rig** (`#rig`) — the rig photo (if present) as a `<figure>` with a typed caption, then a parts list as a `<dl>` with typed values: Raspberry Pi 4 · Camera Module v2.1 (8 MP, fixed focus ~1 m to infinity) · official USB-C power supply · microSD card (16 GB or more) · a shower basket with suction cups, which holds the Pi and camera against the window glass · a feeder about a metre outside the window. One sentence each on placement (lens flush against the glass, indoors, daylight only) and rough cost (about €100 all in). Values marked as the user's own setup, not a shopping list.
+3. **The rig** (`#rig`) — the rig photo (placeholder plate until supplied) as a `<figure>` with a typed caption, then a parts list as a `<dl>` with typed values: Raspberry Pi 4 · Camera Module v2.1 (8 MP, fixed focus ~1 m to infinity) · official USB-C power supply · microSD card (16 GB or more) · a shower basket with suction cups, which holds the Pi and camera against the window glass · a feeder about a metre outside the window. One sentence each on placement (lens flush against the glass, indoors, daylight only) and rough cost (about €100 all in). Values marked as the user's own setup, not a shopping list.
 4. **Join the record** (`#join`) — what a collaborator needs (a Pi 4 with a camera, a window with a feeder, a home network); what they get (a column on the daily record, their own monthly sheet, a species card entry); how it works technically in two sentences (their Pi pushes its own folder to the shared server over an SSH key restricted to that folder; nothing else is shared); the email `mailto:` link.
 5. **Code** (`#code`) — the repo URL as text (`github.com/cinnah/pi-birdy`), private for now, email for access. One typed line listing the stack: Python 3.13, picamera2, OpenCV, LiteRT (TFLite), SQLite, FastAPI, rsync; gallery pages are vanilla HTML/CSS/JS.
 6. **References and credits** (`#refs`) — a `<dl>` or list of typed entries with licences:
@@ -50,7 +50,7 @@ Footer: the same 3 px double red foot rule the sheets use, with one typed line: 
 
 ## Rig photo
 
-`gallery/about/rig.jpg` (≤ 1600 px wide, JPEG 85, same treatment as published photos) plus `gallery/about/rig-thumb.jpg` (400 px) for `srcset`. The `<figure>` is written into the HTML only once the file exists; the user supplies the original. `alt` describes the scene (the Pi in a shower basket on the window, feeder outside).
+`gallery/about/rig.jpg` (≤ 1600 px wide, JPEG 85, same treatment as published photos) plus `gallery/about/rig-thumb.jpg` (400 px) for `srcset`. The `<figure>` ships now with a `div.plate` placeholder (`role="img"`, descriptive `aria-label`); when the file exists the `div` is replaced by the `<img>` with `srcset`. `alt` describes the scene (the Pi in a shower basket on the window, feeder outside).
 
 ## Styles
 
