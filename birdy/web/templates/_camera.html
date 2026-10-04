@@ -1,0 +1,9 @@
+{# Manual camera switch; expects `status` and `camera_next` (redirect target). #}
+<form method="post" action="/camera" class="camera">
+  <input type="hidden" name="next" value="{{ camera_next }}">
+  camera <b>{{ 'off' if status.state in ('daylight_paused', 'manual_off') else 'on' }}</b>
+  {% if status.override %}<span class="hint">(switched {{ status.override }}{% if status.override_until %} until {{ status.override_until | local_time }}{% endif %})</span>{% endif %}
+  {% if status.state in ('daylight_paused', 'manual_off') %}<button name="mode" value="on">Turn on</button>
+  {% else %}<button name="mode" value="off">Turn off</button>{% endif %}
+  {% if status.override %}<button name="mode" value="auto">Back to schedule</button>{% endif %}
+</form>

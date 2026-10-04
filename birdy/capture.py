@@ -145,18 +145,30 @@ def run_capture(
 
     while not stop.is_set():
         refresh_tunables()
-        if not gate.is_active(datetime.now().astimezone()):
-            state.update(state="daylight_paused", motion_score=0)
+        override_version = state.override_version
+        if not state.camera_wanted(gate, datetime.now().astimezone()):
+            manual = state.override == "off"
+            state.update(state="manual_off" if manual else "daylight_paused", motion_score=0)
             if not paused_logged:
-                log.info("outside daylight window; next change %s", gate.next_change(datetime.now().astimezone()))
+                if manual:
+                    log.info("camera switched off from the web page until %s", state.override_until)
+                else:
+                    log.info("outside daylight window; next change %s", gate.next_change(datetime.now().astimezone()))
                 paused_logged = True
-            # Wait in short steps so a lat/lon/margin change un-pauses within ~1 s.
+            # Wait in short steps so a lat/lon/margin change or the camera switch un-pauses within ~1 s.
             deadline = time.monotonic() + GATE_RECHECK
-            while not stop.is_set() and live.version == version and time.monotonic() < deadline:
+            while (
+                not stop.is_set()
+                and live.version == version
+                and state.override_version == override_version
+                and time.monotonic() < deadline
+            ):
                 stop.wait(min(1.0, max(0.0, deadline - time.monotonic())))
+            if state.override_version != override_version:
+                paused_logged = False  # log the new reason, if still paused
             continue
-        if paused_logged:
-            log.info("daylight window open; starting camera")
+        if paused_logged or state.override == "on":
+            log.info("starting camera%s", " (switched on from the web page)" if state.override == "on" else "")
             paused_logged = False
 
         # Read version before the snapshot: a replace() landing between the two
@@ -171,13 +183,16 @@ def run_capture(
                 state.update(state="capturing")
                 _low_disk_warned = False
                 last_gate_check = time.monotonic()
+                override_version = state.override_version
                 consecutive_errors = 0
                 while not stop.is_set():
-                    if refresh_tunables():
-                        last_gate_check = float("-inf")  # new gate: re-check it now, not in up to 60 s
+                    if refresh_tunables() or state.override_version != override_version:
+                        # new gate or camera switch: re-check it now, not in up to 60 s
+                        last_gate_check = float("-inf")
+                        override_version = state.override_version
                     if time.monotonic() - last_gate_check > GATE_RECHECK:
                         last_gate_check = time.monotonic()
-                        if not gate.is_active(datetime.now().astimezone()):
+                        if not state.camera_wanted(gate, datetime.now().astimezone()):
                             break
                     t0 = time.monotonic()
                     try:

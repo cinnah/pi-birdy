@@ -621,7 +621,36 @@ def test_index_buttons_per_state(pclient, store):
     forms = {}
     for chunk in html.split("<form")[1:]:
         chunk = chunk.split("</form>")[0]
-        cid = int(re.search(r'action="/captures/(\d+)/publish"', chunk).group(1))
+        m = re.search(r'action="/captures/(\d+)/publish"', chunk)
+        if m is None:
+            continue  # the header's camera switch
+        cid = int(m.group(1))
         forms[cid] = set(re.findall(r'<button name="state" value="([a-z]+)"', chunk))
     expected = {None: {"forced", "hidden"}, "auto": {"forced", "hidden"}, "forced": {"hidden", "auto"}, "hidden": {"forced", "auto"}}
     assert forms == {c.id: expected[st] for c, st in zip(caps, states)}
+
+
+def test_camera_switch_sets_override_until_next_daylight_change(client, state, live):
+    r = client.post("/camera", data={"mode": "off", "next": "/settings"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/settings"
+    assert state.override == "off"
+    # no lat/lon in the test config: no daylight schedule, so it holds until switched back
+    assert state.override_until is None
+    assert client.get("/status").json()["override"] == "off"
+    page = client.get("/settings").text
+    assert "Back to schedule" in page
+    r = client.post("/camera", data={"mode": "auto", "next": "//evil"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    assert state.override is None
+    assert client.post("/camera", data={"mode": "maybe"}).status_code == 400
+
+
+def test_camera_switch_with_site_holds_until_next_change(client, state, live):
+    import dataclasses
+
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, site=dataclasses.replace(cfg.site, lat=38.72, lon=-9.14)))
+    client.post("/camera", data={"mode": "on"}, follow_redirects=False)
+    assert state.override == "on"
+    assert state.override_until is not None and state.override_until > datetime.now().astimezone()
+    assert "Turn" in client.get("/").text

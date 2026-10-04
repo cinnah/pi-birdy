@@ -12,6 +12,7 @@
   h1 { font-size: 20px; margin: 0; }
   .status span { margin-right: 16px; color: var(--muted); }
   .status b { color: var(--fg); }
+  form.camera { display: inline; } form.camera button { margin-left: 4px; } form.camera .hint { font-size: 12px; }
   a { color: var(--fg); }
   nav a { margin-right: 12px; } nav a.active { font-weight: bold; text-decoration: none; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
@@ -40,6 +41,7 @@
     <span>disk free <b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
     <span>last capture <b>{{ status.last_capture_at | local_time }}</b></span>
     <span>up <b>{{ status.uptime_seconds }}s</b></span>
+    <span>{% with camera_next = request.url.path + ('?' + request.url.query if request.url.query else '') %}{% include "_camera.html" %}{% endwith %}</span>
     <span><a href="/species">species</a></span>
     <span><a href="/settings">settings</a></span>
   </div>

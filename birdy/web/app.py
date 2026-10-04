@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from birdy.classifier import Prediction
 from birdy.config import ConfigError
+from birdy.daylight import DaylightGate
 from birdy.live import LiveConfig
 from birdy.notify import TelegramError
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
@@ -301,6 +302,25 @@ def create_app(
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
         ctx = settings_context(test=(True, "test alert sent — check Telegram"))
         return templates.TemplateResponse(request, "settings.html", ctx)
+
+    @app.post("/camera")
+    async def camera_switch(request: Request):
+        """Manual camera on/off, held until the next daylight change (sunrise/sunset ± margin);
+        `mode=auto` goes back to the schedule. Without lat/lon it holds until switched back."""
+        form = await request.form()
+        mode = str(form.get("mode", ""))
+        if mode not in ("on", "off", "auto"):
+            raise HTTPException(status_code=400, detail="mode must be on, off or auto")
+        nxt = str(form.get("next", "/"))
+        if not (nxt in ("/", "/settings") or nxt.startswith("/?")):
+            nxt = "/"
+        if mode == "auto":
+            state.set_override(None)
+        else:
+            cfg = live.get()
+            gate = DaylightGate(cfg.site.lat, cfg.site.lon, cfg.daylight.margin_minutes)
+            state.set_override(mode, gate.next_change(datetime.now().astimezone()))
+        return RedirectResponse(nxt, status_code=303)
 
     @app.post("/captures/{capture_id}/publish")
     async def capture_publish(capture_id: int, request: Request):

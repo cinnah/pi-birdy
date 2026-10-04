@@ -21,6 +21,7 @@
   .row input[type=number], .row input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
   .row textarea { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
   form.inline { margin-top: 16px; }
+  form.camera { margin-bottom: 12px; } form.camera button { margin-left: 4px; padding: 4px 12px; }
   .ro { color: var(--muted); font-size: 12px; } .ro code { color: var(--fg); }
   button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
   button.primary { background: var(--ok); color: #fff; border-color: var(--ok); font-weight: bold; }
@@ -32,6 +33,8 @@
 {% if saved %}<div class="banner ok">Saved — applied live (v{{ version }}).</div>{% endif %}
 {% if error_message %}<div class="banner bad">{{ error_message }}</div>{% endif %}
 {% if test_result %}<div class="banner {{ 'ok' if test_ok else 'bad' }}">{{ test_result }}</div>{% endif %}
+
+{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}
 
 <!-- novalidate: values set by hand in birdy.toml may be off the slider step grid; the server validates anyway -->
 <form method="post" action="/settings" id="form" novalidate>
