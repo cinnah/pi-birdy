@@ -156,7 +156,7 @@ dialog button[hidden] { display: none; }
   .sheet { padding: 0 16px 32px; }
   .head { grid-template-columns: 1fr; }
   .head .meta { grid-column: 1; grid-row: 3; text-align: left; margin-top: 6px; }
-  .head .meta .label { display: inline; margin-right: 8px; }
+  .head .meta .label { margin-bottom: 2px; }
   .daily .heads { display: flex; flex-wrap: wrap; gap: 8px 20px; }
   .daily .heads .label { display: none; }
   .daily .heads > * + * { border-left: 0; padding-left: 0; }
