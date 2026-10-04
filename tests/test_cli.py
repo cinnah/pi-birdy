@@ -187,10 +187,10 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
     real_init = pipeline.Pipeline.__init__
 
-    def pipeline_init(self, store, classifier, live, notifier=None):
+    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None):
         seen["pipeline_classifier"] = classifier
         seen["pipeline_notifier"] = notifier
-        return real_init(self, store, classifier, live, notifier=notifier)
+        return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher)
 
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
 
@@ -299,3 +299,87 @@ def test_cmd_run_builds_notifier_when_enabled(config_path, monkeypatch):
     assert cli.cmd_run(cfg, config_path) == 0
     assert built["transport"] == ("transport", "T") and built["started"] and built["stopped"]
     assert seen["notifier"] is built["self"] and seen["pipeline"]._notifier is built["self"]
+
+
+def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
+    import dataclasses
+
+    from birdy import cli
+    from birdy.config import load_config
+
+    cfg = load_config(config_path)
+    cfg = dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, enabled=True, host="h"))
+    built = {}
+
+    class FakePublisher:
+        def __init__(self, live, store, mirror_dir):
+            built["mirror_dir"] = mirror_dir
+            built["self"] = self
+
+        def start(self):
+            built["started"] = True
+
+        def stop(self, timeout=10.0):
+            built["stopped"] = True
+
+    monkeypatch.setattr(cli, "Publisher", FakePublisher)
+    monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
+    seen = {}
+    monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: seen.update(pipeline=pipeline))
+    import birdy.web.app as webapp
+
+    real_create_app = webapp.create_app
+    monkeypatch.setattr(webapp, "create_app", lambda *a, **k: seen.update(publisher=k.get("publisher")) or real_create_app(*a, **k))
+    cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
+    assert cli.cmd_run(cfg, config_path) == 0
+    assert built["mirror_dir"] == cfg.storage.data_dir / "publish" and built["started"] and built["stopped"]
+    assert seen["publisher"] is built["self"] and seen["pipeline"]._publisher is built["self"]
+
+
+def test_cmd_run_no_publisher_when_disabled(config_path, monkeypatch):
+    import dataclasses
+
+    from birdy import cli
+    from birdy.config import load_config
+
+    cfg = load_config(config_path)
+    monkeypatch.setattr(cli, "Publisher", lambda *a, **k: pytest.fail("Publisher built while disabled"))
+    monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
+    seen = {}
+    monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: seen.update(pipeline=pipeline))
+    import birdy.web.app as webapp
+
+    real_create_app = webapp.create_app
+    monkeypatch.setattr(webapp, "create_app", lambda *a, **k: seen.update(publisher=k.get("publisher")) or real_create_app(*a, **k))
+    cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
+    assert cli.cmd_run(cfg, config_path) == 0
+    assert seen["publisher"] is None and seen["pipeline"]._publisher is None
+
+
+def test_publish_command_runs_once(tmp_path, monkeypatch, capsys):
+    import birdy.cli as cli
+
+    class FakePublisher:
+        instances = []
+
+        def __init__(self, live, store, mirror_dir, **kw):
+            self.mirror_dir = mirror_dir
+            FakePublisher.instances.append(self)
+
+        def run_once(self):
+            return True
+
+    monkeypatch.setattr("birdy.cli.Publisher", FakePublisher)
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n[publish]\nenabled=true\nhost="h"\n')
+    assert cli.main(["--config", str(cfg), "publish"]) == 0
+    assert FakePublisher.instances[0].mirror_dir == tmp_path / "data" / "publish"
+    assert "published" in capsys.readouterr().out
+
+
+def test_publish_command_exit_2_when_disabled(tmp_path, capsys):
+    import birdy.cli as cli
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n')
+    assert cli.main(["--config", str(cfg), "publish"]) == 2
+    assert "publish" in capsys.readouterr().err
