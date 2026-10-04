@@ -84,25 +84,29 @@ const BIRDY = (() => {
     caption: `${name(p)} · ${dayLong(p.captured_at)}, ${hm(p.captured_at)}${p.confidence == null ? "" : " · " + Math.round(p.confidence * 100) + "%"}${who ? " · " + who : ""}`,
   });
   // A print pasted on the sheet with its typed entry. `entry` is already-escaped HTML.
-  function print(site, p, strip, idx, entry, cls = "") {
+  // `sizes` tells the browser how wide the print renders, so a wide cell gets the full photo instead of a blurred thumbnail.
+  function print(site, p, strip, idx, entry, sizes = "(max-width: 719px) 45vw, 220px", cls = "") {
     const base = siteBase(site.id);
     // alt is empty on purpose: the entry beneath names the bird, so the link isn't read twice.
     return `<figure class="cell ${cls}">
-      <a class="print" href="${esc(base + p.photo)}" data-strip="${strip}" data-i="${idx}"><img src="${esc(base + p.thumb)}" alt="" loading="lazy"></a>
+      <a class="print" href="${esc(base + p.photo)}" data-strip="${strip}" data-i="${idx}"><img src="${esc(base + p.thumb)}" srcset="${esc(base + p.thumb)} 400w, ${esc(base + p.photo)} 1600w" sizes="${esc(sizes)}" alt="" loading="lazy"></a>
       <figcaption class="entry">${entry}</figcaption></figure>`;
   }
   function evidence() {
     const dlg = document.getElementById("lightbox");
     if (!dlg) return;
     const img = dlg.querySelector("img"), cap = dlg.querySelector(".cap"), cnt = dlg.querySelector(".count");
-    const prev = dlg.querySelector(".prev"), next = dlg.querySelector(".next");
+    const prev = dlg.querySelector(".prev"), next = dlg.querySelector(".next"), thumbs = dlg.querySelector(".thumbs");
     let items = [], i = 0, token = 0;
     const show = () => {
       const it = items[i], t = ++token;
       // The thumbnail is already loaded: show it at full size now and sharpen into the real photo when it lands.
       img.src = it.thumb; img.alt = it.caption; cap.textContent = it.caption;
       cnt.textContent = items.length > 1 ? `${i + 1} / ${items.length}` : "";
-      prev.hidden = next.hidden = items.length < 2;
+      prev.hidden = next.hidden = thumbs.hidden = items.length < 2;
+      dlg.classList.toggle("has-strip", items.length > 1);
+      // the strip: every photo of the cell as a framed thumbnail, the current one marked in red
+      thumbs.innerHTML = items.length > 1 ? items.map((x, k) => `<button type="button" class="${k === i ? "on" : ""}" aria-label="Photo ${k + 1} of ${items.length}" aria-current="${k === i}"><img src="${esc(x.thumb)}" alt=""></button>`).join("") : "";
       dlg.setAttribute("aria-busy", "true");
       const full = new Image();
       full.onload = () => { if (t === token && dlg.open) { img.src = it.src; dlg.removeAttribute("aria-busy"); } };
@@ -121,8 +125,9 @@ const BIRDY = (() => {
       dlg.showModal();
     });
     prev.addEventListener("click", (e) => { e.stopPropagation(); step(-1); });
+    thumbs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; e.stopPropagation(); i = [...thumbs.children].indexOf(b); show(); });
     next.addEventListener("click", (e) => { e.stopPropagation(); step(1); });
-    dlg.addEventListener("click", (e) => { if (!e.target.closest(".prev, .next")) dlg.close(); });
+    dlg.addEventListener("click", (e) => { if (!e.target.closest(".prev, .next, .thumbs")) dlg.close(); });
     dlg.addEventListener("keydown", (e) => { if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1); });
     dlg.addEventListener("close", () => { token++; img.removeAttribute("src"); img.alt = ""; dlg.removeAttribute("aria-busy"); });
   }
@@ -185,8 +190,10 @@ const BIRDY = (() => {
         const strip = STRIPS.push(g.items.map((p) => stripItem(s, p, multi ? s.name : ""))) - 1;
         const idx = g.items.indexOf(g.best);
         const hot = g.latest === latest;
+        const w = multi ? [460, 340, 250][rank - 1] : [980, 740, 560][rank - 1];
         return print(s, g.best, strip, idx,
-          `<span class="feederName">${esc(s.name)}</span><span class="n">×${esc(g.count)}</span><span class="t ${hot ? "latest" : ""}">${esc(hm(g.last))}${hot ? `<span class="sr"> (latest entry)</span>` : ""}</span>`);
+          `<span class="feederName">${esc(s.name)}</span><span class="n">×${esc(g.count)}</span><span class="t ${hot ? "latest" : ""}">${esc(hm(g.last))}${hot ? `<span class="sr"> (latest entry)</span>` : ""}</span>`,
+          `(max-width: 719px) ${rank === 1 ? "calc(100vw - 32px)" : "45vw"}, ${w}px`);
       }).join("");
       return `<div class="row rank-${rank}" style="--i:${Math.min(i, 12)}">
         <div class="species"><a href="${speciesHref(r.species)}">${esc(r.species)}</a><span class="tally">×${esc(r.total)}${multi ? ` · ${plural(r.feeders, "feeder")}` : ""}</span></div>${cells}</div>`;
@@ -201,7 +208,6 @@ const BIRDY = (() => {
     main().innerHTML = `
       <section class="daily ${multi ? "multi" : "single"}" style="--n:${sites.length}">
         <header class="head">
-          <p class="label">Daily record</p>
           <h2 class="${isToday(sheetDay) ? "today" : ""}">${esc(dayFull(sheetDay))}</h2>
           <div class="meta">${sheetNo ? `<p class="label">Sheet</p>${esc(sheetNo)}` : ""}</div>
         </header>
@@ -251,20 +257,19 @@ const BIRDY = (() => {
       const g = [...groupByDay(m, latestDay).values()].sort((a, b) => b.count - a.count || a.species.localeCompare(b.species));
       latest = `<h3 class="sec"><span>${latestDay === todayDay ? "Today" : "Last entries"}</span><span class="typed ${latestDay === todayDay ? "" : ""}">${esc(dayFull(latestDay))}</span></h3>
         <div class="strip">${g.map((grp) => { const strip = STRIPS.push(grp.items.map((p) => stripItem(s, p))) - 1;
-          return print(s, grp.best, strip, grp.items.indexOf(grp.best), `<b>${esc(grp.species)}</b><span class="n">×${esc(grp.count)}</span><span class="t">${esc(hm(grp.last))}</span>`); }).join("")}</div>`;
+          return print(s, grp.best, strip, grp.items.indexOf(grp.best), `<b>${esc(grp.species)}</b><span class="n">×${esc(grp.count)}</span><span class="t">${esc(hm(grp.last))}</span>`, "(max-width: 719px) 45vw, 300px"); }).join("")}</div>`;
     }
     const options = [...new Set(m.photos.map(name))].sort().map((n) => `<option>${esc(n)}</option>`).join("");
     main().innerHTML = `
       <header class="head">
-        <p class="label">Monthly record</p>
         <h2>${esc(s.name)}<span class="sub">${esc(s.place || "")}${m.site.since ? `${s.place ? " · " : ""}watching since ${esc(dayLong(m.site.since))}` : ""}</span></h2>
-        <div class="meta"><p class="label">All time</p>${plural(st.species_count, "species")} · ${plural(st.total_birds, "visit")}${st.last_capture_at ? `<br>last entry ${esc(dayShort(st.last_capture_at))}, ${esc(hm(st.last_capture_at))}` : ""}</div>
+        <div class="meta"><p class="label">Monthly record · all time</p>${plural(st.species_count, "species")} · ${plural(st.total_birds, "visit")}${st.last_capture_at ? `<br>last entry ${esc(dayShort(st.last_capture_at))}, ${esc(hm(st.last_capture_at))}` : ""}</div>
       </header>
       ${latest}
       <h3 class="sec"><span>Last 30 days</span><span class="typed">${esc(dayShort(days[0]))} – ${esc(dayShort(days.at(-1)))}</span></h3>
-      <div class="month">${mgrid}</div>
+      <div class="month">${mgrid}</div><p class="scrollhint">Today is at the right edge · scroll sideways for earlier days</p>
       <h3 class="sec"><span>By hour</span></h3>
-      <div class="month">${hgrid}</div>
+      <div class="month">${hgrid}</div><p class="scrollhint">Scroll sideways for the other hours</p>
       <h3 class="sec"><span>Photo log</span><label class="filter">Show <select id="flt"><option value="">all species</option>${options}</select></label></h3>
       <div id="log"></div>
       ${foot(RECORDED, `<a class="hit" href="index.html">Daily record</a>`)}`;
@@ -272,6 +277,7 @@ const BIRDY = (() => {
     const draw = (f) => { log.innerHTML = photoLog(m.photos.filter((p) => !f || name(p) === f).map((p) => ({ site: s, p })), todayDay, false) || `<p class="empty">Nothing published yet.</p>`; };
     document.getElementById("flt").addEventListener("change", (e) => draw(e.target.value));
     draw("");
+    for (const el of document.querySelectorAll(".month")) el.scrollLeft = el.scrollWidth;   // open on today, not on the empty left edge
     evidence();
   }
 
@@ -294,9 +300,8 @@ const BIRDY = (() => {
     const viewerToday = new Date().toISOString().slice(0, 10);
     main().innerHTML = `
       <header class="head">
-        <p class="label">Species card</p>
         <h2>${esc(sp)}</h2>
-        <div class="meta"><p class="label">All feeders</p>${plural(total, "visit")}</div>
+        <div class="meta"><p class="label">Species card · all feeders</p>${plural(total, "visit")}</div>
       </header>
       <div class="ledger"><div class="lh">Feeder</div><div class="lh n">Visits</div><div class="lh">First</div><div class="lh">Last</div>
         ${rows.join("") || `<p class="empty">Not seen at any feeder yet.</p>`}</div>
