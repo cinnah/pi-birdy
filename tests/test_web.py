@@ -593,8 +593,9 @@ def test_publish_post_rejects_bad_input(pclient, store, publisher):
     a = add(store, 0, True)
     assert pclient.post(f"/captures/{a.id}/publish", data={"state": "maybe"}).status_code == 400
     assert pclient.post("/captures/999/publish", data={"state": "forced"}).status_code == 404
-    r = pclient.post(f"/captures/{a.id}/publish", data={"state": "forced", "next": "//evil.example/x"}, follow_redirects=False)
-    assert r.headers["location"] == "/"
+    for bad in ("//evil.example/x", "/\\evil.example", "http://evil", "/settings"):
+        r = pclient.post(f"/captures/{a.id}/publish", data={"state": "forced", "next": bad}, follow_redirects=False)
+        assert r.headers["location"] == "/", bad
 
 
 def test_publish_post_503_without_publisher(client, store):
@@ -608,3 +609,19 @@ def test_index_filter_published(pclient, store):
     store.set_published(a.id, "auto")
     html = pclient.get("/?filter=published").text
     assert html.count('class="tile"') == 1
+
+
+def test_index_buttons_per_state(pclient, store):
+    caps = [add(store, i, True) for i in range(4)]
+    states = [None, "auto", "forced", "hidden"]
+    for c, st in zip(caps, states):
+        if st:
+            store.set_published(c.id, st)
+    html = pclient.get("/").text
+    forms = {}
+    for chunk in html.split("<form")[1:]:
+        chunk = chunk.split("</form>")[0]
+        cid = int(re.search(r'action="/captures/(\d+)/publish"', chunk).group(1))
+        forms[cid] = set(re.findall(r'<button name="state" value="([a-z]+)"', chunk))
+    expected = {None: {"forced", "hidden"}, "auto": {"forced", "hidden"}, "forced": {"hidden", "auto"}, "hidden": {"forced", "auto"}}
+    assert forms == {c.id: expected[st] for c, st in zip(caps, states)}

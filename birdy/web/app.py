@@ -311,7 +311,8 @@ def create_app(
         if state not in ("forced", "hidden", "auto"):
             raise HTTPException(status_code=400, detail="state must be forced, hidden or auto")
         nxt = str(form.get("next", "/"))
-        if not nxt.startswith("/") or nxt.startswith("//"):
+        # only the review grid itself: rules out //host, /\host and absolute URLs
+        if not (nxt == "/" or nxt.startswith("/?")):
             nxt = "/"
         try:
             await run_in_threadpool(publisher.set_manual, capture_id, None if state == "auto" else state)
