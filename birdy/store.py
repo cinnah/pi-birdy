@@ -317,6 +317,16 @@ class Store:
             ).fetchall()
         return [_row_to_capture(r) for r in rows]
 
+    def species_days(self) -> list[tuple[str, datetime]]:
+        """One (species, capture time) per species per local day, over classified birds with a species."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT species, MIN(captured_at) AS t FROM captures"
+                " WHERE is_bird = 1 AND status = 'done' AND species IS NOT NULL"
+                " GROUP BY species, date(captured_at, 'localtime') ORDER BY t, species"
+            ).fetchall()
+        return [(r["species"], _from_db_time(r["t"])) for r in rows]
+
     def published(self) -> list[Capture]:
         """Captures on the gallery ('auto' or 'forced'), newest first."""
         with self._lock:

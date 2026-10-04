@@ -36,7 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("purge", help="run the retention purge once")
     tg = sub.add_parser("telegram-chat-id", help="print the chat ids that have messaged the bot (bot setup)")
     tg.add_argument("--token", default=None, help="override [telegram] bot_token")
-    sub.add_parser("publish", help="build the gallery mirror and rsync it to the server once")
+    p_publish = sub.add_parser("publish", help="build the gallery mirror and rsync it to the server once")
+    p_publish.add_argument(
+        "--rerank",
+        action="store_true",
+        help="re-rank every species/day with the current thresholds before pushing"
+        " (also runs automatically the first time publishing is enabled)",
+    )
     return p
 
 
@@ -220,7 +226,7 @@ def cmd_telegram_chat_id(config: Config, token_override: str | None) -> int:
     return 0
 
 
-def cmd_publish(config: Config) -> int:
+def cmd_publish(config: Config, rerank: bool = False) -> int:
     """Build the gallery mirror and rsync it to the server once; meant for setup and debugging.
 
     Safe while the service runs: both processes take an flock on the mirror folder's `.lock`,
@@ -231,7 +237,10 @@ def cmd_publish(config: Config) -> int:
         return 2
     store = Store(config.storage.data_dir)
     try:
-        ok = Publisher(LiveConfig(config), store, config.storage.data_dir / "publish").run_once()
+        publisher = Publisher(LiveConfig(config), store, config.storage.data_dir / "publish")
+        if rerank:
+            print(f"re-ranked {publisher.evaluate_all()} days")
+        ok = publisher.run_once()
     finally:
         store.close()
     if ok:
@@ -272,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "telegram-chat-id":
         return cmd_telegram_chat_id(config, args.token)
     if args.command == "publish":
-        return cmd_publish(config)
+        return cmd_publish(config, args.rerank)
     return 2
 
 

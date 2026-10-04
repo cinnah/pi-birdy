@@ -348,6 +348,42 @@ def test_species_day_candidates_window_and_order(store):
     assert nb not in [c.id for c in got] and pend not in [c.id for c in got]
 
 
+@pytest.fixture
+def lisbon(monkeypatch):
+    import time
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("TZ", "Europe/Lisbon")
+            time.tzset()
+            yield
+    finally:
+        time.tzset()
+
+
+def test_species_days_one_entry_per_species_per_local_day(store, lisbon):
+    # Same UTC date, different Lisbon days (UTC+1): 23:30 on the 4th and 00:30 on the 5th.
+    a = datetime(2026, 10, 4, 22, 30, tzinfo=timezone.utc)
+    b = datetime(2026, 10, 4, 23, 30, tzinfo=timezone.utc)
+    _bird(store, a, "Robin", 0.9)
+    _bird(store, b, "Robin", 0.9)
+    _bird(store, datetime(2026, 10, 4, 8, 0, tzinfo=timezone.utc), "Wren", 0.9)   # same local day twice
+    _bird(store, datetime(2026, 10, 4, 18, 0, tzinfo=timezone.utc), "Wren", 0.8)
+    got = sorted(store.species_days())
+    assert got == [
+        ("Robin", a),
+        ("Robin", b),
+        ("Wren", datetime(2026, 10, 4, 8, 0, tzinfo=timezone.utc)),
+    ]
+
+
+def test_species_days_excludes_non_birds_unlabelled_and_pending(store):
+    t = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
+    _bird(store, t, "Cat", 0.9, is_bird=False)
+    _bird(store, t, None, None)
+    store.add_capture(t, store.photo_path_for(t)[1], 1)   # pending
+    assert store.species_days() == []
+
+
 def test_set_web_path_and_stale_web_paths(store):
     t = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
     a = _bird(store, t, "Robin", 0.9)

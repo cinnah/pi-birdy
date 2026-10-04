@@ -162,6 +162,19 @@ class Publisher:
             self.notify()
         return changed
 
+    def evaluate_all(self) -> int:
+        """Re-rank every species/day in the history; returns how many days changed."""
+        days = self._store.species_days()
+        changed = 0
+        for species, when in days:
+            with self._lock:
+                if self._rank(species, when):
+                    changed += 1
+        if changed:
+            self.notify()
+        log.info("publish: ranked %d species-days, %d changed", len(days), changed)
+        return changed
+
     def _rank(self, species: str, when: datetime) -> bool:
         """Apply `rank_day` to one species/day; caller holds `_lock`."""
         start, end = local_day_bounds(when)
@@ -361,6 +374,12 @@ class Publisher:
             log.warning("publisher did not stop within %.1fs (rsync still running)", timeout)
 
     def _run(self) -> None:
+        if not self.mirror_dir.exists():  # first time publishing is enabled: rank the history
+            try:
+                self.evaluate_all()
+            except Exception:
+                log.exception("publish: ranking history failed")
+            self._wake.clear()  # the first run below happens right away anyway
         last_run = time.monotonic() - self._max_interval  # first run right after start: reconcile
         while not self._stop.is_set():
             remaining = last_run + self._max_interval - time.monotonic()

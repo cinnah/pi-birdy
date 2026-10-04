@@ -165,6 +165,21 @@ def test_evaluate_reads_live_settings(live, store, config):
     assert store.get(a.id).published == "auto"
 
 
+def test_evaluate_all_ranks_every_species_day(live, store, config):
+    pub = make(live, store, config, per_species_per_day=1)
+    day1 = [bird(store, T0 + timedelta(minutes=i), "Robin", c) for i, c in enumerate((0.7, 0.9))]
+    day2 = [bird(store, T0 + timedelta(days=1, minutes=i), "Robin", c) for i, c in enumerate((0.95, 0.8))]
+    wren = bird(store, T0, "Wren", 0.65)
+    low = bird(store, T0, "Jay", 0.3)                      # below min_confidence
+    assert pub.evaluate_all() == 3
+    assert [store.get(c.id).published for c in day1] == [None, "auto"]
+    assert [store.get(c.id).published for c in day2] == ["auto", None]
+    assert store.get(wren.id).published == "auto"
+    assert store.get(low.id).published is None
+    assert pub._wake.is_set()
+    assert pub.evaluate_all() == 0
+
+
 def test_set_manual_forced_hidden_auto(live, store, config):
     pub = make(live, store, config, per_species_per_day=1)
     a = bird(store, T0, "Robin", 0.9)
@@ -424,6 +439,31 @@ def test_thread_runs_on_start_and_coalesces_notifies(live, store, config):
         assert wait_until(lambda: len(runner.calls) > n, timeout=3.0)   # max_interval tick
     finally:
         pub.stop()
+
+
+def test_thread_first_start_ranks_history_once(live, store, config):
+    runner = FakeRunner()
+    old = bird(store, T0, "Robin", 0.9)
+    pub = make(live, store, config, runner=runner, max_interval=60)
+    assert not pub.mirror_dir.exists()
+    pub.start()
+    try:
+        assert wait_until(lambda: len(runner.calls) >= 1)
+    finally:
+        pub.stop()
+    assert store.get(old.id).published == "auto"
+    manifest = json.loads((pub.mirror_dir / "manifest.json").read_text())
+    assert [p["id"] for p in manifest["photos"]] == [old.id]
+
+    newer = bird(store, T0 + timedelta(days=1), "Wren", 0.9)   # unranked, mirror dir now exists
+    runner2 = FakeRunner()
+    pub2 = make(live, store, config, runner=runner2, max_interval=60)
+    pub2.start()
+    try:
+        assert wait_until(lambda: len(runner2.calls) >= 1)
+    finally:
+        pub2.stop()
+    assert store.get(newer.id).published is None
 
 
 def test_thread_notify_during_run_causes_another_run(live, store, config):

@@ -387,6 +387,33 @@ def test_publish_command_runs_once(tmp_path, monkeypatch, capsys):
     assert "published" in capsys.readouterr().out
 
 
+def test_publish_command_rerank(tmp_path, monkeypatch, capsys):
+    import birdy.cli as cli
+    calls = []
+
+    class FakePublisher:
+        def __init__(self, live, store, mirror_dir, **kw):
+            pass
+
+        def evaluate_all(self):
+            calls.append("evaluate_all")
+            return 7
+
+        def run_once(self):
+            calls.append("run_once")
+            return True
+
+    monkeypatch.setattr("birdy.cli.Publisher", FakePublisher)
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n[publish]\nenabled=true\nhost="h"\n')
+    assert cli.main(["--config", str(cfg), "publish", "--rerank"]) == 0
+    assert calls == ["evaluate_all", "run_once"]
+    assert "re-ranked 7 days" in capsys.readouterr().out
+    calls.clear()
+    assert cli.main(["--config", str(cfg), "publish"]) == 0
+    assert calls == ["run_once"]
+
+
 def test_publish_command_exit_2_when_disabled(tmp_path, capsys):
     import birdy.cli as cli
     cfg = tmp_path / "birdy.toml"
