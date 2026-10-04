@@ -18,6 +18,7 @@ from birdy.store import Capture, Store
 
 if TYPE_CHECKING:
     from birdy.notify import TelegramNotifier
+    from birdy.publish import Publisher
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class Pipeline:
         classifier: Classifier,
         live: LiveConfig,
         notifier: "TelegramNotifier | None" = None,
+        publisher: "Publisher | None" = None,
         maxsize: int = 50,
         sweep_interval: float = 300.0,
     ) -> None:
@@ -46,6 +48,7 @@ class Pipeline:
         self._classifier = classifier
         self._live = live
         self._notifier = notifier
+        self._publisher = publisher
         self._queue: queue.Queue[MotionEvent] = queue.Queue(maxsize=maxsize)
         self._sweep_interval = sweep_interval
         self._stop = threading.Event()
@@ -99,6 +102,11 @@ class Pipeline:
                     log.info("alert queued for capture %d (%s)", capture_id, reason)
             except Exception:
                 log.exception("alert decision failed for capture %d", capture_id)
+        if self._publisher is not None:
+            try:
+                self._publisher.evaluate(self._store.get(capture_id))
+            except Exception:
+                log.exception("publish decision failed for capture %d", capture_id)
 
     def sweep(self) -> None:
         for c in self._store.pending():
@@ -134,7 +142,6 @@ class Pipeline:
             is_bird = bool(c.is_bird) or pred.is_bird
             confidence = pred.confidence if pred.is_bird else c.confidence
             self._store.update_classification(c.id, is_bird, confidence, pred.species, pred.species_confidence)
-            return bool(pred.species), (not c.is_bird) and pred.is_bird
         except Exception:
             # Unlike live processing, a failure here must not flip a `done` row to `error`.
             log.exception("species backfill failed for capture %d; marking checked", c.id)
@@ -143,6 +150,13 @@ class Pipeline:
             except Exception:
                 log.exception("mark_species_checked failed for capture %d", c.id)
             return False, False
+        # Historical photos may be published too (unlike alerts, which are for live events only).
+        if self._publisher is not None and pred.species:
+            try:
+                self._publisher.evaluate(self._store.get(c.id))
+            except Exception:
+                log.exception("publish decision failed for capture %d", c.id)
+        return bool(pred.species), (not c.is_bird) and pred.is_bird
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick
