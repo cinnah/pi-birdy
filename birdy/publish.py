@@ -262,23 +262,35 @@ class Publisher:
         photo = self.photos_dir / rel
         thumb = self.thumbs_dir / rel
         src_thumb = None if c.thumb_path is None else self._store.thumbs_dir / c.thumb_path
+        if not photo.exists():
+            img = cv2.imread(str(self._store.photos_dir / rel))
+            if img is None:
+                raise _UnreadableOriginal(rel)
+            h, w = img.shape[:2]
+            scale = WEB_MAX_SIDE / max(h, w)
+            if scale < 1:
+                img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+            self._write_mirror_file(photo, lambda tmp: cv2.imwrite(str(tmp), img, [cv2.IMWRITE_JPEG_QUALITY, WEB_JPEG_QUALITY]))
+        if not thumb.exists() and src_thumb is not None and src_thumb.exists():
+            self._write_mirror_file(thumb, lambda tmp: shutil.copyfile(src_thumb, tmp))
+
+    @staticmethod
+    def _write_mirror_file(target: Path, write: Callable[[Path], object]) -> None:
+        """Write through a temp name in the same directory, then `os.replace`: a disk-full `imwrite`
+        (which returns False after writing some bytes), a failed copy or a power cut never leaves a
+        truncated file at `target` that a later run would accept. The temp name keeps the .jpg suffix
+        so OpenCV picks the JPEG encoder; a leftover temp is removed by the `*.jpg` sweep anyway.
+        """
+        tmp = target.with_name(target.stem + ".tmp.jpg")
         try:
-            if not photo.exists():
-                img = cv2.imread(str(self._store.photos_dir / rel))
-                if img is None:
-                    raise _UnreadableOriginal(rel)
-                h, w = img.shape[:2]
-                scale = WEB_MAX_SIDE / max(h, w)
-                if scale < 1:
-                    img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
-                photo.parent.mkdir(parents=True, exist_ok=True)
-                if not cv2.imwrite(str(photo), img, [cv2.IMWRITE_JPEG_QUALITY, WEB_JPEG_QUALITY]):
-                    raise _MirrorWriteError(f"imwrite {photo} failed")
-            if not thumb.exists() and src_thumb is not None and src_thumb.exists():
-                thumb.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src_thumb, thumb)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if write(tmp) is False:  # cv2.imwrite reports failure by its return value, not an exception
+                raise _MirrorWriteError(f"write {target} failed")
+            os.replace(tmp, target)
         except OSError as e:
             raise _MirrorWriteError(str(e)) from e
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def _photo_entry(self, c: Capture) -> dict:
         thumb = f"thumbs/{c.web_path}" if (self.thumbs_dir / c.web_path).exists() else f"photos/{c.web_path}"

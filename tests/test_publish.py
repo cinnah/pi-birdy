@@ -291,6 +291,26 @@ def test_run_once_write_failure_keeps_state_and_retries(live, store, config, cap
     assert json.loads((pub.mirror_dir / "manifest.json").read_text())["photos"][0]["id"] == a.id
 
 
+def test_run_once_truncated_write_leaves_no_half_file(live, store, config, monkeypatch):
+    pub = make(live, store, config)
+    a = bird(store, T0, "Robin", 0.9)
+    pub.evaluate(a)
+
+    def truncated_imwrite(path, img, params=None):
+        Path(path).write_bytes(b"\xff\xd8\xff")   # disk full after a few bytes
+        return False
+
+    with monkeypatch.context() as m:
+        m.setattr(cv2, "imwrite", truncated_imwrite)
+        pub.run_once()
+    final = pub.photos_dir / a.path
+    assert not final.exists()
+    assert not list(pub.photos_dir.rglob("*.tmp.jpg"))
+    pub.run_once()
+    img = cv2.imread(str(final))
+    assert img is not None and max(img.shape[:2]) == 1600
+
+
 def test_run_once_recopies_missing_thumb_and_prunes_empty_dirs(live, store, config):
     pub = make(live, store, config)
     a = bird(store, T0, "Robin", 0.9)
