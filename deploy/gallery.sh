@@ -5,5 +5,5 @@ set -euo pipefail
 HOST="${GALLERY_HOST:-root@91.98.229.209}"
 ROOT="${GALLERY_ROOT:-/srv/birdy}"
 cd "$(dirname "$0")/.."
-rsync -az --exclude sites/ --exclude sites.json gallery/ "$HOST:$ROOT/"
+rsync -rlt --no-owner --no-group --exclude sites/ --exclude sites.json gallery/ "$HOST:$ROOT/"
 echo "gallery pages synced to $HOST:$ROOT/"

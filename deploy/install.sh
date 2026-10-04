@@ -26,7 +26,9 @@ if [ ! -f ~/.ssh/birdy_publish ]; then
 fi
 if [ -f ~/.ssh/birdy_publish.pub ]; then
   echo "gallery server authorized_keys line for this Pi (see CLAUDE.md):"
-  echo "command=\"/usr/bin/rrsync /srv/birdy/sites/home\",restrict $(cat ~/.ssh/birdy_publish.pub)"
+# The restricted folder follows [publish] site_id in birdy.toml (default "home").
+SITE_ID=$(sed -n 's/^site_id *= *"\([a-z0-9-]*\)".*/\1/p' birdy.toml 2>/dev/null | head -1); SITE_ID="${SITE_ID:-home}"
+  echo "command=\"/usr/bin/rrsync /srv/birdy/sites/$SITE_ID\",restrict $(cat ~/.ssh/birdy_publish.pub)"
 fi
 
 sudo cp deploy/birdy.service /etc/systemd/system/birdy.service
