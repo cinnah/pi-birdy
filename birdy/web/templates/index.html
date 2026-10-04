@@ -48,7 +48,6 @@
   .acts .pb:active { background: var(--osd); color: var(--osd-bar); }
   .acts .pb.del { flex: 0 1 auto; color: #a3aaa5; }
   .acts .pb.del:hover { color: #ff4d3d; border-color: #ff4d3d; }
-  .pb.armed, .btn.armed { background: #ff4d3d; border-color: #ff4d3d; color: #0c0d0c; }
 
   .bulk {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 12px;
@@ -56,7 +55,11 @@
   }
   .bulk p { margin: 0; flex: 1; min-width: 16em; }
   .bulk b { color: var(--ink); font-family: var(--mono); }
-  .bulk .btn.armed { color: #0c0d0c; }
+  /* armed ("Sure?") beats hover/active/del colours in every state: dark text on REC red */
+  .acts .pb.armed, .acts .pb.armed:hover, .acts .pb.armed:active,
+  .bulk .btn.armed, .bulk .btn.armed:hover, .bulk .btn.armed:active {
+    background: #ff4d3d; border-color: #ff4d3d; color: #0c0d0c;
+  }
   .tile img, .tile .nothumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
   .tile .nothumb { display: grid; place-items: center; color: #7d8580; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; }
   .tile .stamp + .stamp { padding-top: 0; }
