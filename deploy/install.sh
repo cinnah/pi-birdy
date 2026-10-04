@@ -22,7 +22,10 @@ mkdir -p data
 if [ ! -f ~/.ssh/birdy_publish ]; then
   mkdir -p ~/.ssh && chmod 700 ~/.ssh
   ssh-keygen -t ed25519 -N "" -f ~/.ssh/birdy_publish -C "birdy-publish@$(hostname)" >/dev/null
-  echo "created ~/.ssh/birdy_publish; add this line to the gallery server's authorized_keys (see CLAUDE.md):"
+  echo "created ~/.ssh/birdy_publish"
+fi
+if [ -f ~/.ssh/birdy_publish.pub ]; then
+  echo "gallery server authorized_keys line for this Pi (see CLAUDE.md):"
   echo "command=\"/usr/bin/rrsync /srv/birdy/sites/home\",restrict $(cat ~/.ssh/birdy_publish.pub)"
 fi
 

@@ -311,6 +311,8 @@ def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
     cfg = dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, enabled=True, host="h"))
     built = {}
 
+    order = []
+
     class FakePublisher:
         def __init__(self, live, store, mirror_dir):
             built["mirror_dir"] = mirror_dir
@@ -321,8 +323,15 @@ def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
 
         def stop(self, timeout=10.0):
             built["stopped"] = True
+            order.append("publisher.stop")
 
     monkeypatch.setattr(cli, "Publisher", FakePublisher)
+    import birdy.pipeline as pipeline_mod
+    from birdy.store import Store
+
+    real_pipeline_stop, real_close = pipeline_mod.Pipeline.stop, Store.close
+    monkeypatch.setattr(pipeline_mod.Pipeline, "stop", lambda self, *a, **k: order.append("pipeline.stop") or real_pipeline_stop(self, *a, **k))
+    monkeypatch.setattr(Store, "close", lambda self: order.append("store.close") or real_close(self))
     monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
     seen = {}
     monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: seen.update(pipeline=pipeline))
@@ -334,6 +343,7 @@ def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
     assert cli.cmd_run(cfg, config_path) == 0
     assert built["mirror_dir"] == cfg.storage.data_dir / "publish" and built["started"] and built["stopped"]
     assert seen["publisher"] is built["self"] and seen["pipeline"]._publisher is built["self"]
+    assert order == ["pipeline.stop", "publisher.stop", "store.close"]
 
 
 def test_cmd_run_no_publisher_when_disabled(config_path, monkeypatch):
@@ -383,3 +393,20 @@ def test_publish_command_exit_2_when_disabled(tmp_path, capsys):
     cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n')
     assert cli.main(["--config", str(cfg), "publish"]) == 2
     assert "publish" in capsys.readouterr().err
+
+
+def test_publish_command_exit_1_when_rsync_fails(tmp_path, monkeypatch, capsys):
+    import birdy.cli as cli
+
+    class FailingPublisher:
+        def __init__(self, live, store, mirror_dir, **kw):
+            pass
+
+        def run_once(self):
+            return False
+
+    monkeypatch.setattr("birdy.cli.Publisher", FailingPublisher)
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n[publish]\nenabled=true\nhost="h"\n')
+    assert cli.main(["--config", str(cfg), "publish"]) == 1
+    assert "rsync failed" in capsys.readouterr().err

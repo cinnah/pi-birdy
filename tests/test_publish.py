@@ -225,6 +225,7 @@ def test_run_once_builds_mirror_and_manifest_and_rsyncs(live, store, config):
     cmd = runner.calls[0]
     assert cmd[:3] == ["rsync", "-az", "--delete"]
     assert "--delete-after" in cmd and "--delay-updates" in cmd   # server never lists a photo before it arrives
+    assert cmd[cmd.index(".lock") - 1] == "--exclude" and cmd[cmd.index("*.tmp*") - 1] == "--exclude"
     assert cmd[-2] == f"{pub.mirror_dir}/" and cmd[-1] == "birdy@gallery.example:/"
     ssh = cmd[cmd.index("-e") + 1]
     assert ssh.startswith("ssh -i /keys/pub ")
@@ -330,6 +331,60 @@ def test_run_once_rsync_failure_logs_and_returns_false(live, store, config, capl
     with caplog.at_level(logging.WARNING):
         assert pub.run_once() is False
     assert "rsync" in caplog.text and "exit 255" in caplog.text
+
+
+def test_run_once_skips_while_another_process_holds_the_lock(live, store, config, caplog):
+    import fcntl
+    import os
+
+    runner = FakeRunner()
+    pub = make(live, store, config, runner=runner)
+    pub.mirror_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(pub.mirror_dir / ".lock", os.O_RDWR | os.O_CREAT)  # a separate open file description,
+    try:                                                            # so flock conflicts like another process
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with caplog.at_level(logging.WARNING):
+            assert pub.run_once() is False
+        assert "another process is publishing" in caplog.text and runner.calls == []
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    assert pub.run_once() is True and len(runner.calls) == 1
+
+
+def test_manifest_temp_name_is_per_process(live, store, config, monkeypatch):
+    import os
+
+    import birdy.publish as publish
+
+    sources = []
+    real_replace = os.replace
+    monkeypatch.setattr(publish.os, "replace", lambda src, dst: sources.append(Path(src).name) or real_replace(src, dst))
+    pub = make(live, store, config, runner=FakeRunner())
+    assert pub.run_once() is True
+    assert f"manifest.json.tmp.{os.getpid()}" in sources
+    names = {p.name for p in pub.mirror_dir.iterdir()}
+    assert "manifest.json" in names and not any(".tmp" in n for n in names)
+
+
+def test_stop_warns_when_thread_outlives_timeout(live, store, config, caplog):
+    import threading
+
+    release = threading.Event()
+
+    class Slow:
+        def __call__(self, cmd):
+            release.wait(5)
+            return 0
+
+    pub = make(live, store, config, runner=Slow())
+    pub.start()
+    pub.notify()
+    time.sleep(0.2)
+    with caplog.at_level(logging.WARNING):
+        pub.stop(timeout=0.1)
+    release.set()
+    assert "did not stop within 0.1s" in caplog.text
 
 
 def test_run_once_thumb_falls_back_to_photo(live, store, config):

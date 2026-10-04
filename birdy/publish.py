@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import dataclasses
+import fcntl
 import json
 import logging
 import os
@@ -92,6 +93,7 @@ def rsync_command(mirror_dir: Path, cfg: PublishConfig) -> list[str]:
 
     --delay-updates/--delete-after: every file lands in one pass at the end, so the server never
     serves a manifest that lists photos not yet uploaded, and a timeout leaves it consistent.
+    The cross-process `.lock` file and any half-written `*.tmp*` file never leave the Pi.
     """
     ssh = (
         f"ssh -i {shlex.quote(str(cfg.ssh_key))} -o BatchMode=yes -o ConnectTimeout=20"
@@ -99,6 +101,7 @@ def rsync_command(mirror_dir: Path, cfg: PublishConfig) -> list[str]:
     )
     return [
         "rsync", "-az", "--delete", "--delete-after", "--delay-updates", "--timeout=120",
+        "--exclude", ".lock", "--exclude", "*.tmp*",
         "-e", ssh, f"{mirror_dir}/", f"{cfg.user}@{cfg.host}:{cfg.remote_dir}",
     ]
 
@@ -119,7 +122,8 @@ class Publisher:
 
     `evaluate`/`set_manual` are called from the pipeline and web threads; `run_once` from the
     worker thread (or `birdy publish` on the CLI). `_lock` serialises the read-rank-write cycle,
-    `_run_lock` keeps two runs from racing on the mirror folder.
+    `_run_lock` keeps two runs in this process from racing on the mirror folder, and an
+    `flock` on `mirror_dir/.lock` does the same across processes (service vs `birdy publish`).
     """
 
     def __init__(
@@ -195,7 +199,20 @@ class Publisher:
             log.warning("publish: a run is already in progress; skipping")
             return False
         try:
-            return self._run_once(now)
+            self.mirror_dir.mkdir(parents=True, exist_ok=True)
+            fd = os.open(self.mirror_dir / ".lock", os.O_RDWR | os.O_CREAT, 0o644)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:  # BlockingIOError is an OSError
+                    log.warning("publish: another process is publishing; skipping")
+                    return False
+                try:
+                    return self._run_once(now)
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
         finally:
             self._run_lock.release()
 
@@ -327,7 +344,7 @@ class Publisher:
     def _write_manifest(self, photos: list[Capture], now: datetime | None) -> None:
         self.mirror_dir.mkdir(parents=True, exist_ok=True)
         target = self.mirror_dir / "manifest.json"
-        tmp = target.with_suffix(".json.tmp")
+        tmp = target.with_name(f"manifest.json.tmp.{os.getpid()}")  # unique per process
         tmp.write_text(json.dumps(self.build_manifest(photos, now), ensure_ascii=False, indent=1))
         os.replace(tmp, target)
 
@@ -340,6 +357,8 @@ class Publisher:
         self._stop.set()
         self._wake.set()
         self._thread.join(timeout)
+        if self._thread.is_alive():
+            log.warning("publisher did not stop within %.1fs (rsync still running)", timeout)
 
     def _run(self) -> None:
         last_run = time.monotonic() - self._max_interval  # first run right after start: reconcile

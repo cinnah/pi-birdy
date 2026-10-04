@@ -221,11 +221,10 @@ def cmd_telegram_chat_id(config: Config, token_override: str | None) -> int:
 
 
 def cmd_publish(config: Config) -> int:
-    """Build the gallery mirror and rsync it to the server once (setup and debugging).
+    """Build the gallery mirror and rsync it to the server once; meant for setup and debugging.
 
-    Running this while the service runs races with the service's own publisher thread on the
-    mirror folder: the publisher's run lock is in-process and doesn't cover two processes.
-    Stop the service first (`sudo systemctl stop birdy`) or run it only on a fresh setup.
+    Safe while the service runs: both processes take an flock on the mirror folder's `.lock`,
+    so if they collide one of them skips its run with a log line (here: exit 1).
     """
     if not config.publish.enabled:
         print("publishing is disabled: set [publish] enabled = true (with host) in birdy.toml", file=sys.stderr)
