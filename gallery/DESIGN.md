@@ -321,7 +321,7 @@ A two-ink ledger palette: blue-black ink and blue rule ink printed on eye-ease g
 
 ### Hierarchy
 - **Sheet date / display** (`sheet-date`; 400, clamp(26px, 4vw, 40px), 1.1, tracked -0.01em, Courier Prime): the date on the daily sheet, a feeder's name on its month, a species' name on its card. Red when the sheet is today. A 17px sub-line in ink beneath it carries place and "watching since".
-- **Masthead** (`masthead`; 700, 13px, tracked 0.2em, uppercase, Libre Franklin): the word "birdy" at the top margin. The nav and tagline beside it are labels.
+- **Masthead** (`masthead`; 700, 13px, tracked 0.2em, uppercase, Libre Franklin): the word "birdy" at the top margin. The nav (Daily record · About, labelled "Site") beside it are labels.
 - **Typed name / title** (`typed-name`; 700, 17px, 1.3, Courier Prime): species names in rows, feeder names in column heads, the day in the photo log, the bird's name under a log print.
 - **Typed / body values** (`typed`; 400, 15px, 1.5, Courier Prime): counts, times, totals, monthly cells, ledger cells, the sheet number, the section heading's typed range. Entries under a print use the slightly tighter `typed-entry` (1.4).
 - **Typed note** (`typed-note`; italic 15px Courier Prime, rule ink): the optional note under the head and every "nothing here" line.
@@ -374,7 +374,7 @@ Every corner is square: `border-radius: 0` is the only radius, including the sel
 ### Masthead
 - **Character:** the sheet's letterhead, printed in the top margin.
 - **Layout:** flex, baseline-aligned, 16px gap, `16px 0 10px` padding, closed by a 3px double rule in ledger red.
-- **Title:** "birdy" at `masthead` in ink, a link with the hit-area helper; **nav / tagline** at `label` in rule ink. Links underline on hover (1px, 3px offset).
+- **Title:** "birdy" at `masthead` in ink, a link with the hit-area helper; **nav** at `label` in rule ink. Links underline on hover (1px, 3px offset).
 
 ### Sheet head
 - **Character:** the form's own heading: a label, the date typed large, the sheet number at the right margin.
@@ -458,3 +458,7 @@ Every corner is square: `border-radius: 0` is the only radius, including the sel
 - **Don't** add a system or third typeface, a weight below 400 or above 700, or a glyph icon font; the three dialog icons are inline SVG strokes.
 - **Don't** add hover motion, transitions on rules or rows, or a second load animation; the fill and the sharpen are the whole motion grammar.
 - **Don't** cast shadows on the sheet; only the sheet itself (dark desk) and the evidence dialog cast one.
+
+## About page (`about.html`)
+
+A typed note tucked into the record: masthead and sheet head as on the other pages, then `article.about` whose sections are form rows. On sheets 1000px and wider each `section` is a grid `230px minmax(0, 62ch)`: the printed `.label` (h3) sits in the margin column that the daily sheet gives to species, the entry beside it. Narrower, the label sits above and the article is capped at 62ch (measured in Courier, so `article` sets `font-family: var(--type)`). Body copy, list items and `dd`s are Courier Prime 15/1.65; sections are divided by the 1px rule with 28px above. Definition lists (`.about dl`) are two ruled columns (`minmax(120px,160px) 1fr`), one column under 720px. The flow diagram is a `pre` (13px Courier) in a 1px rule box that fits the column on desktop and scrolls sideways on phones. The rig photo slot is a `figure`: a ruled 4:3 `.plate` in `--tint` with a typed line until `about/rig.jpg` exists. In-text links underline in rule ink; the index line and the footer carry the 44px targets. No JavaScript, no greys, red only on the double rules and focus. Every masthead carries an About link: `.mast nav` (labelled "Site") is a flex row with a 20px gap, and `.hit` pads links to 44px.

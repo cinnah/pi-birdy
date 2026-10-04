@@ -188,7 +188,7 @@
    },
    "label": {
     "displayName": "Printed Label",
-    "purpose": "Every printed field name and section heading; uppercase, rule ink. Also nav, tagline, ledger heads, scroll hint, filter label, weekday beside a log day, feeder name under a phone cell."
+    "purpose": "Every printed field name and section heading; uppercase, rule ink. Also nav, ledger heads, scroll hint, filter label, weekday beside a log day, feeder name under a phone cell."
    },
    "grid-head": {
     "displayName": "Grid Head",
@@ -397,7 +397,7 @@
    "name": "Masthead",
    "kind": "nav",
    "refersTo": "masthead",
-   "description": "The letterhead in the top margin: birdy at the left, the nav or tagline at the right, closed by the red double rule.",
+   "description": "The letterhead in the top margin: birdy at the left, the nav at the right, closed by the red double rule.",
    "html": "<header class=\"ds-mast\"><h1><a class=\"ds-hit\" href=\"#\">birdy</a></h1><nav><a class=\"ds-hit\" href=\"#\">Daily record</a></nav></header>",
    "css": ".ds-mast { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 0 10px; border-bottom: 3px double var(--red, #b5392f); color: var(--ink, #1f2a3a); background: var(--paper, #eef2e6); } .ds-mast h1 { margin: 0; font: 700 13px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase; } .ds-mast nav { margin: 0; font: 600 11px/1.3 \"Libre Franklin\", \"Franklin Gothic Medium\", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink, #46608a); } .ds-mast a { color: inherit; text-decoration: none; } .ds-mast a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .ds-mast a:focus-visible { outline: 2px solid var(--red, #b5392f); outline-offset: 2px; } .ds-hit { display: inline-block; padding: 12px 0; margin: -12px 0; }"
   },
