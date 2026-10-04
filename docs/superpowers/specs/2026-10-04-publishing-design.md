@@ -118,10 +118,10 @@ Thread loop: wait on an `Event` with timeout = time until `max_interval` since t
 {
   "version": 1,
   "generated_at": "2026-10-04T09:12:33+01:00",
-  "site": {"id": "home", "name": "home", "lat": 38.8, "lon": -9.39, "since": "2026-10-03", "tz": "Europe/Lisbon"},
+  "site": {"id": "home", "name": "home", "lat": 38.8, "lon": -9.39, "since": "2026-10-03", "utc_offset_minutes": 60},
   "photos": [
     {"id": 1033, "captured_at": "2026-10-03T11:48:36+01:00", "species": "Common Hoopoe", "confidence": 0.93,
-     "photo": "photos/2026/10/03/114836_627.jpg", "thumb": "thumbs/2026/10/03/114836_627.jpg", "w": 1600, "h": 1200, "state": "auto"}
+     "photo": "photos/2026/10/03/114836_627.jpg", "thumb": "thumbs/2026/10/03/114836_627.jpg", "state": "auto"}
   ],
   "stats": {
     "total_birds": 412,
@@ -168,7 +168,7 @@ New group **Publishing**: `min_confidence` (number 0–1 step 0.05) and `per_spe
 ### CLI
 
 - `cmd_run`: if `config.publish.enabled`, build `Publisher(live, store, data_dir / "publish")`, start it, pass it to `Pipeline(...)` and `create_app(..., publisher=publisher)`; stop in `finally` after the pipeline and before the store closes.
-- `birdy publish`: run `run_once()` now and exit 0/1 (for first-time setup and debugging). Works while the service runs (WAL, locked connection per process — same caveat as `purge`).
+- `birdy publish`: run `run_once()` now and exit 0/1 (2 when publishing is disabled; for first-time setup and debugging). Safe while the service runs: the DB side is WAL (same as `purge`) and both processes take an `flock` on `data/publish/.lock`, so if a CLI run and a service run collide the second one skips with a log line (the CLI exits 1; rerun it).
 - `deploy/install.sh`: `[ -f ~/.ssh/birdy_publish ] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/birdy_publish -C "birdy@$(hostname)"`, then print the public key with the instruction to add it on the server.
 
 ## Server side
@@ -243,6 +243,18 @@ command="/usr/bin/rrsync /srv/birdy/sites/home",restrict ssh-ed25519 AAAA… bir
 - **Web**: badge and buttons render only when publishing is enabled; `POST /captures/{id}/publish` 303 + state change; 404; 503 when disabled; `filter=published`.
 - **Gallery**: a Python test parses `gallery/*.html` and checks every referenced local asset exists and that `app.js` contains no `fetch` of anything outside `sites.json`/`sites/`. Manual: `python -m http.server` in a folder with a seeded manifest, open the three pages in a browser (desktop + phone width).
 - **Pi / server**: `deploy/deploy.sh`; `install.sh` makes the key; user creates the `birdy` user, authorized_keys line, `sites.json`, Caddy block, DNS; `birdy publish` → files appear in `/srv/birdy/sites/home/`; open `https://birdy.akibeo.com`; hide a photo on the review page → gone from the gallery within ~2 minutes.
+
+## Implementation notes (as merged)
+
+- Public hostname: `https://birdy.akibeo.com` (A record at Combell → `91.98.229.209`).
+- The manifest's `site` block carries `utc_offset_minutes` (offset at generation time) instead of a zone name; photo entries have no `w`/`h` (the page uses `object-fit`). `captured_at` strings carry the site's offset, so a photo's local date is its first 10 characters.
+- `remote_dir` replaces `root`: the Pi's rsync target is `user@host:remote_dir` and the server-side `rrsync` restriction maps it onto `sites/<site_id>/`. `"/"` is only safe with that restricted key; with an unrestricted key `--delete` at `/` would be destructive, so use the full path.
+- rsync runs as `rsync -az --delete --delete-after --delay-updates --timeout=120 --exclude .lock --exclude '*.tmp*' -e "ssh -i <key> -o BatchMode=yes -o ConnectTimeout=20 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" data/publish/ user@host:remote_dir`, with a 300 s overall timeout. `--delay-updates`/`--delete-after` put every file in place in one pass at the end, so the server never serves a manifest listing photos that haven't arrived yet.
+- Runs are serialised in-process (`_run_lock`) and across processes by an `flock` on `data/publish/.lock` (service vs `birdy publish`); whichever comes second skips with a warning and returns False. Web copies are written through a `.tmp.jpg` temp name + `os.replace`; the manifest through a per-pid `manifest.json.tmp.<pid>` + `os.replace`. Neither the lock nor temp files are pushed.
+- An unreadable original is set `hidden` and its species/day re-ranked so the next-best photo takes the freed slot. A mirror write failure (disk full, permissions) is logged and retried on the next run; it never hides the photo.
+- The publisher's first run happens right after start (reconcile), then on change (debounced 120 s) and at least every 900 s. `stop()` does not flush: evaluations queued right before shutdown are pushed by the reconcile run at the next start. A successful run logs at info only when the published set changed.
+- `POST /captures/{id}/publish` redirects to the form's `next` field only if it is `/` or starts with `/?` (otherwise `/`), so the grid page and its query string are kept without an open redirect.
+- `_num(..., int)` in `config.py` now rejects non-integral floats (`2.5`) instead of truncating.
 
 ## Out of scope
 
