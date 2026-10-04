@@ -208,14 +208,9 @@ def test_telegram_base_url_trailing_slash_stripped(tmp_path):
     assert cfg.telegram.base_url == "http://example.test"
 
 
-def _write(tmp_path, extra):
-    p = tmp_path / "birdy.toml"
-    p.write_text('[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10]]\n' + extra)
-    return p
-
 
 def test_publish_defaults(tmp_path):
-    cfg = load_config(_write(tmp_path, ""))
+    cfg = load_config(write(tmp_path, MINIMAL))
     pub = cfg.publish
     assert pub.enabled is False
     assert pub.host == ""
@@ -229,13 +224,33 @@ def test_publish_defaults(tmp_path):
 
 def test_publish_enabled_requires_host(tmp_path):
     with pytest.raises(ConfigError, match="publish.host is required"):
-        load_config(_write(tmp_path, '[publish]\nenabled = true\n'))
+        load_config(write(tmp_path, MINIMAL + "\n[publish]\nenabled = true\n"))
+
+
+@pytest.mark.parametrize("line, msg", [
+    ('user = ""', "publish.user is required"),
+    ('remote_dir = ""', "publish.remote_dir must be an absolute path"),
+    ('remote_dir = "rel"', "publish.remote_dir must be an absolute path"),
+    ('host = "-x"', "publish.host must be a plain hostname or IP"),
+    ('host = "a b"', "publish.host must be a plain hostname or IP"),
+    ('user = "a@b"', "publish.user must be a plain user name"),
+])
+def test_publish_enabled_rejects_unsafe_target(tmp_path, line, msg):
+    host = "" if line.startswith("host") else 'host = "gallery.example.org"\n'
+    with pytest.raises(ConfigError, match=msg):
+        load_config(write(tmp_path, MINIMAL + f"\n[publish]\nenabled = true\n{host}{line}\n"))
+
+
+def test_publish_target_is_stripped(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[publish]\nenabled = true\nhost = " gallery.example.org "\n'
+                                                'user = " birdy "\nremote_dir = " / "\n'))
+    assert (cfg.publish.host, cfg.publish.user, cfg.publish.remote_dir) == ("gallery.example.org", "birdy", "/")
 
 
 @pytest.mark.parametrize("site_id", ["", "Home", "a b", "x" * 33, "home/../x"])
 def test_publish_site_id_pattern(tmp_path, site_id):
     with pytest.raises(ConfigError, match="publish.site_id"):
-        load_config(_write(tmp_path, f'[publish]\nsite_id = "{site_id}"\n'))
+        load_config(write(tmp_path, MINIMAL + f'\n[publish]\nsite_id = "{site_id}"\n'))
 
 
 @pytest.mark.parametrize("line, key", [
@@ -248,14 +263,24 @@ def test_publish_site_id_pattern(tmp_path, site_id):
 ])
 def test_publish_ranges(tmp_path, line, key):
     with pytest.raises(ConfigError, match=key):
-        load_config(_write(tmp_path, f"[publish]\n{line}\n"))
+        load_config(write(tmp_path, MINIMAL + f"\n[publish]\n{line}\n"))
+
+
+def test_publish_whole_float_count_accepted(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + "\n[publish]\nper_species_per_day = 3.0\n"))
+    assert cfg.publish.per_species_per_day == 3 and isinstance(cfg.publish.per_species_per_day, int)
+
+
+def test_int_key_rejects_fractional_float(tmp_path):
+    with pytest.raises(ConfigError, match="web.port must be an integer"):
+        load_config(write(tmp_path, MINIMAL + "\n[web]\nport = 80.5\n"))
 
 
 def test_publish_full_section(tmp_path):
-    cfg = load_config(_write(tmp_path, '[publish]\nenabled = true\nhost = "91.98.229.209"\nuser = "birdy"\n'
-                                       'remote_dir = "/"\nsite_id = "sintra-1"\nssh_key = "keys/pub"\n'
-                                       'min_confidence = 0.75\nper_species_per_day = 5\n'))
-    assert cfg.publish.enabled and cfg.publish.host == "91.98.229.209"
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[publish]\nenabled = true\nhost = "gallery.example.org"\n'
+                                                'user = "birdy"\nremote_dir = "/"\nsite_id = "sintra-1"\n'
+                                                'ssh_key = "keys/pub"\nmin_confidence = 0.75\nper_species_per_day = 5\n'))
+    assert cfg.publish.enabled and cfg.publish.host == "gallery.example.org"
     assert cfg.publish.site_id == "sintra-1"
-    assert cfg.publish.ssh_key == Path("keys/pub")   # relative paths are left as given (expanduser only)
+    assert cfg.publish.ssh_key == tmp_path.resolve() / "keys/pub"   # relative to the config file, like _path
     assert cfg.publish.min_confidence == 0.75 and cfg.publish.per_species_per_day == 5

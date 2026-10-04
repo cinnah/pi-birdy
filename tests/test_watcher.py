@@ -159,10 +159,9 @@ def test_telegram_token_change_warns(config_path, live, caplog):
 
 
 def test_publish_restart_only_keys_warn(config_path, live, caplog):
-    from birdy.watcher import ConfigWatcher
-    import logging
     w = ConfigWatcher(config_path, live)
     config_path.write_text(config_path.read_text() + '\n[publish]\nsite_id = "other"\n')
+    bump_mtime(config_path)
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
-    assert "restart birdy" in caplog.text
+    assert "restart" in caplog.text and live.get().publish.site_id == "other"

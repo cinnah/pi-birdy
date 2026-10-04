@@ -62,11 +62,12 @@ cooldown_minutes = 30      # at most one alert per species per this many minutes
 # Public gallery (https://birdy.akibeo.com). The Pi rsyncs web-sized copies of its best
 # bird photos to the server; see CLAUDE.md "Gallery setup".
 enabled = false                   # restart-only; when false nothing is published
-host = ""                         # restart-only; the gallery server, e.g. "91.98.229.209"
+host = ""                         # restart-only; the gallery server, e.g. "gallery.example.org"
 user = "birdy"                    # restart-only; SSH user on the server
 remote_dir = "/"                  # restart-only; rsync target as the server key sees it: "/" with the
                                   # rrsync-restricted key, or the full path if the key is unrestricted
 site_id = "home"                  # restart-only; this site's id: folder under sites/ and id in sites.json; [a-z0-9-]{1,32}
-ssh_key = "~/.ssh/birdy_publish"  # restart-only; private key (install.sh generates it)
+ssh_key = "~/.ssh/birdy_publish"  # restart-only; private key (install.sh generates it); ~ is expanded,
+                                  # a relative path is relative to this file
 min_confidence = 0.6              # live; species confidence needed to be auto-published (0-1)
 per_species_per_day = 3           # live; best N photos per species per local day (1-20)
