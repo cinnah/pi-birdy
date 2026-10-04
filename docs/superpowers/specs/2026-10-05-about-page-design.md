@@ -17,7 +17,7 @@ Read mode, inside the recording-sheet world recorded in `gallery/DESIGN.md`: pap
 
 Masthead on every gallery page gains an "About" link:
 
-- `index.html`: `<p class="tagline">Daily record</p>` becomes `<nav><a href="about.html">About</a></nav>`; the "Daily record" wording moves into the `<h1>`'s neighbouring text only if it still fits the baseline row on a phone, otherwise it is dropped (the sheet number already says what the page is).
+- `index.html`: `<p class="tagline">Daily record</p>` becomes `<nav><a href="about.html">About</a></nav>`. The "Daily record" wording is dropped from the masthead; the sheet's own heading already names the page.
 - `site.html`, `species.html`: the existing nav gets a second link, `Daily record · About`.
 - `about.html`: nav is `Daily record` (back to `index.html`).
 
@@ -46,7 +46,7 @@ Static HTML, no `app.js`, no JavaScript at all. `<main>` is a single `<article>`
    - Libre Franklin (Impallari Type) and Courier Prime (Quote-Unquote Apps) — SIL Open Font License.
    - Photos © each feeder's owner.
 
-Footer: the same 3 px double red foot rule the sheets use, with the typed line "Printed from the record · `index.html`".
+Footer: the same 3 px double red foot rule the sheets use, with one typed line: a link "Back to the daily record" (`index.html`).
 
 ## Rig photo
 
