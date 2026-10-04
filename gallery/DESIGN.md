@@ -346,7 +346,7 @@ The sheet is a single column of ruled rows, 1320px wide at most, centred, full v
 
 **Ledger (`.ledger`).** Species card: `minmax(150px, 1fr) 7ch 10ch 10ch`, each cell ruled beneath, numbers right-aligned with a 32px right inset.
 
-**Photo log (`.prints`).** `repeat(auto-fill, minmax(210px, 1fr))` with 18px/16px gaps under a ruled day heading; the latest-day strip on a feeder's month uses 230px minimums.
+**Photo log (`.prints`).** `repeat(auto-fill, minmax(250px, 1fr))` with 18px/16px gaps under a ruled day heading; the latest-day strip on a feeder's month uses 230px minimums.
 
 **Spacing rhythm.** The sheet works in small steps: 2px between a label and its value, 4–6px between a print and its entry, 8–12px inside rows, 16px at the masthead, 24px above the sheet date, 36px above a section heading, 40px to the foot. No step larger than 40px exists.
 

@@ -86,7 +86,7 @@ const BIRDY = (() => {
   });
   // A print pasted on the sheet with its typed entry. `entry` is already-escaped HTML.
   // `sizes` tells the browser how wide the print renders, so a wide cell gets the full photo instead of a blurred thumbnail.
-  function print(site, p, strip, idx, entry, sizes = "(max-width: 719px) 45vw, 220px", cls = "") {
+  function print(site, p, strip, idx, entry, sizes = "(max-width: 719px) 45vw, 320px", cls = "") {
     const base = siteBase(site.id);
     // alt is empty on purpose: the entry beneath names the bird, so the link isn't read twice.
     return `<figure class="cell ${cls}">
@@ -257,7 +257,7 @@ const BIRDY = (() => {
       const g = [...groupByDay(m, latestDay).values()].sort((a, b) => b.count - a.count || a.species.localeCompare(b.species));
       latest = `<h3 class="sec"><span>${latestDay === todayDay ? "Today" : "Last entries"}</span><span class="typed ${latestDay === todayDay ? "" : ""}">${esc(dayFull(latestDay))}</span></h3>
         <div class="strip">${g.map((grp) => { const strip = STRIPS.push(grp.items.map((p) => stripItem(s, p))) - 1;
-          return print(s, grp.best, strip, grp.items.indexOf(grp.best), `<b>${esc(grp.species)}</b><span class="n">×${esc(grp.count)}</span><span class="t">${esc(hm(grp.last))}</span>`, "(max-width: 719px) 45vw, 300px"); }).join("")}</div>`;
+          return print(s, grp.best, strip, grp.items.indexOf(grp.best), `<b>${esc(grp.species)}</b><span class="n">×${esc(grp.count)}</span><span class="t">${esc(hm(grp.last))}</span>`, "(max-width: 719px) 45vw, 440px"); }).join("")}</div>`;
     }
     const options = [...new Set(m.photos.map(name))].sort().map((n) => `<option>${esc(n)}</option>`).join("");
     main().innerHTML = `
