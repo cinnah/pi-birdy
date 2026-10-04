@@ -61,7 +61,7 @@ def manual_states(self) -> dict[int, str]                                       
 def publish_stats(self, now: datetime, days: int = 30) -> dict                  # see Manifest.stats; counts ALL birds (is_bird = 1), published or not
 ```
 
-`purge_non_birds` is unaffected: published photos are birds and birds are never auto-deleted.
+`purge_non_birds` keeps every row with a `published` state (`auto`, `forced` or `hidden`: someone cares about it), on top of never deleting birds.
 
 ### Policy (`birdy/publish.py`, pure)
 
@@ -108,9 +108,9 @@ class Publisher:
 
 1. **Sync mirror** `data/publish/`: for each capture in `store.published()` without a `web_path` (or whose file is missing), read the original with `cv2.imread`, resize so the long side is ≤ 1600 px (`INTER_AREA`, never upscale), write `data/publish/photos/<path>` at JPEG quality 85, copy the existing thumb to `data/publish/thumbs/<path>`, `set_web_path`. If the original can't be read (zero-byte file from a power cut, deleted by hand): `set_published(id, 'hidden')`, one warning, never retried. Then delete any file under `data/publish/photos|thumbs` whose capture is no longer in the published set (and clear its `web_path`).
 2. **Write `manifest.json`** (below) atomically (`tmp` + `os.replace`).
-3. **rsync**: `rsync -az --delete -e "ssh -i <ssh_key> -o BatchMode=yes -o StrictHostKeyChecking=accept-new" data/publish/ <user>@<host>:<remote_dir>` through `runner` (default `subprocess.call` with a 300 s timeout). Non-zero exit → one warning with the exit code, return False; the mirror is still correct and the next run retries. `remote_dir` defaults to `/`: the server-side `rrsync` restriction roots the key at `sites/<site_id>/`, so the Pi never names the server path itself.
+3. **rsync**: `rsync -az --delete -e "ssh -i <ssh_key> -o BatchMode=yes -o StrictHostKeyChecking=accept-new" data/publish/ <user>@<host>:<remote_dir>` through `runner` (default `subprocess.call` with a 1800 s wall-clock cap, `Publisher(rsync_timeout=...)`; `birdy publish` uses 3600 s). Non-zero exit → one warning with the exit code, return False; the mirror is still correct and the next run retries. `remote_dir` defaults to `/`: the server-side `rrsync` restriction roots the key at `sites/<site_id>/`, so the Pi never names the server path itself.
 
-Thread loop: wait on an `Event` with timeout = time until `max_interval` since the last run; when woken by `notify()`, wait a further `debounce` seconds (coalescing bursts, e.g. a backfill sweep publishing 20 photos) before running. `stop()` sets the stop flag and interrupts the wait; a run in progress finishes its rsync (bounded by the 300 s timeout) — `cmd_run` stops the publisher after the pipeline so the last evaluations are included.
+Thread loop: wait on an `Event` with timeout = time until `max_interval` since the last run; when woken by `notify()`, wait a further `debounce` seconds (coalescing bursts, e.g. a backfill sweep publishing 20 photos) before running. `stop()` sets the stop flag and interrupts the wait; a mirror build in progress stops between photos and skips the manifest and rsync; an rsync already running finishes (bounded by the wall-clock cap) — `cmd_run` stops the publisher after the pipeline so the last evaluations are included.
 
 ### Manifest (`sites/<site_id>/manifest.json`)
 
@@ -157,7 +157,7 @@ per_species_per_day = 3           # live; best N photos per species per local da
 
 ### Settings page
 
-New group **Publishing**: `min_confidence` (number 0–1 step 0.05) and `per_species_per_day` (number 1–20). `SettingsPatch`/`FIELD_KEYS`/`parse_settings_form`/`apply_patch`/template rows as for every tunable. Read-only block: `publish.enabled`, `host`, `user`, `remote_dir`, `site_id`. Changing `min_confidence`/`per_species_per_day` live does not re-rank history; it applies to days evaluated from then on (a `birdy publish --reevaluate` is out of scope; note it in the settings hint).
+New group **Publishing**: `min_confidence` (number 0–1 step 0.05) and `per_species_per_day` (number 1–20). `SettingsPatch`/`FIELD_KEYS`/`parse_settings_form`/`apply_patch`/template rows as for every tunable. Read-only block: `publish.enabled`, `host`, `user`, `remote_dir`, `site_id`. Changing `min_confidence`/`per_species_per_day` live applies to days evaluated from then on; `birdy publish --rerank` re-ranks history with the current thresholds, and it runs automatically the first time publishing is enabled (note it in the settings hint).
 
 ### Review page (`/`)
 
@@ -249,7 +249,7 @@ command="/usr/bin/rrsync /srv/birdy/sites/home",restrict ssh-ed25519 AAAA… bir
 - Public hostname: `https://birdy.akibeo.com` (A record at Combell → `91.98.229.209`).
 - The manifest's `site` block carries `utc_offset_minutes` (offset at generation time) instead of a zone name; photo entries have no `w`/`h` (the page uses `object-fit`). `captured_at` strings carry the site's offset, so a photo's local date is its first 10 characters.
 - `remote_dir` replaces `root`: the Pi's rsync target is `user@host:remote_dir` and the server-side `rrsync` restriction maps it onto `sites/<site_id>/`. `"/"` is only safe with that restricted key; with an unrestricted key `--delete` at `/` would be destructive, so use the full path.
-- rsync runs as `rsync -az --delete --delete-after --delay-updates --timeout=120 --exclude .lock --exclude '*.tmp*' -e "ssh -i <key> -o BatchMode=yes -o ConnectTimeout=20 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" data/publish/ user@host:remote_dir`, with a 300 s overall timeout. `--delay-updates`/`--delete-after` put every file in place in one pass at the end, so the server never serves a manifest listing photos that haven't arrived yet.
+- rsync runs as `rsync -az --delete --delete-after --delay-updates --timeout=120 --exclude .lock --exclude '*.tmp*' -e "ssh -i <key> -o BatchMode=yes -o ConnectTimeout=20 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" data/publish/ user@host:remote_dir`, with a 1800 s wall-clock cap (3600 s for `birdy publish`); `--timeout=120` and `ConnectTimeout=20` bound stalls. `--delay-updates`/`--delete-after` put every file in place in one pass at the end, so the server never serves a manifest listing photos that haven't arrived yet.
 - Runs are serialised in-process (`_run_lock`) and across processes by an `flock` on `data/publish/.lock` (service vs `birdy publish`); whichever comes second skips with a warning and returns False. Web copies are written through a `.tmp.jpg` temp name + `os.replace`; the manifest through a per-pid `manifest.json.tmp.<pid>` + `os.replace`. Neither the lock nor temp files are pushed.
 - An unreadable original is set `hidden` and its species/day re-ranked so the next-best photo takes the freed slot. A mirror write failure (disk full, permissions) is logged and retried on the next run; it never hides the photo.
 - The publisher's first run happens right after start (reconcile), then on change (debounced 120 s) and at least every 900 s. `stop()` does not flush: evaluations queued right before shutdown are pushed by the reconcile run at the next start. A successful run logs at info only when the published set changed.
@@ -258,4 +258,4 @@ command="/usr/bin/rrsync /srv/birdy/sites/home",restrict ssh-ed25519 AAAA… bir
 
 ## Out of scope
 
-Friends' onboarding beyond the two documented server steps (sub-project 4 covers inviting them and any shared conventions), comments/likes, RSS, re-ranking history when thresholds change, server-side rendering, publishing the full-resolution originals, Combell.
+Friends' onboarding beyond the two documented server steps (sub-project 4 covers inviting them and any shared conventions), comments/likes, RSS, re-ranking history automatically when thresholds change (`birdy publish --rerank` does it on demand, and it runs automatically the first time publishing is enabled), server-side rendering, publishing the full-resolution originals, Combell.

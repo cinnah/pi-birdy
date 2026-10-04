@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import fcntl
+import functools
 import json
 import logging
 import os
@@ -75,7 +76,7 @@ def rank_day(candidates: list[Capture], manual: dict[int, str], settings: Publis
 WEB_MAX_SIDE = 1600
 WEB_JPEG_QUALITY = 85
 MANIFEST_VERSION = 1
-RSYNC_TIMEOUT = 300.0  # seconds; rsync's own --timeout only covers I/O stalls, this bounds the whole run
+RSYNC_TIMEOUT = 1800.0  # seconds; wall-clock cap on the whole run (--timeout=120 and ConnectTimeout=20 bound stalls)
 
 Runner = Callable[[list[str]], int]
 
@@ -106,11 +107,11 @@ def rsync_command(mirror_dir: Path, cfg: PublishConfig) -> list[str]:
     ]
 
 
-def _default_runner(cmd: list[str]) -> int:
+def _default_runner(cmd: list[str], timeout: float = RSYNC_TIMEOUT) -> int:
     try:
-        return subprocess.call(cmd, stdin=subprocess.DEVNULL, timeout=RSYNC_TIMEOUT)
+        return subprocess.call(cmd, stdin=subprocess.DEVNULL, timeout=timeout)
     except subprocess.TimeoutExpired:
-        log.warning("publish: rsync timed out after %.0f s", RSYNC_TIMEOUT)
+        log.warning("publish: rsync timed out after %.0f s", timeout)
         return -1
     except OSError as e:  # rsync/ssh not installed
         log.error("cannot run rsync: %s", e)
@@ -134,13 +135,14 @@ class Publisher:
         runner: Runner | None = None,
         debounce: float = 120.0,
         max_interval: float = 900.0,
+        rsync_timeout: float = RSYNC_TIMEOUT,
     ) -> None:
         self._live = live
         self._store = store
         self.mirror_dir = Path(mirror_dir)
         self.photos_dir = self.mirror_dir / "photos"
         self.thumbs_dir = self.mirror_dir / "thumbs"
-        self._runner = runner or _default_runner
+        self._runner = runner or functools.partial(_default_runner, timeout=rsync_timeout)
         self._debounce = debounce
         self._max_interval = max_interval
         self._lock = threading.Lock()
@@ -207,7 +209,8 @@ class Publisher:
     # --- mirror + manifest + push -----------------------------------------------
 
     def run_once(self, now: datetime | None = None) -> bool:
-        """Mirror, manifest, rsync. Returns False when rsync failed (the next tick retries)."""
+        """Mirror, manifest, rsync. Returns False when rsync failed (the next tick retries), another
+        run holds the lock, or `stop()` was called during the mirror build (nothing is pushed then)."""
         if not self._run_lock.acquire(blocking=False):
             log.warning("publish: a run is already in progress; skipping")
             return False
@@ -232,6 +235,9 @@ class Publisher:
     def _run_once(self, now: datetime | None) -> bool:
         cfg = self._live.get().publish
         photos = self._sync_mirror()
+        if photos is None:
+            log.info("publish: stopping; mirror build interrupted, nothing pushed")
+            return False
         self._write_manifest(photos, now)
         rc = self._runner(rsync_command(self.mirror_dir, cfg))
         if rc != 0:
@@ -243,13 +249,20 @@ class Publisher:
         log.log(level, "publish: %d photos synced to %s", len(photos), cfg.host)
         return True
 
-    def _sync_mirror(self) -> list[Capture]:
-        """Make the mirror match the published set; returns the captures that are on it."""
+    def _sync_mirror(self) -> list[Capture] | None:
+        """Make the mirror match the published set; returns the captures that are on it.
+
+        Returns None as soon as `stop()` is called: a first build can mean hundreds of resizes,
+        and the service closes the store right after `stop()` returns. Nothing is swept then;
+        the next run carries on where this one left off.
+        """
         self.photos_dir.mkdir(parents=True, exist_ok=True)
         self.thumbs_dir.mkdir(parents=True, exist_ok=True)
         keep: set[str] = set()
         out: list[Capture] = []
         for c in self._store.published():
+            if self._stop.is_set():
+                return None
             rel = c.path
             try:
                 self._ensure_web_copy(c, rel)
@@ -358,8 +371,11 @@ class Publisher:
         self.mirror_dir.mkdir(parents=True, exist_ok=True)
         target = self.mirror_dir / "manifest.json"
         tmp = target.with_name(f"manifest.json.tmp.{os.getpid()}")  # unique per process
-        tmp.write_text(json.dumps(self.build_manifest(photos, now), ensure_ascii=False, indent=1))
-        os.replace(tmp, target)
+        try:
+            tmp.write_text(json.dumps(self.build_manifest(photos, now), ensure_ascii=False, indent=1))
+            os.replace(tmp, target)
+        finally:
+            tmp.unlink(missing_ok=True)  # no-op after a successful replace
 
     # --- thread -----------------------------------------------------------------
 

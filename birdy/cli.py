@@ -237,7 +237,7 @@ def cmd_publish(config: Config, rerank: bool = False) -> int:
         return 2
     store = Store(config.storage.data_dir)
     try:
-        publisher = Publisher(LiveConfig(config), store, config.storage.data_dir / "publish")
+        publisher = Publisher(LiveConfig(config), store, config.storage.data_dir / "publish", rsync_timeout=3600.0)
         if rerank:
             print(f"re-ranked {publisher.evaluate_all()} days")
         ok = publisher.run_once()
@@ -246,7 +246,11 @@ def cmd_publish(config: Config, rerank: bool = False) -> int:
     if ok:
         print(f"published to {config.publish.user}@{config.publish.host}:{config.publish.remote_dir}")
         return 0
-    print(f"rsync failed (see log above); key: {config.publish.ssh_key}", file=sys.stderr)
+    print(
+        "publish run skipped (another run in progress) or rsync failed; see the log above."
+        f" key: {config.publish.ssh_key}",
+        file=sys.stderr,
+    )
     return 1
 
 

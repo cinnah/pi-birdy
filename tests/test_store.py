@@ -432,3 +432,16 @@ def test_publish_stats_empty(store):
     s = store.publish_stats(datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc))
     assert s["total_birds"] == 0 and s["species"] == [] and s["first_capture"] is None
     assert len(s["per_day"]) == 30 and sum(d["birds"] for d in s["per_day"]) == 0
+
+
+def test_purge_keeps_rows_with_any_published_state(store):
+    old = T0 - timedelta(days=10)
+    forced = add(store, old)
+    plain = add(store, old + timedelta(minutes=1))
+    for cid in (forced, plain):
+        store.update_classification(cid, False, 0.1, None, None)
+    store.set_published(forced, "forced")
+
+    assert store.purge_non_birds(older_than_days=7, now=T0) == 1
+    assert store.get(forced).published == "forced"
+    assert store.get(plain) is None

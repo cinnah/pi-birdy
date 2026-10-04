@@ -374,6 +374,7 @@ def test_publish_command_runs_once(tmp_path, monkeypatch, capsys):
 
         def __init__(self, live, store, mirror_dir, **kw):
             self.mirror_dir = mirror_dir
+            self.kw = kw
             FakePublisher.instances.append(self)
 
         def run_once(self):
@@ -384,6 +385,7 @@ def test_publish_command_runs_once(tmp_path, monkeypatch, capsys):
     cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n[publish]\nenabled=true\nhost="h"\n')
     assert cli.main(["--config", str(cfg), "publish"]) == 0
     assert FakePublisher.instances[0].mirror_dir == tmp_path / "data" / "publish"
+    assert FakePublisher.instances[0].kw["rsync_timeout"] == 3600.0  # manual one-shot: longer cap
     assert "published" in capsys.readouterr().out
 
 
@@ -436,4 +438,5 @@ def test_publish_command_exit_1_when_rsync_fails(tmp_path, monkeypatch, capsys):
     cfg = tmp_path / "birdy.toml"
     cfg.write_text('[site]\nname="t"\n[motion]\nroi=[[0,0],[9,0],[9,9]]\n[storage]\ndata_dir="data"\n[publish]\nenabled=true\nhost="h"\n')
     assert cli.main(["--config", str(cfg), "publish"]) == 1
-    assert "rsync failed" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "another run in progress" in err and "rsync failed" in err

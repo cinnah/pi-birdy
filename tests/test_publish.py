@@ -515,3 +515,63 @@ def test_thread_survives_run_errors(live, store, config, caplog):
         assert "publish run failed" in caplog.text
     finally:
         pub.stop()
+
+
+def test_run_once_stops_mid_mirror_build_without_pushing(live, store, config, monkeypatch):
+    runner = FakeRunner()
+    pub = make(live, store, config, runner=runner, per_species_per_day=10)
+    for i in range(5):
+        pub.evaluate(bird(store, T0 + timedelta(minutes=i), "Robin", 0.9, size=(60, 80)))
+    real_imwrite = cv2.imwrite
+
+    def imwrite_then_stop(*a, **k):
+        pub._stop.set()
+        return real_imwrite(*a, **k)
+
+    monkeypatch.setattr("birdy.publish.cv2.imwrite", imwrite_then_stop)
+    assert pub.run_once() is False
+    assert runner.calls == []
+    assert not (pub.mirror_dir / "manifest.json").exists()
+    assert len(list(pub.photos_dir.rglob("*.jpg"))) <= 1
+
+
+def test_default_runner_uses_configured_timeout(live, store, config, monkeypatch):
+    import subprocess
+
+    from birdy import publish
+
+    assert publish.RSYNC_TIMEOUT == 1800.0
+    seen = {}
+    monkeypatch.setattr(subprocess, "call", lambda cmd, **kw: seen.update(kw) or 0)
+    live.replace(enabled(config))
+    pub = Publisher(live, store, store.data_dir / "publish", rsync_timeout=42.0)
+    assert pub._runner(["rsync"]) == 0
+    assert seen["timeout"] == 42.0
+    Publisher(live, store, store.data_dir / "publish")._runner(["rsync"])
+    assert seen["timeout"] == publish.RSYNC_TIMEOUT
+
+
+def test_default_runner_timeout_returns_minus_one_and_logs_value(live, store, config, monkeypatch, caplog):
+    import subprocess
+
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+    monkeypatch.setattr(subprocess, "call", boom)
+    pub = Publisher(live, store, store.data_dir / "publish", rsync_timeout=7.0)
+    with caplog.at_level(logging.WARNING):
+        assert pub._runner(["rsync"]) == -1
+    assert "7 s" in caplog.text
+
+
+def test_write_manifest_removes_tmp_on_failure(live, store, config, monkeypatch):
+    pub = make(live, store, config)
+    pub.mirror_dir.mkdir(parents=True)
+
+    def fail(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("birdy.publish.os.replace", fail)
+    with pytest.raises(OSError):
+        pub._write_manifest([], None)
+    assert list(pub.mirror_dir.glob("manifest.json*")) == []
