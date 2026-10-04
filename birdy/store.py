@@ -355,7 +355,8 @@ class Store:
     def publish_stats(self, now: datetime | None = None, days: int = 30) -> dict:
         """Aggregate numbers for the gallery dashboard, over ALL bird captures (published or not).
 
-        Times are local (the Pi's zone); `per_day` has `days` entries ending today, `per_hour` 24.
+        Times are local (the Pi's zone); `per_day` has `days` entries ending today, `per_hour` 24;
+        each species carries `days`: {local day: count} for the days in that window it was seen.
         """
         now = (now or datetime.now(timezone.utc)).astimezone()
         with self._lock:
@@ -363,7 +364,7 @@ class Store:
         today = now.date()
         per_day = {today - timedelta(days=i): 0 for i in range(days)}
         per_hour = [0] * 24
-        by_species: dict[str, list] = {}  # name -> [count, first, last]
+        by_species: dict[str, list] = {}  # name -> [count, first, last, {day: count} within the window]
         first = last = None
         for r in rows:
             t = _from_db_time(r["captured_at"]).astimezone()
@@ -374,13 +375,16 @@ class Store:
             first = t if first is None or t < first else first
             last = t if last is None or t > last else last
             if r["species"]:
-                s = by_species.setdefault(r["species"], [0, t, t])
+                s = by_species.setdefault(r["species"], [0, t, t, {}])
                 s[0] += 1
                 s[1] = min(s[1], t)
                 s[2] = max(s[2], t)
+                if d in per_day:
+                    s[3][d.isoformat()] = s[3].get(d.isoformat(), 0) + 1
         species = [
-            {"name": n, "count": c, "first": f.date().isoformat(), "last": l.isoformat(timespec="seconds")}
-            for n, (c, f, l) in by_species.items()
+            {"name": n, "count": c, "first": f.date().isoformat(), "last": l.isoformat(timespec="seconds"),
+             "days": dict(sorted(ds.items()))}
+            for n, (c, f, l, ds) in by_species.items()
         ]
         species.sort(key=lambda s: (-s["count"], s["name"]))
         return {

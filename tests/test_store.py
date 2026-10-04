@@ -424,8 +424,10 @@ def test_publish_stats(store):
     assert s["species"][0] == {
         "name": "Robin", "count": 2,
         "first": today9.date().isoformat(), "last": (today9 + timedelta(minutes=5)).isoformat(timespec="seconds"),
+        "days": {today.isoformat(): 2},
     }
     assert s["species"][1]["name"] == "Wren" and s["species"][1]["count"] == 2
+    assert s["species"][1]["days"] == {yday9.date().isoformat(): 1}   # the 40-day-old one is outside the window
 
 
 def test_publish_stats_empty(store):

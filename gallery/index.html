@@ -3,20 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>birdy — today's visitors</title>
-<meta name="description" content="Birds photographed today at each friend's feeder camera, with a dashboard per feeder.">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f6f2">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141412">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f8a5a'/%3E%3Ccircle cx='13' cy='14' r='6' fill='%23f7f6f2'/%3E%3Cpath d='M13 20c4 0 7-2 9-6l4 1-3 4c-3 3-7 4-10 4z' fill='%23f7f6f2'/%3E%3Ccircle cx='11.5' cy='13' r='1.2' fill='%231d1c1a'/%3E%3Cpath d='M6 15l3-1.5v3z' fill='%23f7f6f2'/%3E%3C/svg%3E">
+<title>birdy — daily record</title>
+<meta name="description" content="The day's visitors at each friend's bird feeder, recorded by a camera at the window: one sheet, a column per feeder.">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef2e6">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b1e22">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23eef2e6'/%3E%3Cpath d='M0 9.5h32M0 15.5h32M0 21.5h32M0 27.5h32' stroke='%2393a8cc' stroke-width='1'/%3E%3Cpath d='M0 4.5h32' stroke='%23b5392f' stroke-width='1'/%3E%3Cpath d='M0 6.5h32' stroke='%23b5392f' stroke-width='1'/%3E%3Ccircle cx='14' cy='17' r='5.5' fill='%231f2a3a'/%3E%3Cpath d='M14 22c4 0 7-2 9-6l4 1-3 4c-3 3-7 4-10 4z' fill='%231f2a3a'/%3E%3Cpath d='M7 18l3-1.5v3z' fill='%231f2a3a'/%3E%3Ccircle cx='12.5' cy='16' r='1.1' fill='%23eef2e6'/%3E%3C/svg%3E">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/CourierPrime-Regular.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/LibreFranklin.woff2">
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="home">
-<header>
+<div class="sheet">
+<header class="mast">
   <h1><a class="hit" href="index.html">birdy</a></h1>
-  <p class="tagline">Today's visitors at every feeder</p>
+  <p class="tagline">Visitors at every feeder</p>
 </header>
-<main id="main" aria-busy="true"><p class="muted" role="status">Loading…</p><noscript><p class="err">This page needs JavaScript to load the feeders.</p></noscript></main>
-<dialog id="lightbox"><button class="close" type="button" aria-label="Close">×</button><img alt=""><p></p></dialog>
+<main id="main" aria-busy="true"><p class="muted typed" role="status">Loading…</p><noscript><p class="err">This page needs JavaScript to load the record.</p></noscript></main>
+</div>
+<dialog id="lightbox" aria-label="Photo"><figure><img alt=""><figcaption><span class="cap"></span><span class="count"></span></figcaption></figure><button class="prev" type="button" aria-label="Previous photo" hidden>‹</button><button class="next" type="button" aria-label="Next photo" hidden>›</button><button class="close" type="button" aria-label="Close">×</button></dialog>
 <script src="app.js"></script>
 </body>
 </html>

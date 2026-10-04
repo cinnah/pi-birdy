@@ -135,7 +135,7 @@ Thread loop: wait on an `Event` with timeout = time until `max_interval` since t
 }
 ```
 
-- `captured_at` and `last` are local time with offset (the Pi's zone); `per_day` is 30 entries ending today (local days); `per_hour` has 24 entries (local hour of day, all time). `lat`/`lon` rounded to 2 decimals (≈1 km), `null` when unset. `since` is the day of the first capture. `photos` is sorted newest first and contains only the published set.
+- Each `species` entry also carries `days`: `{"2026-10-04": 5, …}`, its visits per local day for the days inside the `per_day` window on which it was seen (added 2026-10-04 for the gallery's monthly sheet; older manifests lack it and the pages fall back to counting published photos). `captured_at` and `last` are local time with offset (the Pi's zone); `per_day` is 30 entries ending today (local days); `per_hour` has 24 entries (local hour of day, all time). `lat`/`lon` rounded to 2 decimals (≈1 km), `null` when unset. `since` is the day of the first capture. `photos` is sorted newest first and contains only the published set.
 - Species names with `/` or quotes are plain JSON strings; the page URL-encodes them.
 
 ### Config (`[publish]`, `birdy.toml.example`)
