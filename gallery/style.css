@@ -48,6 +48,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoratio
 .mast { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 0 10px; border-bottom: 3px double var(--red); }
 .mast h1 { margin: 0; font: 700 13px/1.3 var(--print); letter-spacing: .2em; text-transform: uppercase; }
 .mast nav, .mast .tagline { margin: 0; font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); }
+.mast nav { display: flex; gap: 20px; }
 
 /* sheet head: label, the date typed large, the sheet number */
 .head { display: grid; grid-template-columns: 1fr auto; gap: 2px 24px; align-items: end; padding: 24px 0 12px; border-bottom: 1px solid var(--rule); }
