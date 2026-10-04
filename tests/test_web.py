@@ -85,7 +85,7 @@ def add(store, i, is_bird):
 def test_index_renders_captures(client, store):
     bird = add(store, 0, True)
     junk = add(store, 1, False)
-    r = client.get("/")
+    r = client.get("/?filter=all")
     assert r.status_code == 200
     assert f"/thumbs/{bird.thumb_path}" in r.text
     assert f"/photos/{bird.path}" in r.text
@@ -401,9 +401,17 @@ def test_classify_upload_empty_422(client):
 def test_index_empty_species_param_shows_all(client, store):
     bird = add(store, 0, True)
     junk = add(store, 1, False)
-    r = client.get("/?species=")
+    r = client.get("/?filter=all&species=")
     assert r.status_code == 200
     assert bird.thumb_path in r.text and junk.thumb_path in r.text
+
+
+def test_index_defaults_to_birds(client, store):
+    bird = add(store, 0, True)
+    junk = add(store, 1, False)
+    r = client.get("/")
+    assert bird.thumb_path in r.text and junk.thumb_path not in r.text
+    assert 'class="active">birds<' in r.text
 
 
 class FakeNotABird:
@@ -498,8 +506,8 @@ def test_settings_button_disabled_without_notifier(store, state, live, config, c
     live.replace(dataclasses.replace(config, telegram=tg))
     c = TestClient(create_app(store, state, live, config_path, classifier=classifier))
     r = c.get("/settings").text
-    assert re.search(r'<button type="submit"\s+disabled>Send test alert</button>', r)
-    assert "alerts disabled — set [telegram] in birdy.toml and restart" in r
+    assert re.search(r'<button class="btn" type="submit" form="test-alert"\s+disabled>Send test alert</button>', r)
+    assert "Alerts are off. Set [telegram] in birdy.toml and restart." in r
     assert "SECRET123" not in r
 
 

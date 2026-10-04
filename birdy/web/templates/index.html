@@ -1,84 +1,112 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>birdy</title>
+{% extends "_base.html" %}
+{% set page_id = "grid" %}
+{% block title %}birdy{% endblock %}
+{% block head %}
 <style>
-  :root { color-scheme: light dark; --bg: #fafaf7; --fg: #222; --muted: #777; --card: #fff; --line: #ddd; --bird: #2a7; --junk: #c66; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #eee; --muted: #999; --card: #222; --line: #333; } }
-  body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
-  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: baseline; margin-bottom: 16px; }
-  h1 { font-size: 20px; margin: 0; }
-  .status span { margin-right: 16px; color: var(--muted); }
-  .status b { color: var(--fg); }
-  a { color: var(--fg); }
-  nav a { margin-right: 12px; } nav a.active { font-weight: bold; text-decoration: none; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .tile img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
-  .nothumb { aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
-  .meta { padding: 6px 8px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
-  .tag { font-weight: bold; } .tag.bird { color: var(--bird); } .tag.junk { color: var(--junk); }
-  .pager { margin-top: 16px; } .pager a, .pager span { margin-right: 12px; }
-  select { padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 0 var(--gutter) 32px; }
+  .stats {
+    display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+    font: 500 11px/1.3 var(--mono); font-stretch: 87.5%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
+  }
+  .stats b { color: var(--ink); font-weight: 700; margin-left: 6px; }
+
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 0; }
+  .seg { display: flex; border: 1px solid var(--rule-strong); }
+  .seg a {
+    display: flex; align-items: center; min-height: 36px; padding: 0 14px; text-decoration: none;
+    font: 700 11px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+  }
+  .seg a + a { border-left: 1px solid var(--rule-strong); }
+  .seg a:hover { color: var(--ink); }
+  .seg a.active { background: var(--sel-bg); color: var(--sel-fg); }
+  .filters select { min-height: 38px; max-width: 100%; }
+  .filters .count { font: 500 12px/1 var(--mono); font-stretch: 87.5%; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .filters .count b { color: var(--ink); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .tile { display: block; text-decoration: none; color: inherit; background: var(--osd-bar); outline: 1px solid var(--rule); outline-offset: 0; }
+  .tile:hover { outline: 2px solid var(--ink); }
+  .tile img, .tile .nothumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+  .tile .nothumb { display: grid; place-items: center; color: #7d8580; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; }
+  .tile .stamp + .stamp { padding-top: 0; }
+  .tile .sp { color: var(--osd); overflow: hidden; text-overflow: ellipsis; }
+  .tile.junk img { filter: grayscale(0.6) brightness(0.8); }
+  .tile.junk:hover img { filter: none; }
+
+  .empty { padding: 48px 0; max-width: 52ch; }
+  .empty p { margin: 8px 0 0; color: var(--dim); }
+
+  .pager { display: flex; align-items: center; gap: 12px; margin-top: 24px; font: 600 12px/1 var(--mono); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: 0.08em; }
+  .pager .at { color: var(--dim); }
+
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .stamp { font-size: 11px; padding: 4px 6px; font-stretch: 75%; letter-spacing: 0; }
+    .filters { gap: 10px; }
+    .filters select { flex: 1 1 100%; min-width: 0; order: 3; }
+    .tile .stamp:last-child { flex-direction: column; gap: 1px; }
+    .tile .sp { order: -1; }
+  }
 </style>
-</head>
-<body>
-<header>
-  <h1>birdy</h1>
-  <div class="status">
-    <span>state <b>{{ status.state }}</b></span>
-    <span>motion <b>{{ status.motion_score }}</b></span>
-    <span>queue <b>{{ status.queue_depth }}</b></span>
-    <span>pending <b>{{ status.pending_count }}</b></span>
-    <span>disk free <b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
-    <span>last capture <b>{{ status.last_capture_at | local_time }}</b></span>
-    <span>up <b>{{ status.uptime_seconds }}s</b></span>
-    <span><a href="/species">species</a></span>
-    <span><a href="/settings">settings</a></span>
+{% endblock %}
+
+{% block body %}
+{% set up = status.uptime_seconds %}
+<main class="wrap">
+  <div class="stats" aria-label="Camera status">
+    <span>last capture<b>{{ status.last_capture_at | local_time }}</b></span>
+    <span>queue<b>{{ status.queue_depth }}</b></span>
+    <span>pending<b>{{ status.pending_count }}</b></span>
+    <span>disk free<b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
+    <span>up<b>{% if up >= 86400 %}{{ up // 86400 }}d {% endif %}{{ (up % 86400) // 3600 }}h {{ (up % 3600) // 60 }}m</b></span>
   </div>
-</header>
 
-<nav>
-  {% for f in ["all", "birds", "non-birds"] %}
-    <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ f }}</a>
-  {% endfor %}
-  <select name="species" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
-    <option value="" {{ 'selected' if not species else '' }}>All species</option>
-    {% for r in species_rows %}
-    <option value="{{ r.species }}" {{ 'selected' if r.species == species else '' }}>{{ r.species }} ({{ r.count }})</option>
-    {% endfor %}
-  </select>
-  <span>({{ total }})</span>
-</nav>
+  <nav class="filters" aria-label="Filter photos">
+    <div class="seg">
+      {% for f, label in [("all", "all"), ("birds", "birds"), ("non-birds", "not birds")] %}
+        <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <select name="species" aria-label="Species" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
+      <option value="" {{ 'selected' if not species else '' }}>All species</option>
+      {% for r in species_rows %}
+      <option value="{{ r.species }}" {{ 'selected' if r.species == species else '' }}>{{ r.species }} ({{ r.count }})</option>
+      {% endfor %}
+    </select>
+    <span class="count"><b>{{ total }}</b> photos</span>
+  </nav>
 
-<div class="grid">
-  {% for c in captures %}
-  <a class="tile" href="/photos/{{ c.path }}">
-    {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
-    <div class="meta">
-      <span>{{ c.captured_at | local_time }}</span>
-      <span>
+  {% if captures %}
+  <div class="grid">
+    {% for c in captures %}
+    {% set t = c.captured_at | local_time %}
+    <a class="tile{{ ' junk' if c.is_bird == false else '' }}" href="/photos/{{ c.path }}">
+      {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="{{ c.species or ('bird' if c.is_bird else 'capture') }} at {{ t }}" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
+      <div class="stamp">
+        <span>{{ t[5:] }}</span>
         {% if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
         {% elif c.is_bird %}<span class="tag bird">bird {{ (c.confidence * 100) | round(0) | int }}%</span>
-        {% else %}<span class="tag junk">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}
-      </span>
-    </div>
-    <div class="meta">
-      <span>motion {{ c.motion_score }}</span>
-      {% if c.species %}<span>{{ c.species }}</span>{% endif %}
-    </div>
-  </a>
+        {% else %}<span class="tag no">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}
+      </div>
+      <div class="stamp">
+        <span class="mot">mot {{ c.motion_score }}</span>
+        {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
   {% else %}
-  <p>No captures yet.</p>
-  {% endfor %}
-</div>
+  <div class="empty">
+    <h2 class="head">No captures yet.</h2>
+    <p>The camera saves a photo whenever something moves inside the watch area. Check the frame and the walk test in <a href="/settings">setup</a>.</p>
+  </div>
+  {% endif %}
 
-<div class="pager">
-  {% if page > 1 %}<a href="/?filter={{ filter }}&page={{ page - 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">← page {{ page - 1 }}</a>{% endif %}
-  <span>page {{ page }} / {{ pages }}</span>
-  {% if page < pages %}<a href="/?filter={{ filter }}&page={{ page + 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">page {{ page + 1 }} →</a>{% endif %}
-</div>
-</body>
-</html>
+  <div class="pager">
+    {% if page > 1 %}<a class="btn" href="/?filter={{ filter }}&page={{ page - 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">newer</a>{% endif %}
+    <span class="at">page {{ page }} / {{ pages }}</span>
+    {% if page < pages %}<a class="btn" href="/?filter={{ filter }}&page={{ page + 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">older</a>{% endif %}
+  </div>
+</main>
+{% endblock %}

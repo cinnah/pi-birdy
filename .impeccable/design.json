@@ -1,0 +1,548 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-04T19:16:31+00:00",
+  "title": "Design System: Birdy",
+  "extensions": {
+    "colorMeta": {
+      "osd-black": {
+        "role": "neutral",
+        "displayName": "OSD Black",
+        "canonical": "oklch(15.7% 0.003 145)",
+        "tonalRamp": [
+          "oklch(15% 0.003 145)",
+          "oklch(25% 0.003 145)",
+          "oklch(35% 0.003 145)",
+          "oklch(48% 0.003 145)",
+          "oklch(60% 0.003 145)",
+          "oklch(72% 0.003 145)",
+          "oklch(84% 0.003 145)",
+          "oklch(95% 0.003 145)"
+        ]
+      },
+      "night-ground-raised": {
+        "role": "neutral",
+        "displayName": "Night Raised",
+        "canonical": "oklch(19.3% 0.005 145)",
+        "tonalRamp": [
+          "oklch(15% 0.005 145)",
+          "oklch(25% 0.005 145)",
+          "oklch(35% 0.005 145)",
+          "oklch(48% 0.005 145)",
+          "oklch(60% 0.005 145)",
+          "oklch(72% 0.005 145)",
+          "oklch(84% 0.005 145)",
+          "oklch(95% 0.005 145)"
+        ]
+      },
+      "night-field": {
+        "role": "neutral",
+        "displayName": "Night Field",
+        "canonical": "oklch(17.9% 0.005 145)",
+        "tonalRamp": [
+          "oklch(15% 0.005 145)",
+          "oklch(25% 0.005 145)",
+          "oklch(35% 0.005 145)",
+          "oklch(48% 0.005 145)",
+          "oklch(60% 0.005 145)",
+          "oklch(72% 0.005 145)",
+          "oklch(84% 0.005 145)",
+          "oklch(95% 0.005 145)"
+        ]
+      },
+      "osd-white": {
+        "role": "neutral",
+        "displayName": "OSD White",
+        "canonical": "oklch(96.0% 0.005 106)",
+        "tonalRamp": [
+          "oklch(15% 0.005 106)",
+          "oklch(25% 0.005 106)",
+          "oklch(35% 0.005 106)",
+          "oklch(48% 0.005 106)",
+          "oklch(60% 0.005 106)",
+          "oklch(72% 0.005 106)",
+          "oklch(84% 0.005 106)",
+          "oklch(95% 0.005 106)"
+        ]
+      },
+      "night-dim": {
+        "role": "neutral",
+        "displayName": "Night Dim",
+        "canonical": "oklch(70.6% 0.013 157)",
+        "tonalRamp": [
+          "oklch(15% 0.013 157)",
+          "oklch(25% 0.013 157)",
+          "oklch(35% 0.013 157)",
+          "oklch(48% 0.013 157)",
+          "oklch(60% 0.013 157)",
+          "oklch(72% 0.013 157)",
+          "oklch(84% 0.013 157)",
+          "oklch(95% 0.013 157)"
+        ]
+      },
+      "night-rule": {
+        "role": "neutral",
+        "displayName": "Night Rule",
+        "canonical": "oklch(30.0% 0.008 153)",
+        "tonalRamp": [
+          "oklch(15% 0.008 153)",
+          "oklch(25% 0.008 153)",
+          "oklch(35% 0.008 153)",
+          "oklch(48% 0.008 153)",
+          "oklch(60% 0.008 153)",
+          "oklch(72% 0.008 153)",
+          "oklch(84% 0.008 153)",
+          "oklch(95% 0.008 153)"
+        ]
+      },
+      "night-rule-strong": {
+        "role": "neutral",
+        "displayName": "Night Rule Strong",
+        "canonical": "oklch(42.4% 0.011 150)",
+        "tonalRamp": [
+          "oklch(15% 0.011 150)",
+          "oklch(25% 0.011 150)",
+          "oklch(35% 0.011 150)",
+          "oklch(48% 0.011 150)",
+          "oklch(60% 0.011 150)",
+          "oklch(72% 0.011 150)",
+          "oklch(84% 0.011 150)",
+          "oklch(95% 0.011 150)"
+        ]
+      },
+      "night-seg-off": {
+        "role": "neutral",
+        "displayName": "Night Segment Off",
+        "canonical": "oklch(26.8% 0.008 153)",
+        "tonalRamp": [
+          "oklch(15% 0.008 153)",
+          "oklch(25% 0.008 153)",
+          "oklch(35% 0.008 153)",
+          "oklch(48% 0.008 153)",
+          "oklch(60% 0.008 153)",
+          "oklch(72% 0.008 153)",
+          "oklch(84% 0.008 153)",
+          "oklch(95% 0.008 153)"
+        ]
+      },
+      "signal-amber": {
+        "role": "primary",
+        "displayName": "Signal Amber",
+        "canonical": "oklch(81.2% 0.17 76)",
+        "tonalRamp": [
+          "oklch(15% 0.17 76)",
+          "oklch(25% 0.17 76)",
+          "oklch(35% 0.17 76)",
+          "oklch(48% 0.17 76)",
+          "oklch(60% 0.17 76)",
+          "oklch(72% 0.17 76)",
+          "oklch(84% 0.17 76)",
+          "oklch(95% 0.17 76)"
+        ]
+      },
+      "rec-red-night": {
+        "role": "secondary",
+        "displayName": "REC Red (night)",
+        "canonical": "oklch(67.1% 0.217 29)",
+        "tonalRamp": [
+          "oklch(15% 0.217 29)",
+          "oklch(25% 0.217 29)",
+          "oklch(35% 0.217 29)",
+          "oklch(48% 0.217 29)",
+          "oklch(60% 0.217 29)",
+          "oklch(72% 0.217 29)",
+          "oklch(84% 0.217 29)",
+          "oklch(95% 0.217 29)"
+        ]
+      },
+      "osd-dim": {
+        "role": "neutral",
+        "displayName": "OSD Dim",
+        "canonical": "oklch(60.8% 0.012 159)",
+        "tonalRamp": [
+          "oklch(15% 0.012 159)",
+          "oklch(25% 0.012 159)",
+          "oklch(35% 0.012 159)",
+          "oklch(48% 0.012 159)",
+          "oklch(60% 0.012 159)",
+          "oklch(72% 0.012 159)",
+          "oklch(84% 0.012 159)",
+          "oklch(95% 0.012 159)"
+        ]
+      },
+      "lcd-ground": {
+        "role": "neutral",
+        "displayName": "LCD Ground",
+        "canonical": "oklch(84.3% 0.024 120)",
+        "tonalRamp": [
+          "oklch(15% 0.024 120)",
+          "oklch(25% 0.024 120)",
+          "oklch(35% 0.024 120)",
+          "oklch(48% 0.024 120)",
+          "oklch(60% 0.024 120)",
+          "oklch(72% 0.024 120)",
+          "oklch(84% 0.024 120)",
+          "oklch(95% 0.024 120)"
+        ]
+      },
+      "lcd-ground-raised": {
+        "role": "neutral",
+        "displayName": "LCD Raised",
+        "canonical": "oklch(81.0% 0.028 121)",
+        "tonalRamp": [
+          "oklch(15% 0.028 121)",
+          "oklch(25% 0.028 121)",
+          "oklch(35% 0.028 121)",
+          "oklch(48% 0.028 121)",
+          "oklch(60% 0.028 121)",
+          "oklch(72% 0.028 121)",
+          "oklch(84% 0.028 121)",
+          "oklch(95% 0.028 121)"
+        ]
+      },
+      "lcd-field": {
+        "role": "neutral",
+        "displayName": "LCD Field",
+        "canonical": "oklch(87.4% 0.022 121)",
+        "tonalRamp": [
+          "oklch(15% 0.022 121)",
+          "oklch(25% 0.022 121)",
+          "oklch(35% 0.022 121)",
+          "oklch(48% 0.022 121)",
+          "oklch(60% 0.022 121)",
+          "oklch(72% 0.022 121)",
+          "oklch(84% 0.022 121)",
+          "oklch(95% 0.022 121)"
+        ]
+      },
+      "lcd-ink": {
+        "role": "neutral",
+        "displayName": "LCD Segment Ink",
+        "canonical": "oklch(20.2% 0.013 135)",
+        "tonalRamp": [
+          "oklch(15% 0.013 135)",
+          "oklch(25% 0.013 135)",
+          "oklch(35% 0.013 135)",
+          "oklch(48% 0.013 135)",
+          "oklch(60% 0.013 135)",
+          "oklch(72% 0.013 135)",
+          "oklch(84% 0.013 135)",
+          "oklch(95% 0.013 135)"
+        ]
+      },
+      "lcd-dim": {
+        "role": "neutral",
+        "displayName": "LCD Dim",
+        "canonical": "oklch(39.9% 0.022 132)",
+        "tonalRamp": [
+          "oklch(15% 0.022 132)",
+          "oklch(25% 0.022 132)",
+          "oklch(35% 0.022 132)",
+          "oklch(48% 0.022 132)",
+          "oklch(60% 0.022 132)",
+          "oklch(72% 0.022 132)",
+          "oklch(84% 0.022 132)",
+          "oklch(95% 0.022 132)"
+        ]
+      },
+      "lcd-rule": {
+        "role": "neutral",
+        "displayName": "LCD Rule",
+        "canonical": "oklch(69.5% 0.026 125)",
+        "tonalRamp": [
+          "oklch(15% 0.026 125)",
+          "oklch(25% 0.026 125)",
+          "oklch(35% 0.026 125)",
+          "oklch(48% 0.026 125)",
+          "oklch(60% 0.026 125)",
+          "oklch(72% 0.026 125)",
+          "oklch(84% 0.026 125)",
+          "oklch(95% 0.026 125)"
+        ]
+      },
+      "lcd-rule-strong": {
+        "role": "neutral",
+        "displayName": "LCD Rule Strong",
+        "canonical": "oklch(55.7% 0.027 128)",
+        "tonalRamp": [
+          "oklch(15% 0.027 128)",
+          "oklch(25% 0.027 128)",
+          "oklch(35% 0.027 128)",
+          "oklch(48% 0.027 128)",
+          "oklch(60% 0.027 128)",
+          "oklch(72% 0.027 128)",
+          "oklch(84% 0.027 128)",
+          "oklch(95% 0.027 128)"
+        ]
+      },
+      "lcd-seg-off": {
+        "role": "neutral",
+        "displayName": "LCD Segment Off",
+        "canonical": "oklch(77.1% 0.03 122)",
+        "tonalRamp": [
+          "oklch(15% 0.03 122)",
+          "oklch(25% 0.03 122)",
+          "oklch(35% 0.03 122)",
+          "oklch(48% 0.03 122)",
+          "oklch(60% 0.03 122)",
+          "oklch(72% 0.03 122)",
+          "oklch(84% 0.03 122)",
+          "oklch(95% 0.03 122)"
+        ]
+      },
+      "rec-red-day": {
+        "role": "secondary",
+        "displayName": "REC Red (day)",
+        "canonical": "oklch(46.6% 0.168 28)",
+        "tonalRamp": [
+          "oklch(15% 0.168 28)",
+          "oklch(25% 0.168 28)",
+          "oklch(35% 0.168 28)",
+          "oklch(48% 0.168 28)",
+          "oklch(60% 0.168 28)",
+          "oklch(72% 0.168 28)",
+          "oklch(84% 0.168 28)",
+          "oklch(95% 0.168 28)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Live MOT / TRIG numbers on the walk test; becomes an amber block when hot."
+      },
+      "verdict": {
+        "displayName": "Verdict",
+        "purpose": "The classify result call on the species page."
+      },
+      "menu-head": {
+        "displayName": "Menu Head",
+        "purpose": "Section headings of the setup menu and pages, uppercase tracked mono."
+      },
+      "row-label": {
+        "displayName": "Row Label",
+        "purpose": "Plain-language name of a setting."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default sans text, tabular numerals."
+      },
+      "explain": {
+        "displayName": "Explain",
+        "purpose": "Dim sentence under each setting, max 62ch."
+      },
+      "value": {
+        "displayName": "Value",
+        "purpose": "Numbers and text inside fields and selects."
+      },
+      "label-button": {
+        "displayName": "Button Label",
+        "purpose": "Buttons, segmented filters, file picker."
+      },
+      "osd-strip": {
+        "displayName": "OSD Strip",
+        "purpose": "Sticky top strip: nav, lamp, score, clock."
+      },
+      "key": {
+        "displayName": "Key",
+        "purpose": "The birdy.toml key, units, captions."
+      },
+      "stamp": {
+        "displayName": "Stamp",
+        "purpose": "Burned-in photo info bar."
+      }
+    },
+    "shadows": [
+      {
+        "name": "burn-halo",
+        "value": "0 1px 2px rgba(0,0,0,0.9), 0 0 1px #000",
+        "purpose": "text-shadow on text burned into the live viewfinder only; legibility over the frame, not elevation."
+      },
+      {
+        "name": "field-focus-ring",
+        "value": "inset 0 0 0 1px var(--ink)",
+        "purpose": "Doubles a focused field's 1px border to 2px."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "150ms ease-out",
+        "purpose": "Button background/colour/border, TRIG tick position."
+      },
+      {
+        "name": "meter-segment",
+        "value": "120ms ease-out",
+        "purpose": "Walk-test cells lighting."
+      },
+      {
+        "name": "rec-blink",
+        "value": "0.9s steps(2, jump-none) infinite, 50% opacity 0.15",
+        "purpose": "REC lamp blink when score crosses the trigger."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation: none; transition: none",
+        "purpose": "All motion removed under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone-narrow",
+        "value": "420px"
+      },
+      {
+        "name": "phone",
+        "value": "640px"
+      },
+      {
+        "name": "stack",
+        "value": "900px"
+      }
+    ],
+    "lights": {
+      "note": "Night (prefers-color-scheme: dark) uses the night-* and osd-* tokens with signal = signal-amber and selection = osd-white on osd-black; day uses lcd-* with signal = lcd-ink and selection = lcd-ink on lcd-ground. Primary and burned-in OSD tokens are the same in both."
+    }
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Default outlined printed-label button (RESET SHAPE, SEND TEST ALERT, NEWER/OLDER).",
+      "html": "<button class=\"ds-btn\">Reset shape</button>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border:1px solid var(--rule-strong);border-radius:0;background:transparent;color:var(--ink);font:700 12px/1 var(--mono);font-stretch:87.5%;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out,border-color 150ms ease-out}.ds-btn:hover{border-color:var(--ink)}.ds-btn:active{background:var(--sel-bg);color:var(--sel-fg)}.ds-btn:focus-visible{outline:2px solid var(--signal);outline-offset:2px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one amber sticker per view: SAVE, CLASSIFY.",
+      "html": "<button class=\"ds-btn-primary\">Save</button>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;min-height:40px;min-width:120px;padding:0 16px;border:1px solid var(--primary);border-radius:0;background:var(--primary);color:var(--on-primary);font:700 12px/1 var(--mono);font-stretch:87.5%;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out,border-color 150ms ease-out}.ds-btn-primary:hover{background:var(--ink);color:var(--ground);border-color:var(--ink)}.ds-btn-primary:focus-visible{outline:2px solid var(--signal);outline-offset:2px}"
+    },
+    {
+      "name": "Setting Row",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Plain-language label, numeric mono field with unit, sans explanation with the birdy.toml key, segmented slider.",
+      "html": "<div class=\"ds-row\"><label for=\"ds-n\">Movement to trigger</label><span class=\"ds-val\"><input id=\"ds-n\" type=\"number\" value=\"150\"><span class=\"ds-unit\">px</span></span><p class=\"ds-explain\">How many changed pixels inside the watch area take a photo. <code class=\"ds-key\">motion.min_area</code></p><input class=\"ds-range\" type=\"range\" value=\"50\" style=\"--p:50%\"></div>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:center;padding:14px 0 12px;border-bottom:1px solid var(--rule);background:var(--ground);color:var(--ink);font:15px/1.45 var(--sans)}.ds-row>label{font-weight:600;display:flex;align-items:center}.ds-row:focus-within>label::before{content:'';margin-right:8px;border-left:7px solid var(--signal);border-block:5px solid transparent}.ds-val{display:flex;align-items:center;gap:6px}.ds-val input{width:9ch;text-align:right;padding:6px 8px;font:500 14px/1.3 var(--mono);font-stretch:87.5%;color:var(--ink);background:var(--field);border:1px solid var(--rule-strong);border-radius:0}.ds-val input:focus{border-color:var(--ink);outline:none;box-shadow:inset 0 0 0 1px var(--ink)}.ds-unit{width:4ch;font:400 11px/1 var(--mono);color:var(--dim);text-transform:uppercase}.ds-explain{grid-column:1/-1;margin:4px 0 0;font-size:13px;line-height:1.4;color:var(--dim);max-width:62ch}.ds-key{margin-left:6px;font:400 11px/1.3 var(--mono);font-stretch:87.5%;letter-spacing:.02em;color:var(--dim)}.ds-range{grid-column:1/-1;margin-top:8px;appearance:none;-webkit-appearance:none;width:100%;height:26px;background:transparent}.ds-range::-webkit-slider-runnable-track{height:8px;background:repeating-linear-gradient(90deg,transparent 0 6px,var(--ground) 6px 8px),linear-gradient(90deg,var(--ink) var(--p),var(--seg-off) var(--p))}.ds-range::-moz-range-track{height:8px;background:repeating-linear-gradient(90deg,transparent 0 6px,var(--ground) 6px 8px),linear-gradient(90deg,var(--ink) var(--p),var(--seg-off) var(--p))}.ds-range::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:24px;margin-top:-8px;background:var(--ink);border:2px solid var(--ground);border-radius:0}.ds-range:focus-visible{outline:none}.ds-range:focus-visible::-webkit-slider-thumb{background:var(--signal)}"
+    },
+    {
+      "name": "OSD Strip",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Sticky top strip: brand, nav cells with inverted current page, live lamp, score, clock.",
+      "html": "<header class=\"ds-strip\"><a class=\"ds-brand\" href=\"#\">birdy</a><nav><a href=\"#\">grid</a><a href=\"#\">species</a><a href=\"#\" aria-current=\"page\">setup</a></nav><div class=\"ds-live\"><span class=\"ds-lamp\">armed</span><span>mot <b>90</b></span><span class=\"ds-clock\">2026-10-04 20:10:36</span></div></header>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-strip{display:flex;align-items:center;gap:4px 20px;height:44px;padding:0 16px;background:var(--ground);color:var(--ink);border-bottom:1px solid var(--rule-strong);font:500 12px/1 var(--mono);font-stretch:87.5%;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}.ds-brand{font-weight:800;font-stretch:100%;letter-spacing:.12em;font-size:13px;color:inherit;text-decoration:none}.ds-strip nav{display:flex;height:100%}.ds-strip nav a{display:flex;align-items:center;padding:0 12px;height:100%;text-decoration:none;color:var(--dim)}.ds-strip nav a:hover{color:var(--ink)}.ds-strip nav a:focus-visible{outline:2px solid var(--signal);outline-offset:-2px}.ds-strip nav a[aria-current=page]{background:var(--sel-bg);color:var(--sel-fg)}.ds-live{margin-left:auto;display:flex;align-items:center;gap:16px}.ds-live b{font-weight:700}.ds-clock{color:var(--dim)}.ds-lamp{display:inline-flex;align-items:center;gap:7px}.ds-lamp::before{content:'';width:9px;height:9px;border-radius:50%;background:var(--signal)}"
+    },
+    {
+      "name": "Segmented Filter",
+      "kind": "nav",
+      "refersTo": "segment-filter-active",
+      "description": "Grid filter: bordered row of cells split by hairlines; active cell is the inverted row.",
+      "html": "<div class=\"ds-seg\"><a href=\"#\" class=\"active\">all</a><a href=\"#\">birds</a><a href=\"#\">not birds</a></div>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-seg{display:inline-flex;border:1px solid var(--rule-strong);background:var(--ground)}.ds-seg a{display:flex;align-items:center;min-height:36px;padding:0 14px;text-decoration:none;font:700 11px/1 var(--mono);font-stretch:87.5%;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}.ds-seg a+a{border-left:1px solid var(--rule-strong)}.ds-seg a:hover{color:var(--ink)}.ds-seg a:focus-visible{outline:2px solid var(--signal);outline-offset:2px}.ds-seg a.active{background:var(--sel-bg);color:var(--sel-fg)}"
+    },
+    {
+      "name": "Watchlist Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Square toggle chip; pressed is the inverted row.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Eurasian Blue Tit</button> <button class=\"ds-chip\" aria-pressed=\"false\">Common Hoopoe</button>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-chip{min-height:32px;padding:0 10px;border:1px solid var(--rule-strong);border-radius:0;background:transparent;color:var(--ink);font:500 12px/1 var(--mono);font-stretch:87.5%;cursor:pointer}.ds-chip:hover{border-color:var(--ink)}.ds-chip:focus-visible{outline:2px solid var(--signal);outline-offset:2px}.ds-chip[aria-pressed=true]{background:var(--sel-bg);color:var(--sel-fg);border-color:var(--sel-bg)}"
+    },
+    {
+      "name": "Switch",
+      "kind": "input",
+      "refersTo": "switch",
+      "description": "Two-cell OFF | ON checkbox; ON is the inverted row.",
+      "html": "<input type=\"checkbox\" class=\"ds-switch\" checked aria-label=\"Alert new species\">",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-switch{appearance:none;-webkit-appearance:none;margin:0;cursor:pointer;display:inline-grid;grid-template-columns:1fr 1fr;width:92px;height:32px;border:1px solid var(--rule-strong);background:var(--field);font:700 11px/1 var(--mono);letter-spacing:.1em}.ds-switch::before,.ds-switch::after{display:grid;place-items:center;color:var(--dim)}.ds-switch::before{content:'OFF'}.ds-switch::after{content:'ON'}.ds-switch:not(:checked)::before{background:var(--rule-strong);color:var(--ground)}.ds-switch:checked::after{background:var(--sel-bg);color:var(--sel-fg)}.ds-switch:focus-visible{outline:2px solid var(--signal);outline-offset:2px}"
+    },
+    {
+      "name": "Photo Tile with Stamp",
+      "kind": "card",
+      "refersTo": "stamp",
+      "description": "Capture tile with the burned-in trail-cam info bar; identical in both lights.",
+      "html": "<a class=\"ds-tile\" href=\"#\"><div class=\"ds-img\"></div><div class=\"ds-stamp\"><span>10-04 18:44:00</span><span class=\"ds-bird\">bird 88%</span></div><div class=\"ds-stamp\"><span>mot 572</span><span>Eurasian Blue Tit</span></div></a>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-tile{display:block;width:220px;text-decoration:none;color:inherit;background:var(--osd-bar);outline:1px solid var(--rule)}.ds-tile:hover,.ds-tile:focus-visible{outline:2px solid var(--ink)}.ds-img{aspect-ratio:4/3;background:linear-gradient(135deg,#3a4a3a,#6a7a5a)}.ds-stamp{display:flex;justify-content:space-between;gap:8px;padding:5px 7px;background:var(--osd-bar);color:var(--osd);font:500 11px/1.3 var(--mono);font-stretch:81%;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}.ds-stamp+.ds-stamp{padding-top:0}.ds-bird{color:var(--osd-amber);font-weight:700}"
+    },
+    {
+      "name": "Walk Test Meter",
+      "kind": "custom",
+      "refersTo": "readout-hot",
+      "description": "Signature: segmented live motion meter against a moving TRIG tick; cells past the trigger and the hot readout go full amber.",
+      "html": "<div class=\"ds-walk\"><div class=\"ds-walk-head\"><span class=\"ds-head\">Walk test</span><span class=\"ds-read\">mot <b class=\"hot\">240</b> / trig <b>150</b></span></div><div class=\"ds-meter\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on over\"></i><i class=\"on over\"></i><i></i><i></i><i></i><i></i><i></i><span class=\"ds-tick\" style=\"left:41.6%\"></span></div></div>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-walk{background:var(--ground);color:var(--ink);padding:16px 8px}.ds-walk-head{display:flex;align-items:baseline;gap:12px}.ds-head{font:700 12px/1 var(--mono);font-stretch:87.5%;letter-spacing:.14em;text-transform:uppercase}.ds-read{margin-left:auto;font:500 12px/1 var(--mono);font-stretch:87.5%;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}.ds-read b{font-size:20px;font-weight:700;color:var(--ink);letter-spacing:0}.ds-read b.hot{background:var(--primary);color:var(--on-primary);padding:2px 5px}.ds-meter{position:relative;margin-top:16px;height:22px;display:flex;gap:2px}.ds-meter i{flex:1;background:var(--seg-off);transition:background-color 120ms ease-out}.ds-meter i.on{background:var(--signal);opacity:.55}.ds-meter i.on.over{background:var(--primary);opacity:1}.ds-tick{position:absolute;top:-5px;bottom:-5px;width:2px;margin-left:-1px;background:var(--ink)}.ds-tick::after{content:'trig';position:absolute;top:-14px;left:50%;transform:translateX(-50%);font:700 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase}"
+    },
+    {
+      "name": "Message Line",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "OSD status line in place of a toast: bordered in currentColor, OK or ERR code prefix.",
+      "html": "<div class=\"ds-msg ok\">Test alert sent.</div><div class=\"ds-msg bad\">Telegram said: chat not found</div>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-msg{display:flex;gap:10px;align-items:baseline;padding:10px 12px;margin:0 0 16px;border:1px solid currentColor;font:500 12px/1.45 var(--mono);font-stretch:87.5%;background:var(--ground)}.ds-msg::before{font-weight:800;letter-spacing:.1em;flex:none}.ds-msg.ok{color:var(--ink)}.ds-msg.ok::before{content:'OK'}.ds-msg.bad{color:var(--rec)}.ds-msg.bad::before{content:'ERR'}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Camera's Own Screen",
+    "overview": "Birdy's web UI is the on-screen display of the feeder camera itself, the readout a trail cam burns onto its frames and the setup menu it shows when you open the back. It refuses the dashboard-of-cards admin panel: data is burned onto the photo, settings are menu rows, and the live state of the detector (motion score against the trigger) is always on screen. Nothing floats, nothing is decorated; every mark is either a reading or a control.\n\nThe world has two lights that come from the device, chosen by `prefers-color-scheme`. Night is the IR OSD: near-black ground, OSD-white text, signal amber for what is live or primary. Day is a reflective LCD setup screen: grey-green ground, dark segment ink, and no colour at all on the instrument except the one amber \"sticker\" on the primary button. Burned-in elements (the photo stamp bar, the viewfinder text, the ROI polygon) do not change with the light; they belong to the photo, not the page.\n\nDensity is instrument-like but readable by a non-technical household: every setting has a plain-language sans label and explanation, with the real `birdy.toml` key small in mono beside it. Numbers are never hidden.",
+    "keyCharacteristics": [
+      "Two device lights: IR OSD (night) and reflective LCD (day), same geometry.",
+      "Martian Mono for every token, value, key and menu head; system sans only for plain-language explanation.",
+      "Square corners, 1px hairlines, segmented meters, viewfinder corner brackets.",
+      "Selection is an inverted row; amber means live or primary, never \"chosen\".",
+      "Photos carry a burned-in stamp bar that is identical in both lights."
+    ],
+    "rules": [
+      {
+        "name": "The Inverted Row Rule",
+        "body": "Selection (current nav item, active segmented filter, pressed watchlist chip, switch ON, button pressed, text selection) is an inverted row: ink-coloured fill with ground-coloured text (OSD white on OSD black at night, LCD ink on LCD ground by day). Amber is never used to mean \"selected\".",
+        "section": "colors"
+      },
+      {
+        "name": "The One Sticker Rule",
+        "body": "On the LCD ground amber appears only as a fill (the primary button, the hot readout block, meter segments past the trigger, the dirty square), never as text or a thin line on the grey-green. On the LCD, \"lit\" is dark ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The Burned-In Rule",
+        "body": "Anything drawn onto a photo or the live frame (stamp bar, viewfinder text, ROI polygon) uses the fixed OSD colours (`osd-black`, `osd-white`, `signal-amber`, `osd-dim`) regardless of the page light.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Voices Rule",
+        "body": "If the camera would print it (a number, a key, a state, a heading, a button), it is Martian Mono. If a person would say it (a label or an explanation), it is system sans. Never set explanations in mono or values in sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Narrow Mono Rule",
+        "body": "Martian Mono runs at width 87.5% by default (81% on stamps, 75% on phone stamps); full width only for the BIRDY brand.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairline Rule",
+        "body": "Separation is a 1px line or an inverted fill. If something needs to stand out, it gets a stronger hairline or inverts, it does not lift.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the inverted row (ink fill, ground text) for every selected or current state, in both lights.",
+      "Do keep amber for live and primary: the armed lamp at night, lit and over-trigger meter cells, the hot readout, the primary button, the ROI and burned-in live marks, BIRD %.",
+      "Do pair every setting's plain-language sans label with its `birdy.toml` key in 11px dim mono.",
+      "Do separate with 1px hairlines (`rule` for rows, `rule-strong` for heads, sticky bars and control borders).",
+      "Do draw meters and bars as segments (6px on, 2px off; 2px gaps in the walk-test meter).",
+      "Do give burned-in viewfinder text the burn halo so it reads over any frame.",
+      "Do use a log1p slider track when a setting's range spans orders of magnitude."
+    ],
+    "donts": [
+      "Don't use amber to mark selection, or as text or a thin line on the day LCD ground.",
+      "Don't use REC red for anything but the REC lamp and errors.",
+      "Don't round corners on any control, tile or container; only indicator lamps are round.",
+      "Don't add drop shadows, cards or raised panels; the only shadow-like effects are the burn halo and the inset focus ring.",
+      "Don't set values, keys or heads in the system sans, or explanations in mono.",
+      "Don't load fonts or assets from the network; Martian Mono is self-hosted and everything else is system."
+    ]
+  }
+}

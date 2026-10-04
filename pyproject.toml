@@ -32,7 +32,7 @@ birdy = "birdy.cli:main"
 include = ["birdy*"]
 
 [tool.setuptools.package-data]
-birdy = ["web/templates/*.html"]
+birdy = ["web/templates/*.html", "web/static/*.css", "web/static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

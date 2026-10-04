@@ -1,128 +1,367 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>birdy settings</title>
+{% extends "_base.html" %}
+{% set page_id = "settings" %}
+{% set poll_ms = 1000 %}
+{% block title %}birdy · setup{% endblock %}
+{% block head %}
 <style>
-  :root { color-scheme: light dark; --bg: #fafaf7; --fg: #222; --muted: #777; --card: #fff; --line: #ddd; --ok: #2a7; --bad: #c66; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #eee; --muted: #999; --card: #222; --line: #333; } }
-  body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); max-width: 720px; }
-  a { color: var(--fg); }
-  h1 { font-size: 20px; margin: 0 0 12px; } h2 { font-size: 15px; margin: 20px 0 8px; }
-  canvas { width: 100%; max-width: 640px; aspect-ratio: {{ lores_w }} / {{ lores_h }}; background: #333; border: 1px solid var(--line); touch-action: none; display: block; }
-  .hint { color: var(--muted); font-size: 12px; margin: 6px 0; }
-  .hint.error { color: var(--bad); font-weight: bold; }
-  .readout { margin: 8px 0; } .readout b { font-size: 18px; } .readout b.hot { color: var(--ok); }
-  .banner { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
-  .banner.ok { background: #2a72; border: 1px solid var(--ok); } .banner.bad { background: #c662; border: 1px solid var(--bad); }
-  .row { display: grid; grid-template-columns: 160px 1fr 90px; gap: 8px; align-items: center; margin: 6px 0; }
-  .row.error label { color: var(--bad); font-weight: bold; }
-  .row input[type=number], .row input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
-  .row textarea { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
-  form.inline { margin-top: 16px; }
-  .ro { color: var(--muted); font-size: 12px; } .ro code { color: var(--fg); }
-  button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
-  button.primary { background: var(--ok); color: #fff; border-color: var(--ok); font-weight: bold; }
+  .setup { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(400px, 1fr); max-width: 1500px; margin: 0 auto; }
+
+  /* ── viewfinder column ── */
+  .vf-col { position: sticky; top: var(--strip-h); align-self: start; padding: 20px 24px 24px var(--gutter); border-right: 1px solid var(--rule); }
+  .vf { position: relative; background: #050605; aspect-ratio: {{ lores_w }} / {{ lores_h }}; }
+  .vf canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  .vf .brackets {
+    position: absolute; inset: 10px; pointer-events: none;
+    --c: rgba(242, 242, 238, 0.85); --l: 22px; --t: 2px;
+    background:
+      linear-gradient(var(--c), var(--c)) top left / var(--l) var(--t),
+      linear-gradient(var(--c), var(--c)) top left / var(--t) var(--l),
+      linear-gradient(var(--c), var(--c)) top right / var(--l) var(--t),
+      linear-gradient(var(--c), var(--c)) top right / var(--t) var(--l),
+      linear-gradient(var(--c), var(--c)) bottom left / var(--l) var(--t),
+      linear-gradient(var(--c), var(--c)) bottom left / var(--t) var(--l),
+      linear-gradient(var(--c), var(--c)) bottom right / var(--l) var(--t),
+      linear-gradient(var(--c), var(--c)) bottom right / var(--t) var(--l);
+    background-repeat: no-repeat;
+  }
+  .vf .burn {
+    position: absolute; pointer-events: none; color: var(--osd);
+    font: 600 11px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.08em; text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 1px #000;
+  }
+  .vf .tl { top: 20px; left: 22px; display: flex; align-items: center; gap: 7px; }
+  .vf .tl::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--osd-amber); }
+  .vf .tl.stale::before { background: #7d8580; }
+  .vf .tr { top: 20px; right: 22px; }
+  .vf .bl { bottom: 20px; left: 22px; color: var(--osd-amber); }
+  .vf .br { bottom: 20px; right: 22px; }
+
+  .walk { margin-top: 18px; }
+  .walk-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .walk-read { margin-left: auto; font: 500 12px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); }
+  .walk-read b { font-size: 20px; font-weight: 700; color: var(--ink); letter-spacing: 0; }
+  .walk-read b.hot { background: var(--primary); color: var(--on-primary); padding: 2px 5px; }
+  .meter { position: relative; margin-top: 10px; height: 22px; display: flex; gap: 2px; }
+  .meter i { flex: 1; background: var(--seg-off); transition: background-color 120ms ease-out; }
+  .meter i.on { background: var(--signal); opacity: 0.55; }
+  .meter i.on.over { background: var(--primary); opacity: 1; }
+  .meter .tick { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--ink); transition: left 150ms ease-out; }
+  .meter .tick::after {
+    content: "trig"; position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+    font: 700 11px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink);
+  }
+  .scale { position: relative; height: 14px; margin-top: 4px; font: 400 11px/1 var(--mono); color: var(--dim); }
+  .scale span { position: absolute; transform: translateX(-50%); }
+  .scale span:first-child { transform: none; }
+  .scale span:last-child { transform: translateX(-100%); }
+
+  .roi-tools { display: flex; gap: 12px; align-items: flex-start; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+  .roi-tools p { margin: 0; flex: 1; font-size: 13px; color: var(--dim); }
+  .hint { font-size: 13px; color: var(--dim); margin: 6px 0 0; }
+  .hint.error { color: var(--rec); font: 600 12px/1.4 var(--mono); font-stretch: 87.5%; }
+  .hint:empty { display: none; }
+
+  /* ── setup menu ── */
+  .menu { padding: 20px 24px 0; min-width: 0; }
+  .msgs { max-width: 1500px; margin: 0 auto; padding: 16px var(--gutter) 0; }
+  .msgs .msg:last-child { margin-bottom: 0; }
+  .group { margin-bottom: 28px; }
+  .group > header { display: flex; align-items: baseline; gap: 12px; padding: 0 0 10px; border-bottom: 1px solid var(--rule-strong); }
+  .group > header p { margin: 0; font-size: 13px; color: var(--dim); }
+
+  .row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: center;
+    padding: 14px 0 12px; border-bottom: 1px solid var(--rule);
+  }
+  .row > label { font-weight: 600; font-size: 15px; display: flex; align-items: center; }
+  .row:focus-within > label::before {
+    content: ""; flex: none; margin-right: 8px;
+    border-left: 7px solid var(--signal); border-block: 5px solid transparent;
+  }
+  .row.error > label { color: var(--rec); }
+  .row .explain { grid-column: 1 / -1; margin: 4px 0 0; font-size: 13px; line-height: 1.4; color: var(--dim); max-width: 62ch; }
+  .row .explain .key { margin-left: 6px; white-space: nowrap; }
+  .row input[type=range] { grid-column: 1 / -1; margin-top: 8px; }
+  .row + .hint.error { margin: 0; padding: 8px 0 10px; border-bottom: 1px solid var(--rule); }
+
+  .val { display: flex; align-items: center; gap: 6px; }
+  .val input { width: 9ch; text-align: right; padding: 6px 8px; }
+  .val .unit { width: 4ch; font: 400 11px/1 var(--mono); color: var(--dim); text-transform: uppercase; }
+  .pair { display: flex; gap: 8px; }
+  .pair label { display: flex; flex-direction: column; gap: 3px; font: 600 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+  .pair input { width: 11ch; text-align: right; padding: 6px 8px; }
+  .row textarea { grid-column: 1 / -1; width: 100%; margin-top: 10px; resize: vertical; }
+
+  input[type=range] {
+    --p: 50%;
+    appearance: none; -webkit-appearance: none; width: 100%; height: 26px; margin: 0; background: transparent; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 8px;
+    background: repeating-linear-gradient(90deg, transparent 0 6px, var(--ground) 6px 8px), linear-gradient(90deg, var(--ink) var(--p), var(--seg-off) var(--p));
+  }
+  input[type=range]::-moz-range-track {
+    height: 8px;
+    background: repeating-linear-gradient(90deg, transparent 0 6px, var(--ground) 6px 8px), linear-gradient(90deg, var(--ink) var(--p), var(--seg-off) var(--p));
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 24px; margin-top: -8px;
+    background: var(--ink); border: 2px solid var(--ground); border-radius: 0;
+  }
+  input[type=range]::-moz-range-thumb { width: 8px; height: 20px; background: var(--ink); border: 2px solid var(--ground); border-radius: 0; }
+  input[type=range]:focus-visible { outline: none; }
+  input[type=range]:focus-visible::-webkit-slider-thumb { background: var(--signal); }
+  input[type=range]:focus-visible::-moz-range-thumb { background: var(--signal); }
+
+  input[type=checkbox].switch {
+    appearance: none; -webkit-appearance: none; margin: 0; cursor: pointer;
+    display: inline-grid; grid-template-columns: 1fr 1fr; width: 92px; height: 32px;
+    border: 1px solid var(--rule-strong); background: var(--field);
+    font: 700 11px/1 var(--mono); letter-spacing: 0.1em;
+  }
+  input[type=checkbox].switch::before, input[type=checkbox].switch::after { display: grid; place-items: center; color: var(--dim); }
+  input[type=checkbox].switch::before { content: "OFF"; }
+  input[type=checkbox].switch::after { content: "ON"; }
+  input[type=checkbox].switch:not(:checked)::before { background: var(--rule-strong); color: var(--ground); }
+  input[type=checkbox].switch:checked::after { background: var(--sel-bg); color: var(--sel-fg); }
+
+  .chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+  .chips .key { width: 100%; }
+  .chip {
+    min-height: 32px; padding: 0 10px; border: 1px solid var(--rule-strong); background: transparent; color: var(--ink);
+    font: 500 12px/1 var(--mono); font-stretch: 87.5%; cursor: pointer; border-radius: 0;
+  }
+  .chip:hover { border-color: var(--ink); }
+  .chip[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-fg); border-color: var(--sel-bg); }
+
+  .action { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 0 4px; }
+  .action .hint { margin: 0; }
+
+  .sys { margin: 0; font: 400 12px/1.4 var(--mono); font-stretch: 87.5%; }
+  .sys div { display: grid; grid-template-columns: minmax(0, 15em) minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+  .sys dt { color: var(--dim); }
+  .sys dd { margin: 0; overflow-wrap: anywhere; }
+
+  .savebar {
+    position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
+    margin: 8px -24px 0; padding: 12px 24px; background: var(--ground); border-top: 1px solid var(--rule-strong);
+  }
+  .savebar .state { flex: 1; min-width: 0; font: 600 12px/1.35 var(--mono); font-stretch: 87.5%; letter-spacing: 0.04em; text-transform: uppercase; }
+  .savebar .state small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--dim); font-size: 11px; }
+  .savebar .state.dirty { color: var(--ink); }
+  .savebar .state.dirty::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 1px;
+    background: var(--primary); outline: 1px solid var(--ink);
+  }
+  .savebar .btn.primary { min-width: 120px; }
+
+  @media (max-width: 900px) {
+    .setup { grid-template-columns: minmax(0, 1fr); }
+    .vf-col { position: static; border-right: 0; border-bottom: 1px solid var(--rule-strong); padding: 0 0 18px; }
+    .vf-col > :not(.vf) { margin-left: var(--gutter); margin-right: var(--gutter); }
+    .vf .brackets { inset: 8px; --l: 16px; }
+    .vf .burn { font-size: 11px; letter-spacing: 0.04em; }
+    .vf .tl, .vf .tr { top: 16px; } .vf .bl, .vf .br { bottom: 16px; }
+    .vf .tl, .vf .bl { left: 16px; } .vf .tr, .vf .br { right: 16px; }
+    .menu { padding: 20px var(--gutter) 0; }
+    .savebar { margin: 8px calc(-1 * var(--gutter)) 0; padding: 10px var(--gutter); }
+  }
+  @media (max-width: 420px) {
+    .vf .tr { display: none; }
+    .sys div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  }
 </style>
-</head>
-<body>
-<h1><a href="/">birdy</a> › settings</h1>
+{% endblock %}
 
-{% if saved %}<div class="banner ok">Saved — applied live (v{{ version }}).</div>{% endif %}
-{% if error_message %}<div class="banner bad">{{ error_message }}</div>{% endif %}
-{% if test_result %}<div class="banner {{ 'ok' if test_ok else 'bad' }}">{{ test_result }}</div>{% endif %}
+{% macro explain(text, key) -%}
+<p class="explain">{{ text }} <code class="key">{{ key }}</code></p>
+{%- endmacro %}
 
-<!-- novalidate: values set by hand in birdy.toml may be off the slider step grid; the server validates anyway -->
-<form method="post" action="/settings" id="form" novalidate>
-<h2>Region of interest</h2>
-<canvas id="roi" width="{{ lores_w * 2 }}" height="{{ lores_h * 2 }}" data-saved='{{ saved_roi_json }}'></canvas>
-<div class="hint">Tap to add a corner, drag a corner to move it, tap a corner to delete it (min 3). Coordinates are in the {{ lores_w }}×{{ lores_h }} analysis frame.</div>
-<div class="readout">motion score <b id="score">–</b> <span class="hint">(green when ≥ min_area; state <span id="state">{{ status.state }}</span>)</span>
-  <button type="button" id="reset">Reset polygon</button></div>
-<input type="hidden" name="roi" id="roi-field" value='{{ roi_json }}'>
-<div id="roi-hint" class="hint {{ 'error' if error_field == 'roi' else '' }}">{{ error_message if error_field == 'roi' else '' }}</div>
-
-<h2>Motion</h2>
-{% macro num(name, label, min, max, step) -%}
+{% macro num(name, key, label, text, min, max, step, unit="", log=false) -%}
 <div class="row {{ 'error' if error_field == name else '' }}">
   <label for="{{ name }}">{{ label }}</label>
-  <input type="range" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}" data-pair="{{ name }}">
-  <input type="number" id="{{ name }}" name="{{ name }}" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}">
+  <span class="val"><input type="number" id="{{ name }}" name="{{ name }}" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}" inputmode="decimal"><span class="unit">{{ unit }}</span></span>
+  {{ explain(text, key) }}
+  {% if log %}<input type="range" min="0" max="1000" step="1" data-pair="{{ name }}" data-log="{{ min }},{{ max }},{{ step }}" aria-label="{{ label }} slider">
+  {% else %}<input type="range" min="{{ min }}" max="{{ max }}" step="{{ step }}" value="{{ v[name] }}" data-pair="{{ name }}" aria-label="{{ label }} slider">{% endif %}
 </div>
 {% if error_field == name %}<div class="hint error">{{ error_message }}</div>{% endif %}
 {%- endmacro %}
-{{ num("pixel_threshold", "pixel_threshold", 0, 100, 1) }}
-{{ num("min_area", "min_area", 0, 20000, 10) }}
-{{ num("background_alpha", "background_alpha", 0.01, 1, 0.01) }}
-{{ num("cooldown_seconds", "cooldown_seconds", 0, 60, 0.5) }}
 
-<h2>Classifier</h2>
-{{ num("classifier_threshold", "threshold (P bird)", 0, 1, 0.01) }}
-{{ num("species_threshold", "species threshold", 0, 1, 0.01) }}
-{{ num("species_rescue_threshold", "species rescue threshold", 0, 1, 0.01) }}
-
-<h2>Site &amp; daylight</h2>
-<div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
-  <label for="lat">lat / lon</label>
-  <input type="text" id="lat" name="lat" placeholder="38.72 (empty = gate off)" value="{{ v['lat'] }}">
-  <input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}">
+{% block body %}
+<form method="post" action="/settings/test-alert" id="test-alert"></form>
+{% if error_message or test_result %}
+<div class="msgs">
+  {% if error_message %}<div class="msg bad" role="alert">{{ error_message }}</div>{% endif %}
+  {% if test_result %}<div class="msg {{ 'ok' if test_ok else 'bad' }}" role="status">{{ test_result }}</div>{% endif %}
 </div>
-{% if error_field in ('lat', 'lon') %}<div class="hint error">{{ error_message }}</div>{% endif %}
-{{ num("margin_minutes", "margin_minutes", 0, 180, 5) }}
+{% endif %}
 
-<h2>Retention</h2>
-{{ num("non_bird_days", "non_bird_days", 1, 365, 1) }}
+<!-- novalidate: values set by hand in birdy.toml may be off the slider step grid; the server validates anyway -->
+<form method="post" action="/settings" id="form" class="setup" novalidate>
 
-<h2>Alerts (Telegram)</h2>
-<div class="row {{ 'error' if error_field == 'watchlist' else '' }}">
-  <label for="watchlist">watchlist</label>
-  <textarea id="watchlist" name="watchlist" rows="4" placeholder="one species per line">{{ v['watchlist'] }}</textarea>
-  <span class="hint">seen so far: {{ species_seen | join(', ') if species_seen else '–' }}</span>
+<section class="vf-col" aria-label="Live view and watch area">
+  <div class="vf">
+    <canvas id="roi" width="{{ lores_w * 2 }}" height="{{ lores_h * 2 }}" data-saved='{{ saved_roi_json }}' aria-label="Live camera frame with the watch area outlined. Tap to add a corner, drag a corner to move it, tap a corner to remove it."></canvas>
+    <div class="brackets"></div>
+    <span class="burn tl" id="vf-live">live · 1s</span>
+    <span class="burn tr">cam · {{ lores_w }}×{{ lores_h }}</span>
+    <span class="burn bl" id="vf-corners"></span>
+    <span class="burn br" id="vf-time"></span>
+  </div>
+
+  <div class="walk">
+    <div class="walk-head">
+      <h2 class="head">Walk test</h2>
+      <span class="walk-read">mot <b id="score">{{ status.motion_score }}</b> / trig <b id="trig">{{ v['min_area'] }}</b></span>
+    </div>
+    <div class="meter" id="meter" role="meter" aria-label="Live motion score" aria-valuemin="0" aria-valuemax="20000" aria-valuenow="{{ status.motion_score }}">
+      <span class="tick" id="tick"></span>
+    </div>
+    <div class="scale" aria-hidden="true"><span style="left:0">10</span><span style="left:33.3%">100</span><span style="left:66.6%">1k</span><span style="left:100%">10k</span></div>
+    <p class="hint">Move a hand in front of the feeder: the bar should pass the <b>trig</b> mark. With nothing moving it should stay well below it.</p>
+  </div>
+
+  <div class="roi-tools">
+    <p><b>Watch area.</b> Only movement inside the shape counts. Tap the frame to add a corner, drag a corner to move it, tap a corner to remove it (3 minimum). <code class="key">motion.roi</code></p>
+    <button type="button" class="btn" id="reset">Reset shape</button>
+  </div>
+  <input type="hidden" name="roi" id="roi-field" value='{{ roi_json }}'>
+  <div id="roi-hint" class="hint {{ 'error' if error_field == 'roi' else '' }}">{{ error_message if error_field == 'roi' else '' }}</div>
+</section>
+
+<div class="menu">
+  <section class="group">
+    <header><h2 class="head">Motion</h2><p>What counts as movement</p></header>
+    {{ num("pixel_threshold", "motion.pixel_threshold", "Pixel change needed",
+           "How much one pixel must brighten or darken to count as changed. Raise it if shadows or sensor noise take photos.", 0, 100, 1, "lvl") }}
+    {{ num("min_area", "motion.min_area", "Movement to trigger",
+           "How many changed pixels inside the watch area take a photo. This is the trig mark on the walk-test meter.", 0, 20000, 10, "px", true) }}
+    {{ num("background_alpha", "motion.background_alpha", "Background adapt speed",
+           "How quickly slow changes like sun and cloud fade into the background. Higher adapts faster but can miss a bird that sits still.", 0.01, 1, 0.01) }}
+    {{ num("cooldown_seconds", "motion.cooldown_seconds", "Pause between photos",
+           "Minimum gap between two photos.", 0, 60, 0.5, "s") }}
+  </section>
+
+  <section class="group">
+    <header><h2 class="head">Bird check</h2><p>What happens to each photo</p></header>
+    {{ num("classifier_threshold", "classifier.threshold", "Bird certainty",
+           "How sure the bird check must be (0–1) before a photo counts as a bird.", 0, 1, 0.01) }}
+    {{ num("species_threshold", "species.threshold", "Species certainty",
+           "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
+    {{ num("species_rescue_threshold", "species.rescue_threshold", "Species rescue",
+           "Keep a photo the bird check rejected when the species model is at least this sure.", 0, 1, 0.01) }}
+  </section>
+
+  <section class="group">
+    <header><h2 class="head">Daylight</h2><p>When the camera is awake</p></header>
+    <div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
+      <label for="lat">Location</label>
+      <span class="pair">
+        <label>lat<input type="text" id="lat" name="lat" placeholder="38.72" value="{{ v['lat'] }}" inputmode="decimal"></label>
+        <label>lon<input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}" inputmode="decimal"></label>
+      </span>
+      {{ explain("Used to work out sunrise and sunset. Leave both empty to capture day and night.", "site.lat · site.lon") }}
+    </div>
+    {% if error_field in ('lat', 'lon') %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    {{ num("margin_minutes", "daylight.margin_minutes", "Daylight margin",
+           "Start this long before sunrise and stop this long after sunset.", 0, 180, 5, "min") }}
+  </section>
+
+  <section class="group">
+    <header><h2 class="head">Storage</h2><p>What gets cleaned up</p></header>
+    {{ num("non_bird_days", "retention.non_bird_days", "Keep non-bird photos",
+           "Photos without a bird are deleted after this many days. Bird photos are never deleted automatically.", 1, 365, 1, "days", true) }}
+  </section>
+
+  <section class="group">
+    <header><h2 class="head">Alerts</h2><p>Telegram messages</p></header>
+    <div class="row {{ 'error' if error_field == 'watchlist' else '' }}">
+      <label for="watchlist">Watchlist</label>
+      <span></span>
+      {{ explain("Send an alert when one of these species is photographed. One per line.", "telegram.watchlist") }}
+      <textarea id="watchlist" name="watchlist" rows="4" placeholder="one species per line">{{ v['watchlist'] }}</textarea>
+      <div class="chips">
+        <span class="key">{{ 'seen so far · tap to add or remove' if species_seen else 'no species seen yet' }}</span>
+        {% for s in species_seen %}<button type="button" class="chip" data-species="{{ s }}" aria-pressed="false">{{ s }}</button>{% endfor %}
+      </div>
+    </div>
+    {% if error_field == 'watchlist' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field == 'alert_new_species' else '' }}">
+      <label for="alert_new_species">First sightings</label>
+      <input class="switch" type="checkbox" id="alert_new_species" name="alert_new_species" value="on" {{ 'checked' if v['alert_new_species'] else '' }}>
+      {{ explain("Also alert the first time any species is photographed.", "telegram.alert_new_species") }}
+    </div>
+    {{ num("cooldown_minutes", "telegram.cooldown_minutes", "Quiet time per species",
+           "After an alert, wait this long before alerting for the same species again.", 0, 1440, 5, "min", true) }}
+    <div class="action">
+      <button class="btn" type="submit" form="test-alert" {{ '' if alerts_enabled else 'disabled' }}>Send test alert</button>
+      <p class="hint">{{ 'Sends "birdy test alert" to your chat.' if alerts_enabled else 'Alerts are off. Set [telegram] in birdy.toml and restart.' }}</p>
+    </div>
+  </section>
+
+  <section class="group">
+    <header><h2 class="head">System</h2><p>Read once at startup. To change these, edit birdy.toml on the Pi and restart.</p></header>
+    <dl class="sys">
+    {% for k, val in readonly.items() %}<div><dt>{{ k }}</dt><dd>{{ val }}</dd></div>{% endfor %}
+    </dl>
+  </section>
+
+  <div class="savebar">
+    <p class="state" id="dirty" aria-live="polite">{% if saved %}Saved · applied live (v{{ version }}){% elif error_message %}Not saved · see the error at the top{% else %}No unsaved changes{% endif %}<small>Writes birdy.toml and applies immediately.</small></p>
+    <button class="btn primary" type="submit">Save</button>
+  </div>
 </div>
-{% if error_field == 'watchlist' %}<div class="hint error">{{ error_message }}</div>{% endif %}
-<div class="row {{ 'error' if error_field == 'alert_new_species' else '' }}">
-  <label for="alert_new_species">alert on new species</label>
-  <input type="checkbox" id="alert_new_species" name="alert_new_species" value="on" {{ 'checked' if v['alert_new_species'] else '' }}>
-  <span class="hint">first sighting of any species</span>
-</div>
-{{ num("cooldown_minutes", "cooldown_minutes", 0, 1440, 5) }}
-
-<p><button class="primary" type="submit">Save</button> <span class="hint">writes birdy.toml and applies immediately</span></p>
 </form>
+{% endblock %}
 
-<form method="post" action="/settings/test-alert" class="inline">
-  <button type="submit" {{ '' if alerts_enabled else 'disabled' }}>Send test alert</button>
-  <span class="hint">{{ 'sends "birdy test alert" to your chat' if alerts_enabled else 'alerts disabled — set [telegram] in birdy.toml and restart' }}</span>
-</form>
-
-<h2>Read-only (edit birdy.toml and restart)</h2>
-<div class="ro">
-{% for k, val in readonly.items() %}<div><code>{{ k }}</code> = {{ val }}</div>{% endfor %}
-</div>
-
+{% block scripts %}
 <script>
 (function () {
   const W = {{ lores_w }}, H = {{ lores_h }}, SCALE = 2;
   const canvas = document.getElementById('roi'), ctx = canvas.getContext('2d');
   const field = document.getElementById('roi-field'), hint = document.getElementById('roi-hint');
+  const form = document.getElementById('form');
   const saved = JSON.parse(canvas.dataset.saved);  // polygon in effect; Reset goes back to this
   let pts;
   try { pts = JSON.parse(field.value); if (!Array.isArray(pts)) throw 0; }
   catch { pts = JSON.parse(JSON.stringify(saved)); }
   const DRAG_THRESHOLD = 3;  // lores px: below this a press-and-release is a tap (add/delete), not a drag
-  let img = null, dragging = null, moved = false, downAt = null, loading = false;
+  const AMBER = '#ffb000';
+  let img = null, dragging = null, moved = false, downAt = null, loading = false, lastFrameAt = 0;
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    ctx.lineWidth = 2; ctx.strokeStyle = '#0f0'; ctx.fillStyle = '#0f0';
+    else {
+      ctx.fillStyle = '#7d8580'; ctx.font = '600 14px "Martian Mono", monospace'; ctx.textAlign = 'center';
+      ctx.fillText('NO SIGNAL', canvas.width / 2, canvas.height / 2);
+    }
+    if (pts.length > 2) {
+      ctx.beginPath();
+      pts.forEach((p, i) => { const x = p[0] * SCALE, y = p[1] * SCALE; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255, 176, 0, 0.10)'; ctx.fill();
+    }
+    ctx.lineWidth = 2; ctx.strokeStyle = AMBER;
     ctx.beginPath();
     pts.forEach((p, i) => { const x = p[0] * SCALE, y = p[1] * SCALE; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     if (pts.length > 2) ctx.closePath();
     ctx.stroke();
-    pts.forEach(p => { ctx.beginPath(); ctx.arc(p[0] * SCALE, p[1] * SCALE, 6, 0, Math.PI * 2); ctx.fill(); });
+    ctx.font = '700 12px "Martian Mono", monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    pts.forEach((p, i) => {
+      const x = p[0] * SCALE, y = p[1] * SCALE, s = i === dragging ? 14 : 10;
+      ctx.fillStyle = '#0c0d0c'; ctx.fillRect(x - s / 2 - 1, y - s / 2 - 1, s + 2, s + 2);
+      ctx.fillStyle = AMBER; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+      const label = String.fromCharCode(65 + (i % 26));
+      const cx = pts.reduce((a, q) => a + q[0], 0) / pts.length * SCALE, cy = pts.reduce((a, q) => a + q[1], 0) / pts.length * SCALE;
+      const lx = Math.min(canvas.width - 14, Math.max(4, x + (x < cx ? 8 : -16))), ly = Math.min(canvas.height - 8, Math.max(10, y + (y < cy ? 16 : -14)));
+      ctx.fillStyle = '#0c0d0c'; ctx.fillText(label, lx + 1, ly + 1);
+      ctx.fillStyle = AMBER; ctx.fillText(label, lx, ly);
+    });
     field.value = JSON.stringify(pts);
+    document.getElementById('vf-corners').textContent = `watch area · ${pts.length} corners`;
+    markDirty();
   }
   function toLores(e) {
     const r = canvas.getBoundingClientRect();
@@ -138,57 +377,113 @@
     return best;
   }
   canvas.addEventListener('pointerdown', e => {
-    e.preventDefault();
     const p = toLores(e), i = hit(p, hitRadius(e));
-    moved = false; downAt = p; hint.textContent = '';
-    dragging = i >= 0 ? i : null;  // empty space: just remember where; a corner is added on release if it was a tap
-    canvas.setPointerCapture(e.pointerId);
+    downAt = p; moved = false;
+    if (i >= 0) { dragging = i; canvas.setPointerCapture(e.pointerId); }
   });
   canvas.addEventListener('pointermove', e => {
-    if (downAt === null) return;
+    if (dragging === null) return;
     const p = toLores(e);
     if (!moved && Math.hypot(p[0] - downAt[0], p[1] - downAt[1]) < DRAG_THRESHOLD) return;
-    moved = true;
-    if (dragging === null) return;
-    if (p[0] !== pts[dragging][0] || p[1] !== pts[dragging][1]) { pts[dragging] = p; draw(); }
+    moved = true; pts[dragging] = p; draw();
   });
   canvas.addEventListener('pointerup', e => {
     if (downAt === null) return;
-    if (!moved) {
-      if (dragging === null) pts.push(downAt);           // tap on empty space: add a corner
-      else if (pts.length > 3) pts.splice(dragging, 1);  // tap on a corner: delete it
-      else hint.textContent = 'need at least 3 points';
+    hint.textContent = '';
+    if (dragging === null) pts.push(toLores(e));        // tap on empty space: add a corner
+    else if (!moved) {
+      if (pts.length > 3) pts.splice(dragging, 1);       // tap on a corner: delete it
+      else hint.textContent = 'need at least 3 corners';
     }
     dragging = null; downAt = null; draw();
   });
   canvas.addEventListener('pointercancel', () => { dragging = null; downAt = null; draw(); });
-  document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(saved)); draw(); };
+  document.getElementById('reset').onclick = () => { pts = JSON.parse(JSON.stringify(saved)); hint.textContent = ''; draw(); };
 
   function refreshFrame() {
     if (loading) return;  // don't pile up requests on a slow link
     loading = true;
     const i = new Image();
-    i.onload = () => { loading = false; img = i; draw(); };
+    i.onload = () => { loading = false; img = i; lastFrameAt = Date.now(); draw(); };
     i.onerror = () => { loading = false; };
     i.src = '/frame.jpg?t=' + Date.now();
   }
-  async function poll() {
-    try {
-      const s = await (await fetch('/status')).json();
-      const el = document.getElementById('score');
-      el.textContent = s.motion_score;
-      el.className = s.motion_score >= +document.getElementById('min_area').value ? 'hot' : '';
-      document.getElementById('state').textContent = s.state;
-    } catch (e) { /* page still usable without live status */ }
+  const live = document.getElementById('vf-live'), vfTime = document.getElementById('vf-time');
+  setInterval(() => {
+    const stale = !lastFrameAt || Date.now() - lastFrameAt > 5000;
+    live.classList.toggle('stale', stale);
+    live.textContent = stale ? 'no signal' : 'live · 1s';
+    vfTime.textContent = document.getElementById('osd-clock').textContent;
+  }, 1000);
+
+  // walk test: 48 segments on a log scale from 10 to 10k
+  const meter = document.getElementById('meter'), tick = document.getElementById('tick');
+  const minArea = document.getElementById('min_area'), trig = document.getElementById('trig'), scoreEl = document.getElementById('score');
+  const SEGS = 48, segs = [];
+  for (let i = 0; i < SEGS; i++) { const s = document.createElement('i'); meter.insertBefore(s, tick); segs.push(s); }
+  const pos = v => Math.max(0, Math.min(1, Math.log10(Math.max(v, 10) / 10) / 3));
+  let lastScore = +scoreEl.textContent || 0;
+  function paintMeter() {
+    const t = +minArea.value || 0, hot = lastScore >= t;
+    const lit = Math.round(pos(lastScore) * SEGS) * (lastScore > 0 ? 1 : 0);
+    const tIdx = pos(t) * SEGS;
+    segs.forEach((s, i) => { s.classList.toggle('on', i < lit); s.classList.toggle('over', i < lit && i >= tIdx); });
+    tick.style.left = (pos(t) * 100) + '%';
+    trig.textContent = t;
+    scoreEl.className = hot ? 'hot' : '';
+    meter.setAttribute('aria-valuenow', lastScore);
   }
+  document.addEventListener('birdy:status', e => { lastScore = e.detail.motion_score; scoreEl.textContent = lastScore; paintMeter(); });
+
+  // sliders <-> number fields; --p drives the segmented fill.
+  // Wide ranges (data-log) use a log1p track so the useful low end isn't squeezed into the first few pixels.
   document.querySelectorAll('[data-pair]').forEach(range => {
     const num = document.getElementById(range.dataset.pair);
-    range.oninput = () => { num.value = range.value; };
-    num.oninput = () => { range.value = num.value; };
+    let toNum = r => r, toRange = v => v;
+    if (range.dataset.log) {
+      const [lo, hi, step] = range.dataset.log.split(',').map(Number), span = Math.log1p(hi - lo);
+      toNum = r => Math.min(hi, lo + Math.round(Math.expm1(r / 1000 * span) / step) * step);
+      toRange = v => Math.round(Math.log1p(Math.max(0, Math.min(hi, +v) - lo)) / span * 1000);
+    }
+    const fill = () => { range.style.setProperty('--p', ((range.value - range.min) / (range.max - range.min) * 100) + '%'); };
+    range.addEventListener('input', () => { num.value = toNum(+range.value); fill(); if (num === minArea) paintMeter(); markDirty(); });
+    num.addEventListener('input', () => { range.value = toRange(num.value); fill(); if (num === minArea) paintMeter(); });
+    range.value = toRange(num.value); fill();
   });
-  draw(); refreshFrame(); poll();
-  setInterval(refreshFrame, 1000); setInterval(poll, 1000);
+
+  // watchlist chips toggle a species line in the textarea
+  const wl = document.getElementById('watchlist');
+  const lines = () => wl.value.split('\n').map(s => s.trim()).filter(Boolean);
+  function syncChips() {
+    const have = new Set(lines().map(s => s.toLowerCase()));
+    document.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', have.has(c.dataset.species.toLowerCase())));
+  }
+  document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+    const name = c.dataset.species, cur = lines();
+    const idx = cur.findIndex(s => s.toLowerCase() === name.toLowerCase());
+    if (idx >= 0) cur.splice(idx, 1); else cur.push(name);
+    wl.value = cur.join('\n'); syncChips(); markDirty();
+  }));
+  wl.addEventListener('input', syncChips);
+  syncChips();
+
+  // unsaved-changes count in the save bar
+  const dirtyEl = document.getElementById('dirty'), small = dirtyEl.querySelector('small').outerHTML;
+  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.alert_new_species) d.alert_new_species = ''; return d; };
+  let initial = null;
+  function markDirty() {
+    if (!initial) return;
+    const now = snapshot();
+    const n = Object.keys(now).filter(k => k === 'roi' ? JSON.stringify(JSON.parse(now[k])) !== JSON.stringify(JSON.parse(initial[k])) : now[k] !== initial[k]).length;
+    if (n) { dirtyEl.className = 'state dirty'; dirtyEl.innerHTML = `${n} unsaved change${n > 1 ? 's' : ''}` + small; }
+    else if (dirtyEl.classList.contains('dirty')) { dirtyEl.className = 'state'; dirtyEl.innerHTML = 'No unsaved changes' + small; }
+  }
+  form.addEventListener('input', markDirty);
+  form.addEventListener('change', markDirty);
+
+  draw(); paintMeter(); refreshFrame();
+  initial = snapshot();
+  setInterval(refreshFrame, 1000);
 })();
 </script>
-</body>
-</html>
+{% endblock %}

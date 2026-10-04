@@ -65,6 +65,7 @@ def create_app(
 
     app.mount("/photos", StaticFiles(directory=str(store.photos_dir)), name="photos")
     app.mount("/thumbs", StaticFiles(directory=str(store.thumbs_dir)), name="thumbs")
+    app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
     def status_payload() -> dict:
         snap = state.snapshot()
@@ -76,11 +77,12 @@ def create_app(
             disk_free_bytes=store.disk_free_bytes(),
             last_capture_at=None if last is None else last.isoformat(),
             last_species=None if ls is None else ls[0],
+            min_area=live.get().motion.min_area,
         )
         return snap
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, filter: str = "all", page: int = 1, species: str | None = None):
+    def index(request: Request, filter: str = "birds", page: int = 1, species: str | None = None):
         if filter not in FILTERS:
             raise HTTPException(status_code=400, detail="filter must be one of all, birds, non-birds")
         summary = store.species_summary()
@@ -135,7 +137,7 @@ def create_app(
         return Response(content=jpg.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     def species_context(result: dict | None = None, error: str | None = None) -> dict:
-        return {"rows": store.species_summary(), "result": result, "error": error}
+        return {"rows": store.species_summary(), "result": result, "error": error, "status": status_payload()}
 
     def _decode_and_classify(data: bytes) -> tuple[Prediction, list] | None:
         """Decode an uploaded image and run both models; None if the bytes aren't an image."""

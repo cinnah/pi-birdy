@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{% block title %}birdy{% endblock %}</title>
+<link rel="preload" href="/static/fonts/martian-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/osd.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+{% set state_labels = {"starting": "starting", "capturing": "armed", "daylight_paused": "night pause", "camera_error": "camera error"} %}
+<header class="strip">
+  <a class="brand" href="/">birdy</a>
+  <nav aria-label="Pages">
+    <a href="/" {{ 'aria-current="page"' | safe if page_id == "grid" else '' }}>grid</a>
+    <a href="/species" {{ 'aria-current="page"' | safe if page_id == "species" else '' }}>species</a>
+    <a href="/settings" {{ 'aria-current="page"' | safe if page_id == "settings" else '' }}>setup</a>
+  </nav>
+  <div class="live" aria-live="off">
+    <span class="lamp" id="osd-state" data-state="{{ status.state }}">{{ state_labels.get(status.state, status.state) }}</span>
+    <span class="score">mot <b id="osd-score">{{ status.motion_score }}</b></span>
+    <span class="clock" id="osd-clock"></span>
+  </div>
+</header>
+
+{% block body %}{% endblock %}
+
+<script>
+(function () {
+  const LABELS = {{ state_labels | tojson }};
+  const lamp = document.getElementById('osd-state'), score = document.getElementById('osd-score');
+  const clock = document.getElementById('osd-clock');
+  const pad = n => String(n).padStart(2, '0');
+  function tick() {
+    const d = new Date();
+    clock.textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  // One /status poll per page; pages listen for 'birdy:status' instead of polling again.
+  async function poll() {
+    try {
+      const s = await (await fetch('/status', {cache: 'no-store'})).json();
+      lamp.dataset.state = s.state;
+      const rec = s.state === 'capturing' && s.motion_score >= s.min_area;
+      if (rec) lamp.dataset.rec = ''; else delete lamp.dataset.rec;
+      lamp.textContent = rec ? 'rec' : (LABELS[s.state] || s.state);
+      score.textContent = s.motion_score;
+      document.dispatchEvent(new CustomEvent('birdy:status', {detail: s}));
+    } catch (e) { /* the page still works without live status */ }
+  }
+  tick(); setInterval(tick, 1000);
+  poll(); setInterval(poll, {{ poll_ms | default(3000) }});
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
