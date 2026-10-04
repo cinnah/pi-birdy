@@ -62,12 +62,14 @@ Gallery setup (one-time; public at `https://birdy.akibeo.com`; the server runs n
        root * /srv/birdy
        file_server
        encode gzip
+       @pages path / /*.html
+       header @pages Cache-Control "no-cache"
        header /sites/* Cache-Control "public, max-age=300"
        header /*.json Cache-Control "no-cache"
    }
    ```
    and `- /srv/birdy:/srv/birdy:ro` under the `web` service's `volumes`; then `docker compose up -d web`.
-3. Mac: `deploy/gallery.sh` pushes the pages. Pi: `[publish] enabled = true`, `host = "91.98.229.209"` in `birdy.toml`, `sudo systemctl restart birdy`, then `.venv/bin/birdy publish` to push immediately (restart the service before any manual `birdy publish`, or use `--rerank`, so history gets ranked) (or wait: the service's first run is right after start, then ≤ 15 min). `birdy publish` is safe while the service runs: both take an `flock` on `data/publish/.lock`; whichever comes second skips its run with a log line (exit 1 for the CLI — just rerun).
+3. Mac: `deploy/gallery.sh` pushes the pages (it rewrites the `style.css`/`app.js` links with a content hash, so pushes are never masked by a browser cache; the HTML and photo caching depends on the Caddy headers above — as of 2026-10-04 the live server sends no `Cache-Control` for pages or photos, so check that block if a push doesn't show). Pi: `[publish] enabled = true`, `host = "91.98.229.209"` in `birdy.toml`, `sudo systemctl restart birdy`, then `.venv/bin/birdy publish` to push immediately (restart the service before any manual `birdy publish`, or use `--rerank`, so history gets ranked) (or wait: the service's first run is right after start, then ≤ 15 min). `birdy publish` is safe while the service runs: both take an `flock` on `data/publish/.lock`; whichever comes second skips its run with a log line (exit 1 for the CLI — just rerun).
 
 ## Architecture
 

@@ -21,9 +21,9 @@ const BIRDY = (() => {
 
   async function loadSites() {
     const r = await fetch("sites.json", { cache: "no-cache" });
-    if (!r.ok) throw new Error("sites.json: HTTP " + r.status);
+    if (!r.ok) throw new Error(`The list of feeders couldn't be loaded (HTTP ${r.status}). Try again in a minute.`);
     const sites = await r.json();
-    if (!Array.isArray(sites)) throw new Error("sites.json: expected a list of sites");
+    if (!Array.isArray(sites)) throw new Error("The list of feeders is damaged. Try again in a minute.");
     return sites;
   }
   // The manifest shape is a contract (version 1); anything else makes the site "unavailable" instead of breaking the page.
@@ -49,8 +49,9 @@ const BIRDY = (() => {
   function photoCard(siteId, p, extra = "") {
     const base = siteBase(siteId);
     const caption = `${esc(name(p))} · ${esc(dayLong(p.captured_at))}, ${esc(hm(p.captured_at))}${p.confidence == null ? "" : " · " + esc(pct(p.confidence))}`;
+    // alt is empty on purpose: the caption below names the bird, so the link isn't read twice.
     return `<a class="card" href="${esc(base + p.photo)}" data-caption="${caption}">
-      <img src="${esc(base + p.thumb)}" alt="${esc(name(p))}" loading="lazy">
+      <img src="${esc(base + p.thumb)}" alt="" loading="lazy">
       <div class="cap"><b>${esc(name(p))}</b><span class="muted">${esc(hm(p.captured_at))} ${extra}</span></div></a>`;
   }
   function lightbox() {
@@ -61,14 +62,21 @@ const BIRDY = (() => {
       const a = e.target.closest("a.card");
       if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // let modifier/middle clicks open the photo in a tab
       e.preventDefault();
-      const caption = a.dataset.caption || "";
-      img.src = a.getAttribute("href");
+      const caption = a.dataset.caption || "", href = a.getAttribute("href");
+      // The thumbnail is already loaded: show it at full size now and fade the real photo in over it.
+      img.src = a.querySelector("img").src;
       img.alt = caption;
       dlg.querySelector("p").textContent = caption;
+      dlg.setAttribute("aria-busy", "true");
       dlg.showModal();
+      const full = new Image();
+      full.onload = () => { if (dlg.open && dlg.dataset.href === href) { img.src = href; dlg.removeAttribute("aria-busy"); } };
+      full.onerror = () => { if (dlg.dataset.href === href) { dlg.removeAttribute("aria-busy"); dlg.querySelector("p").textContent = caption + " · full-size photo didn't load"; } };
+      dlg.dataset.href = href;
+      full.src = href;
     });
     dlg.addEventListener("click", () => dlg.close());
-    dlg.addEventListener("close", () => { img.removeAttribute("src"); img.alt = ""; });
+    dlg.addEventListener("close", () => { img.removeAttribute("src"); img.alt = ""; delete dlg.dataset.href; dlg.removeAttribute("aria-busy"); });
   }
   // Inline SVG bars: x in percent so the chart fills its box without stretching the labels; y in px.
   function bars(title, values, labels, every) {
@@ -83,7 +91,9 @@ const BIRDY = (() => {
     const axes = `<line x1="0" x2="100%" y1="${H - bottom + 0.5}" y2="${H - bottom + 0.5}"/>` +
       `<line x1="0" x2="100%" y1="${top + 0.5}" y2="${top + 0.5}" stroke-dasharray="2 3"/>` +
       `<text x="100%" y="${top - 4}" text-anchor="end">${esc(max)}</text>`;
-    return `<svg height="${H}" role="img" aria-label="${esc(title)}">${axes}${rects.join("")}${texts.join("")}</svg>`;
+    const data = values.map((v, i) => (v ? `<tr><th scope="row">${esc(labels[i])}</th><td>${esc(v)}</td></tr>` : "")).join("");
+    return `<svg height="${H}" aria-hidden="true">${axes}${rects.join("")}${texts.join("")}</svg>` +
+      `<table class="sr"><caption>${esc(title)}</caption><tbody>${data || `<tr><td>none</td></tr>`}</tbody></table>`;
   }
   function groupByDay(photos, d) {
     const groups = new Map();
@@ -119,8 +129,8 @@ const BIRDY = (() => {
         if (last) { groups = groupByDay(m.photos, last); past = " past"; heading += `<p class="muted">Last visit ${esc(dayLong(last))}</p>`; }
       }
       const cards = groups.map((g) => photoCard(s.id, g.best, g.count > 1 ? `· ${esc(g.count)} visits` : "")).join("");
-      return `<section class="col"><h2><a href="${siteHref(s.id)}">${esc(s.name)}</a></h2>
-        <p class="place">${esc(s.place || "")}${s.place ? " · " : ""}<a href="${siteHref(s.id)}">Dashboard</a></p>${heading}<div class="cards${past}">${cards}</div></section>`;
+      return `<section class="col"><h2><a class="hit" href="${siteHref(s.id)}">${esc(s.name)}</a></h2>
+        <p class="place">${esc(s.place || "")}${s.place ? " · " : ""}<a class="hit" href="${siteHref(s.id)}">Dashboard</a></p>${heading}<div class="cards${past}">${cards}</div></section>`;
     }).join("")}</div>`;
     lightbox();
   }
@@ -129,9 +139,9 @@ const BIRDY = (() => {
     const id = q("id");
     const sites = await loadSites();
     const s = sites.find((x) => x.id === id);
-    if (!s) throw new Error("unknown site");
+    if (!s) throw new Error("There is no feeder with that name.");
     const m = await loadManifest(id);
-    if (!m) throw new Error("manifest unavailable");
+    if (!m) throw new Error(`${s.name} hasn't published anything yet, or the server is unreachable. Try again in a minute.`);
     document.title = `birdy — ${s.name}`;
     const st = m.stats, todayDay = siteToday(m.site);
     // per_day ends on the Pi's day at generation time; a stale manifest must not present an old day as "today".
@@ -163,7 +173,7 @@ const BIRDY = (() => {
 
   async function species() {
     const sp = q("name");
-    if (!sp) throw new Error("no species given");
+    if (!sp) throw new Error("No species was given.");
     document.title = `birdy — ${sp}`;
     const sites = await loadAll();
     const rows = [], cards = [];
@@ -186,10 +196,14 @@ const BIRDY = (() => {
 document.addEventListener("DOMContentLoaded", () => {
   const page = document.body.dataset.page;
   const run = BIRDY[page];
-  if (run) run().catch((e) => {
+  const el = document.getElementById("main");
+  if (run) run().then(() => el.removeAttribute("aria-busy"), (e) => {
     const p = document.createElement("p");
     p.className = "err";
     p.textContent = e.message;
-    document.getElementById("main").replaceChildren(p);
+    const back = document.createElement("p");
+    back.innerHTML = `<a class="hit" href="index.html">All feeders</a>`;
+    el.replaceChildren(p, back);
+    el.removeAttribute("aria-busy");
   });
 });

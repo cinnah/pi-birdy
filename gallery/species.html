@@ -4,15 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>birdy — species</title>
+<meta name="description" content="Every published photo of one species across all feeders.">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f6f2">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141412">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f8a5a'/%3E%3Ccircle cx='13' cy='14' r='6' fill='%23f7f6f2'/%3E%3Cpath d='M13 20c4 0 7-2 9-6l4 1-3 4c-3 3-7 4-10 4z' fill='%23f7f6f2'/%3E%3Ccircle cx='11.5' cy='13' r='1.2' fill='%231d1c1a'/%3E%3Cpath d='M6 15l3-1.5v3z' fill='%23f7f6f2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="species">
 <header>
-  <h1><a href="index.html">birdy</a></h1>
-  <nav><a href="index.html">All feeders</a></nav>
+  <h1><a class="hit" href="index.html">birdy</a></h1>
+  <nav><a class="hit" href="index.html">All feeders</a></nav>
 </header>
-<main id="main"><p class="muted">Loading…</p><noscript><p class="err">This page needs JavaScript to load the species.</p></noscript></main>
-<dialog id="lightbox"><button class="close" type="button" aria-label="close">×</button><img alt=""><p></p></dialog>
+<main id="main" aria-busy="true"><p class="muted" role="status">Loading…</p><noscript><p class="err">This page needs JavaScript to load the species.</p></noscript></main>
+<dialog id="lightbox"><button class="close" type="button" aria-label="Close">×</button><img alt=""><p></p></dialog>
 <script src="app.js"></script>
 </body>
 </html>
