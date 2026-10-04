@@ -51,6 +51,7 @@ def create_app(
     queue_depth: Callable[[], int] = lambda: 0,
     classifier: Any | None = None,
     notifier: Any | None = None,
+    publisher: Any | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
@@ -58,6 +59,8 @@ def create_app(
     `TwoStageClassifier`; None disables `/classify`.
 
     `notifier` is an object with `send_test()`; normally a `TelegramNotifier`; None = alerts disabled.
+
+    `publisher` has `set_manual(capture_id, state)`; None = publishing disabled.
     """
     app = FastAPI(title="birdy")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -82,7 +85,7 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, filter: str = "all", page: int = 1, species: str | None = None):
         if filter not in FILTERS:
-            raise HTTPException(status_code=400, detail="filter must be one of all, birds, non-birds")
+            raise HTTPException(status_code=400, detail="filter must be one of " + ", ".join(FILTERS))
         summary = store.species_summary()
         if species == "":
             species = None
@@ -104,6 +107,7 @@ def create_app(
                 "species": species,
                 "species_rows": summary,
                 "status": status_payload(),
+                "publishing": publisher is not None,
             },
         )
 
@@ -297,5 +301,22 @@ def create_app(
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
         ctx = settings_context(test=(True, "test alert sent — check Telegram"))
         return templates.TemplateResponse(request, "settings.html", ctx)
+
+    @app.post("/captures/{capture_id}/publish")
+    async def capture_publish(capture_id: int, request: Request):
+        if publisher is None:
+            raise HTTPException(status_code=503, detail="publishing is disabled: set [publish] in birdy.toml and restart")
+        form = await request.form()
+        state = str(form.get("state", ""))
+        if state not in ("forced", "hidden", "auto"):
+            raise HTTPException(status_code=400, detail="state must be forced, hidden or auto")
+        nxt = str(form.get("next", "/"))
+        if not nxt.startswith("/") or nxt.startswith("//"):
+            nxt = "/"
+        try:
+            await run_in_threadpool(publisher.set_manual, capture_id, None if state == "auto" else state)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown capture") from None
+        return RedirectResponse(nxt, status_code=303)
 
     return app

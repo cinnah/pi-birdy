@@ -537,3 +537,74 @@ def test_settings_post_saves_publish_fields(client, live):
     r = post_settings(client, publish_min_confidence="0.9", per_species_per_day="1")
     assert r.status_code == 303
     assert live.get().publish.min_confidence == 0.9 and live.get().publish.per_species_per_day == 1
+
+
+class FakePublisher:
+    def __init__(self):
+        self.calls = []
+
+    def set_manual(self, capture_id, state):
+        self.calls.append((capture_id, state))
+        if capture_id == 999:
+            raise KeyError(capture_id)
+
+
+@pytest.fixture
+def publisher():
+    return FakePublisher()
+
+
+@pytest.fixture
+def pclient(store, state, live, config_path, classifier, notifier, publisher):
+    return TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=notifier, publisher=publisher))
+
+
+def test_index_without_publisher_has_no_buttons(client, store):
+    add(store, 0, True)
+    html = client.get("/").text
+    assert "/publish" not in html and "filter=published" not in html
+
+
+def test_index_renders_badges_and_buttons(pclient, store):
+    a = add(store, 0, True)
+    b = add(store, 1, True)
+    c = add(store, 2, True)
+    store.set_published(a.id, "auto")
+    store.set_published(b.id, "forced")
+    store.set_published(c.id, "hidden")
+    html = pclient.get("/").text
+    assert html.count('class="badge') == 3
+    assert ">published<" in html and ">forced<" in html and ">hidden<" in html
+    assert f'action="/captures/{a.id}/publish"' in html
+    assert "filter=published" in html
+
+
+def test_publish_post_sets_state_and_redirects_back(pclient, store, publisher):
+    a = add(store, 0, True)
+    r = pclient.post(f"/captures/{a.id}/publish", data={"state": "hidden", "next": "/?filter=birds&page=2"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=birds&page=2"
+    assert publisher.calls == [(a.id, "hidden")]
+    r = pclient.post(f"/captures/{a.id}/publish", data={"state": "auto"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert publisher.calls[-1] == (a.id, None)
+
+
+def test_publish_post_rejects_bad_input(pclient, store, publisher):
+    a = add(store, 0, True)
+    assert pclient.post(f"/captures/{a.id}/publish", data={"state": "maybe"}).status_code == 400
+    assert pclient.post("/captures/999/publish", data={"state": "forced"}).status_code == 404
+    r = pclient.post(f"/captures/{a.id}/publish", data={"state": "forced", "next": "//evil.example/x"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+
+
+def test_publish_post_503_without_publisher(client, store):
+    a = add(store, 0, True)
+    assert client.post(f"/captures/{a.id}/publish", data={"state": "forced"}).status_code == 503
+
+
+def test_index_filter_published(pclient, store):
+    a = add(store, 0, True)
+    add(store, 1, True)
+    store.set_published(a.id, "auto")
+    html = pclient.get("/?filter=published").text
+    assert html.count('class="tile"') == 1

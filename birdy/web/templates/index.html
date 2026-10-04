@@ -21,6 +21,11 @@
   .meta { padding: 6px 8px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
   .tag { font-weight: bold; } .tag.bird { color: var(--bird); } .tag.junk { color: var(--junk); }
   .pager { margin-top: 16px; } .pager a, .pager span { margin-right: 12px; }
+  .tile a.photo { display: block; color: inherit; text-decoration: none; }
+  .pub { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-top: 1px solid var(--line); font-size: 12px; }
+  .pub button { font-size: 12px; padding: 2px 8px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+  .pub button:first-of-type { margin-left: auto; }
+  .badge { font-weight: bold; color: var(--bird); } .badge.off { color: var(--junk); }
   select { padding: 4px 6px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
 </style>
 </head>
@@ -41,7 +46,7 @@
 </header>
 
 <nav>
-  {% for f in ["all", "birds", "non-birds"] %}
+  {% for f in (["all", "birds", "non-birds", "published"] if publishing else ["all", "birds", "non-birds"]) %}
     <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ f }}</a>
   {% endfor %}
   <select name="species" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
@@ -55,21 +60,34 @@
 
 <div class="grid">
   {% for c in captures %}
-  <a class="tile" href="/photos/{{ c.path }}">
-    {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
-    <div class="meta">
-      <span>{{ c.captured_at | local_time }}</span>
-      <span>
-        {% if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
-        {% elif c.is_bird %}<span class="tag bird">bird {{ (c.confidence * 100) | round(0) | int }}%</span>
-        {% else %}<span class="tag junk">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}
-      </span>
-    </div>
-    <div class="meta">
-      <span>motion {{ c.motion_score }}</span>
-      {% if c.species %}<span>{{ c.species }}</span>{% endif %}
-    </div>
-  </a>
+  <div class="tile">
+    <a class="photo" href="/photos/{{ c.path }}">
+      {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
+      <div class="meta">
+        <span>{{ c.captured_at | local_time }}</span>
+        <span>
+          {% if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
+          {% elif c.is_bird %}<span class="tag bird">bird {{ (c.confidence * 100) | round(0) | int }}%</span>
+          {% else %}<span class="tag junk">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}
+        </span>
+      </div>
+      <div class="meta">
+        <span>motion {{ c.motion_score }}</span>
+        {% if c.species %}<span>{{ c.species }}</span>{% endif %}
+      </div>
+    </a>
+    {% if publishing %}
+    <form method="post" action="/captures/{{ c.id }}/publish" class="pub">
+      <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      {% if c.published == 'auto' %}<span class="badge">published</span>
+      {% elif c.published == 'forced' %}<span class="badge">forced</span>
+      {% elif c.published == 'hidden' %}<span class="badge off">hidden</span>{% endif %}
+      {% if c.published != 'forced' %}<button name="state" value="forced">Publish</button>{% endif %}
+      {% if c.published != 'hidden' %}<button name="state" value="hidden">Hide</button>{% endif %}
+      {% if c.published in ('forced', 'hidden') %}<button name="state" value="auto">Auto</button>{% endif %}
+    </form>
+    {% endif %}
+  </div>
   {% else %}
   <p>No captures yet.</p>
   {% endfor %}
