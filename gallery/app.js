@@ -24,6 +24,7 @@ const BIRDY = (() => {
   const siteClock = (site) => new Date(Date.now() + (site.utc_offset_minutes || 0) * 60000).toISOString();
   const siteToday = (site) => siteClock(site).slice(0, 10);
   const siteNow = (site) => siteClock(site).slice(11, 16);
+  const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);   // the viewer's own calendar day
   const speciesHref = (s) => "species.html?name=" + encodeURIComponent(s);
   const siteHref = (id) => "site.html?id=" + encodeURIComponent(id);
   const siteBase = (id) => "sites/" + encodeURIComponent(id) + "/";
@@ -156,9 +157,9 @@ const BIRDY = (() => {
     if (!sites.length) { main().innerHTML = `<p class="empty">No feeders configured yet.</p>`; return; }
     const live = sites.filter((s) => s.manifest);
     const todays = live.map((s) => siteToday(s.manifest.site));
-    const viewerToday = new Date().toISOString().slice(0, 10);
-    let sheetDay = todays[0] || viewerToday, note = "";
-    const isToday = (d) => todays.includes(d) || d === viewerToday;
+    let sheetDay = todays[0] || localToday(), note = "";
+    // Red is for today only: a feeder's own today. The fallback sheet (last day with entries) is never red.
+    const isToday = (d) => (todays.length ? todays : [localToday()]).includes(d);
     if (!live.some((s, i) => s.manifest.photos.some((p) => day(p.captured_at) === todays[i]))) {
       // Nothing anywhere today: the sheet shows the last day that has entries, and says so.
       const last = live.flatMap((s) => s.manifest.photos.map((p) => day(p.captured_at))).sort().at(-1);
@@ -297,7 +298,6 @@ const BIRDY = (() => {
     }
     entries.sort((a, b) => instant(b.p.captured_at) - instant(a.p.captured_at));
     const multi = sites.length > 1;
-    const viewerToday = new Date().toISOString().slice(0, 10);
     main().innerHTML = `
       <header class="head">
         <h2>${esc(sp)}</h2>
@@ -306,7 +306,7 @@ const BIRDY = (() => {
       <div class="ledger"><div class="lh">Feeder</div><div class="lh n">Visits</div><div class="lh">First</div><div class="lh">Last</div>
         ${rows.join("") || `<p class="empty">Not seen at any feeder yet.</p>`}</div>
       <h3 class="sec"><span>Photo log</span></h3>
-      ${photoLog(entries, viewerToday, multi) || `<p class="empty">None published.</p>`}
+      ${photoLog(entries, localToday(), multi) || `<p class="empty">None published.</p>`}
       ${foot(RECORDED, `<a class="hit" href="index.html">Daily record</a>`)}`;
     evidence();
   }
