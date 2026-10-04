@@ -88,6 +88,11 @@
 </div>
 {{ num("cooldown_minutes", "cooldown_minutes", 0, 1440, 5) }}
 
+<h2>Publishing</h2>
+{{ num("publish_min_confidence", "min_confidence", 0, 1, 0.05) }}
+{{ num("per_species_per_day", "per_species_per_day", 1, 20, 1) }}
+<div class="hint">applies to days ranked from now on; earlier days keep their picks. Publish/Hide buttons on the home page override the rule per photo.</div>
+
 <p><button class="primary" type="submit">Save</button> <span class="hint">writes birdy.toml and applies immediately</span></p>
 </form>
 

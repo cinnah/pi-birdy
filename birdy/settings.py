@@ -34,6 +34,8 @@ FIELD_KEYS = {
     "watchlist": "telegram.watchlist",
     "alert_new_species": "telegram.alert_new_species",
     "cooldown_minutes": "telegram.cooldown_minutes",
+    "publish_min_confidence": "publish.min_confidence",
+    "per_species_per_day": "publish.per_species_per_day",
 }
 
 
@@ -56,6 +58,8 @@ class SettingsPatch:
     watchlist: tuple[str, ...]
     alert_new_species: bool
     cooldown_minutes: int
+    publish_min_confidence: float
+    per_species_per_day: int
 
 
 def config_to_dict(config: Config) -> dict:
@@ -141,6 +145,10 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
         alert_new_species=patch.alert_new_species,
         cooldown_minutes=patch.cooldown_minutes,
     )
+    data["publish"].update(
+        min_confidence=patch.publish_min_confidence,
+        per_species_per_day=patch.per_species_per_day,
+    )
     return data
 
 
@@ -225,4 +233,6 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         watchlist=_watchlist(form),
         alert_new_species=form.get("alert_new_species") is not None,
         cooldown_minutes=_num(form, "cooldown_minutes", int),
+        publish_min_confidence=_num(form, "publish_min_confidence", float),
+        per_species_per_day=_num(form, "per_species_per_day", int),
     )

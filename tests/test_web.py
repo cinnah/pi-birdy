@@ -191,6 +191,8 @@ def _base_form():
         "watchlist": "",
         "alert_new_species": "on",
         "cooldown_minutes": "30",
+        "publish_min_confidence": "0.6",
+        "per_species_per_day": "3",
     }
 
 
@@ -522,3 +524,16 @@ def test_test_alert_disabled_503(store, state, live, config_path, classifier):
     r = c.post("/settings/test-alert")
     assert r.status_code == 503 and "disabled" in r.text
     assert "disabled" in c.get("/settings").text  # button state explained
+
+
+def test_settings_page_shows_publishing_group(client):
+    html = client.get("/settings").text
+    assert "Publishing" in html
+    assert 'name="publish_min_confidence"' in html and 'name="per_species_per_day"' in html
+    assert "publish.site_id" in html and "publish.enabled" in html
+
+
+def test_settings_post_saves_publish_fields(client, live):
+    r = post_settings(client, publish_min_confidence="0.9", per_species_per_day="1")
+    assert r.status_code == 303
+    assert live.get().publish.min_confidence == 0.9 and live.get().publish.per_species_per_day == 1

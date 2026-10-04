@@ -140,6 +140,8 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         watchlist=cur.telegram.watchlist,
         alert_new_species=cur.telegram.alert_new_species,
         cooldown_minutes=cur.telegram.cooldown_minutes,
+        publish_min_confidence=cur.publish.min_confidence,
+        per_species_per_day=cur.publish.per_species_per_day,
     )
     new = save_settings(config_path, cur, patch)
     live.replace(new)  # what the web handler does

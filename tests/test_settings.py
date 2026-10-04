@@ -24,6 +24,8 @@ def default_patch(config, **overrides) -> SettingsPatch:
         watchlist=config.telegram.watchlist,
         alert_new_species=config.telegram.alert_new_species,
         cooldown_minutes=config.telegram.cooldown_minutes,
+        publish_min_confidence=config.publish.min_confidence,
+        per_species_per_day=config.publish.per_species_per_day,
     )
     base.update(overrides)
     return SettingsPatch(**base)
@@ -102,6 +104,8 @@ FORM = {
     "watchlist": "",
     "alert_new_species": "on",
     "cooldown_minutes": "30",
+    "publish_min_confidence": "0.6",
+    "per_species_per_day": "3",
 }
 
 
@@ -340,3 +344,22 @@ def test_save_creates_private_file(config_path, config):
 def test_parse_form_watchlist_crlf():
     p = parse_settings_form({**FORM, "watchlist": "Hoopoe\r\n\r\nBlue Tit\r\n"})
     assert p.watchlist == ("Hoopoe", "Blue Tit")
+
+
+def test_parse_form_publish_fields():
+    patch = parse_settings_form({**FORM, "publish_min_confidence": "0.75", "per_species_per_day": "5"})
+    assert patch.publish_min_confidence == 0.75 and patch.per_species_per_day == 5
+
+
+def test_parse_form_publish_requires_integer():
+    with pytest.raises(ConfigError, match="publish.per_species_per_day must be an integer"):
+        parse_settings_form({**FORM, "per_species_per_day": "2.5"})
+
+
+def test_save_applies_publish_fields_and_keeps_restart_only(config_path):
+    config_path.write_text(config_path.read_text() + '\n[publish]\nenabled = false\nhost = "h"\nsite_id = "abc"\n')
+    cfg = load_config(config_path)
+    patch = parse_settings_form({**FORM, "publish_min_confidence": "0.8", "per_species_per_day": "4"})
+    new = save_settings(config_path, cfg, patch)
+    assert new.publish.min_confidence == 0.8 and new.publish.per_species_per_day == 4
+    assert new.publish.host == "h" and new.publish.site_id == "abc"

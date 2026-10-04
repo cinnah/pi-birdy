@@ -209,6 +209,8 @@ def create_app(
                 "watchlist": "\n".join(cfg.telegram.watchlist),
                 "alert_new_species": cfg.telegram.alert_new_species,
                 "cooldown_minutes": cfg.telegram.cooldown_minutes,
+                "publish_min_confidence": cfg.publish.min_confidence,
+                "per_species_per_day": cfg.publish.per_species_per_day,
             }
         )
         roi = values.get("roi", "")
@@ -238,6 +240,11 @@ def create_app(
                 # never the token itself
                 "telegram.bot_token": "set" if cfg.telegram.bot_token else "not set",
                 "telegram.base_url": cfg.telegram.base_url,
+                "publish.enabled": cfg.publish.enabled,
+                "publish.host": cfg.publish.host or "–",
+                "publish.user": cfg.publish.user,
+                "publish.remote_dir": cfg.publish.remote_dir,
+                "publish.site_id": cfg.publish.site_id,
             },
             "species_seen": [r.species for r in store.species_summary()],
             "alerts_enabled": notifier is not None,
