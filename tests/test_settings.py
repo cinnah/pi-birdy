@@ -195,6 +195,16 @@ base_url = "http://example.test"
 watchlist = ["Hoopoe"]
 alert_new_species = false
 cooldown_minutes = 5
+
+[publish]
+enabled = true
+host = "gallery.example"
+user = "pub"
+remote_dir = "/srv/gallery"
+site_id = "site-2"
+ssh_key = "keys/publish"
+min_confidence = 0.8
+per_species_per_day = 7
 """
 
 

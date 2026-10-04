@@ -103,6 +103,16 @@ def config_to_dict(config: Config) -> dict:
             "alert_new_species": config.telegram.alert_new_species,
             "cooldown_minutes": config.telegram.cooldown_minutes,
         },
+        "publish": {
+            "enabled": config.publish.enabled,
+            "host": config.publish.host,
+            "user": config.publish.user,
+            "remote_dir": config.publish.remote_dir,
+            "site_id": config.publish.site_id,
+            "ssh_key": str(config.publish.ssh_key),
+            "min_confidence": config.publish.min_confidence,
+            "per_species_per_day": config.publish.per_species_per_day,
+        },
     }
 
 

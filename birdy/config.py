@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,6 +88,18 @@ class TelegramConfig:
 
 
 @dataclass(frozen=True)
+class PublishConfig:
+    enabled: bool              # restart-only; the publisher thread is only built when true
+    host: str                  # restart-only; gallery server
+    user: str                  # restart-only; SSH user on the server
+    remote_dir: str            # restart-only; rsync target as the server key sees it ("/" with rrsync)
+    site_id: str               # restart-only; folder under sites/ and id in sites.json
+    ssh_key: Path              # restart-only; private key (~ expanded)
+    min_confidence: float      # live
+    per_species_per_day: int   # live
+
+
+@dataclass(frozen=True)
 class Config:
     site: SiteConfig
     camera: CameraConfig
@@ -98,6 +111,7 @@ class Config:
     storage: StorageConfig
     web: WebConfig
     telegram: TelegramConfig
+    publish: PublishConfig
 
 
 def _size(v: Any, name: str) -> tuple[int, int]:
@@ -126,6 +140,8 @@ def _num(section: dict[str, Any], name: str, key: str, default: Any, cast: type)
     v = section.get(key, default)
     if isinstance(v, bool):
         raise ConfigError(f"{name}.{key} must be a {cast.__name__}")
+    if cast is int and isinstance(v, float) and not v.is_integer():
+        raise ConfigError(f"{name}.{key} must be an integer")
     try:
         v = cast(v)
     except (TypeError, ValueError):
@@ -243,6 +259,23 @@ def load_config(path: Path) -> Config:
         _check(bool(tg_token), "telegram.bot_token is required when telegram.enabled = true")
         _check(bool(tg_chat), "telegram.chat_id is required when telegram.enabled = true")
 
+    pub = raw.get("publish", {})
+    pub_enabled = _bool(pub, "publish", "enabled", False)
+    pub_host = _str(pub, "publish", "host", "")
+    pub_user = _str(pub, "publish", "user", "birdy")
+    pub_remote = _str(pub, "publish", "remote_dir", "/")
+    pub_site = _str(pub, "publish", "site_id", "home")
+    _check(re.fullmatch(r"[a-z0-9-]{1,32}", pub_site) is not None, "publish.site_id must match [a-z0-9-]{1,32}")
+    pub_key = Path(_str(pub, "publish", "ssh_key", "~/.ssh/birdy_publish")).expanduser()
+    pub_min = _num(pub, "publish", "min_confidence", 0.6, float)
+    _check(0.0 <= pub_min <= 1.0, "publish.min_confidence must be between 0 and 1")
+    pub_n = _num(pub, "publish", "per_species_per_day", 3, int)
+    _check(1 <= pub_n <= 20, "publish.per_species_per_day must be between 1 and 20")
+    if pub_enabled:
+        _check(bool(pub_host), "publish.host is required when publish.enabled = true")
+        _check(bool(pub_user), "publish.user is required when publish.enabled = true")
+        _check(bool(pub_remote), "publish.remote_dir is required when publish.enabled = true")
+
     return Config(
         site=SiteConfig(name=str(site["name"]), lat=lat, lon=lon),
         camera=CameraConfig(main_size=main_size, lores_size=lores_size, jpeg_quality=jpeg_quality),
@@ -272,5 +305,9 @@ def load_config(path: Path) -> Config:
         telegram=TelegramConfig(
             enabled=tg_enabled, bot_token=tg_token, chat_id=tg_chat, base_url=tg_base,
             watchlist=tg_watch, alert_new_species=tg_new, cooldown_minutes=tg_cooldown,
+        ),
+        publish=PublishConfig(
+            enabled=pub_enabled, host=pub_host, user=pub_user, remote_dir=pub_remote, site_id=pub_site,
+            ssh_key=pub_key, min_confidence=pub_min, per_species_per_day=pub_n,
         ),
     )

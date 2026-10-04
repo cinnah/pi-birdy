@@ -206,3 +206,56 @@ def test_telegram_chat_id_accepts_int(tmp_path):
 def test_telegram_base_url_trailing_slash_stripped(tmp_path):
     cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nbase_url = "http://example.test/"\n'))
     assert cfg.telegram.base_url == "http://example.test"
+
+
+def _write(tmp_path, extra):
+    p = tmp_path / "birdy.toml"
+    p.write_text('[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10]]\n' + extra)
+    return p
+
+
+def test_publish_defaults(tmp_path):
+    cfg = load_config(_write(tmp_path, ""))
+    pub = cfg.publish
+    assert pub.enabled is False
+    assert pub.host == ""
+    assert pub.user == "birdy"
+    assert pub.remote_dir == "/"
+    assert pub.site_id == "home"
+    assert pub.ssh_key == Path("~/.ssh/birdy_publish").expanduser()
+    assert pub.min_confidence == 0.6
+    assert pub.per_species_per_day == 3
+
+
+def test_publish_enabled_requires_host(tmp_path):
+    with pytest.raises(ConfigError, match="publish.host is required"):
+        load_config(_write(tmp_path, '[publish]\nenabled = true\n'))
+
+
+@pytest.mark.parametrize("site_id", ["", "Home", "a b", "x" * 33, "home/../x"])
+def test_publish_site_id_pattern(tmp_path, site_id):
+    with pytest.raises(ConfigError, match="publish.site_id"):
+        load_config(_write(tmp_path, f'[publish]\nsite_id = "{site_id}"\n'))
+
+
+@pytest.mark.parametrize("line, key", [
+    ("min_confidence = 1.5", "publish.min_confidence"),
+    ("min_confidence = -0.1", "publish.min_confidence"),
+    ("per_species_per_day = 0", "publish.per_species_per_day"),
+    ("per_species_per_day = 21", "publish.per_species_per_day"),
+    ("per_species_per_day = 2.5", "publish.per_species_per_day"),
+    ("enabled = 1", "publish.enabled"),
+])
+def test_publish_ranges(tmp_path, line, key):
+    with pytest.raises(ConfigError, match=key):
+        load_config(_write(tmp_path, f"[publish]\n{line}\n"))
+
+
+def test_publish_full_section(tmp_path):
+    cfg = load_config(_write(tmp_path, '[publish]\nenabled = true\nhost = "91.98.229.209"\nuser = "birdy"\n'
+                                       'remote_dir = "/"\nsite_id = "sintra-1"\nssh_key = "keys/pub"\n'
+                                       'min_confidence = 0.75\nper_species_per_day = 5\n'))
+    assert cfg.publish.enabled and cfg.publish.host == "91.98.229.209"
+    assert cfg.publish.site_id == "sintra-1"
+    assert cfg.publish.ssh_key == Path("keys/pub")   # relative paths are left as given (expanduser only)
+    assert cfg.publish.min_confidence == 0.75 and cfg.publish.per_species_per_day == 5
