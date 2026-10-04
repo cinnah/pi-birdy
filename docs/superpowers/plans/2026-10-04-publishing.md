@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The Pi publishes its best bird photos to a public static gallery at https://birdy.cartaveo.com (home with a column per site, a dashboard per site, a page per species), rule-based with manual overrides from the review page.
+**Goal:** The Pi publishes its best bird photos to a public static gallery at https://birdy.akibeo.com (home with a column per site, a dashboard per site, a page per species), rule-based with manual overrides from the review page.
 
 **Architecture:** A `published` state per capture in SQLite, set by a pure ranking policy (`rank_day`) whenever a bird gets a species, and by publish/hide buttons on the review page. A `Publisher` thread keeps a local mirror (`data/publish/`: web-sized photos, thumbs, `manifest.json`) and rsyncs it over SSH to `birdy@<host>:<remote_dir>` where an `rrsync`-restricted key pins it to `/srv/birdy/sites/<site_id>/`. Fixed pages in `gallery/` (vanilla HTML/JS/CSS) render everything in the browser from `sites.json` plus every site's manifest. The server runs no code; its Caddy serves the folder.
 
@@ -210,7 +210,7 @@ and change the warning text to `"%s: camera/web/storage/model/telegram/publish s
 
 ```toml
 [publish]
-# Public gallery (https://birdy.cartaveo.com). The Pi rsyncs web-sized copies of its best
+# Public gallery (https://birdy.akibeo.com). The Pi rsyncs web-sized copies of its best
 # bird photos to the server; see CLAUDE.md "Gallery setup".
 enabled = false                   # restart-only; when false nothing is published
 host = ""                         # restart-only; the gallery server, e.g. "91.98.229.209"
@@ -2150,7 +2150,7 @@ git commit -m "Gallery: static pages (home columns, site dashboard, species)"
 
 ### Task 10: Docs, server setup, Pi deployment and verification
 
-> **Public URL:** the user has no DNS access for `cartaveo.com`. The gallery pages use only relative URLs, so they work under any hostname or path prefix. Before this task, confirm with the user which of these applies and adjust the Caddy block and `GALLERY_ROOT` accordingly: (a) a path on the existing site, e.g. `https://<existing-domain>/birdy/` (`handle_path /birdy/* { root * /srv/birdy; file_server; encode gzip }` inside the existing site block; links must end with `/`), or (b) a subdomain of a domain the user controls at Combell, with an A record to `91.98.229.209` and the site block as written below.
+> **Public URL:** `https://birdy.akibeo.com`. The user controls akibeo.com's DNS at Combell and adds the A record `birdy.akibeo.com → 91.98.229.209` there. The site block below goes into the cartaveo Caddyfile (that Caddy owns ports 80/443); everything else about the gallery is separate from cartaveo.
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -2177,7 +2177,7 @@ Gallery setup (one-time; the server runs no code, Caddy serves `/srv/birdy`):
    `rrsync` makes every path the Pi sends relative to that folder, so the key can't reach other sites.
 2. Caddy (cartaveo stack): add to the Caddyfile
    ```
-   birdy.cartaveo.com {
+   birdy.akibeo.com {
        root * /srv/birdy
        file_server
        encode gzip
@@ -2185,7 +2185,7 @@ Gallery setup (one-time; the server runs no code, Caddy serves `/srv/birdy`):
        header /*.json Cache-Control "no-cache"
    }
    ```
-   and `- /srv/birdy:/srv/birdy:ro` under the `web` service's `volumes`; `docker compose up -d web`. DNS: `birdy.cartaveo.com A 91.98.229.209`.
+   and `- /srv/birdy:/srv/birdy:ro` under the `web` service's `volumes`; `docker compose up -d web`. DNS: `birdy.akibeo.com A 91.98.229.209`.
 3. Mac: `deploy/gallery.sh` pushes the pages. Pi: `[publish] enabled = true`, `host = "91.98.229.209"` in `birdy.toml`, `sudo systemctl restart birdy`, then `.venv/bin/birdy publish` to push immediately (or wait ≤ 15 min).
 ````
 
@@ -2256,11 +2256,11 @@ host = "91.98.229.209"
 ```bash
 ssh yassine@birdy.local 'cd ~/pi-birdy && .venv/bin/birdy publish'                       # expect "published to birdy@91.98.229.209:/"
 ssh root@91.98.229.209 'ls /srv/birdy/sites/home; python3 -c "import json;m=json.load(open(\"/srv/birdy/sites/home/manifest.json\"));print(len(m[\"photos\"]), m[\"stats\"][\"species_count\"])"'
-curl -sI https://birdy.cartaveo.com/ | head -1                                             # HTTP/2 200 once DNS + Caddy are in place
+curl -sI https://birdy.akibeo.com/ | head -1                                             # HTTP/2 200 once DNS + Caddy are in place
 ssh yassine@birdy.local 'journalctl -u birdy --since "5 min ago" --no-pager -o cat | grep -E "publish|starting"'
 ```
 
-Then in the browser: open https://birdy.cartaveo.com (column with today's visitors), the dashboard, a species page; on http://birdy.local:8000 hide one published photo and confirm it disappears from the gallery within ~2 minutes (journal: `publish: N photos synced`).
+Then in the browser: open https://birdy.akibeo.com (column with today's visitors), the dashboard, a species page; on http://birdy.local:8000 hide one published photo and confirm it disappears from the gallery within ~2 minutes (journal: `publish: N photos synced`).
 
 - [ ] **Step 6: Finish**
 

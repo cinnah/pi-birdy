@@ -7,14 +7,14 @@
 
 ## Goal
 
-A public gallery at **https://birdy.cartaveo.com** showing the best bird photos from the feeder, kept up to date by the Pi without anyone curating it daily, with manual overrides for the photos the rules get wrong. The homepage shows today's visitors per collaborator side by side; each collaborator has a dashboard with their statistics; each species has a page across all collaborators. The format is multi-site from day one so that sub-project 4 (friends' Pis) is "add another site", not a new system.
+A public gallery at **https://birdy.akibeo.com** showing the best bird photos from the feeder, kept up to date by the Pi without anyone curating it daily, with manual overrides for the photos the rules get wrong. The homepage shows today's visitors per collaborator side by side; each collaborator has a dashboard with their statistics; each species has a page across all collaborators. The format is multi-site from day one so that sub-project 4 (friends' Pis) is "add another site", not a new system.
 
 ## Decisions made
 
 | Question | Decision |
 |---|---|
 | Target | The user's Hetzner server (`91.98.229.209`, Ubuntu 26.04). It already runs the **cartaveo** Docker Compose stack whose Caddy container (`cartaveo-web-1`) owns ports 80/443. The gallery is a separate folder served by that Caddy under a new site block. Nothing in cartaveo changes otherwise. Combell is not used. |
-| Hostname | `birdy.cartaveo.com` (A record → `91.98.229.209`; Caddy obtains the certificate). |
+| Hostname | `birdy.akibeo.com`: the user's domain at Combell, where they control DNS (A record → `91.98.229.209`; Caddy obtains the certificate). The user has no DNS access for cartaveo.com. |
 | What is published | Rule-based with manual overrides: a bird photo with a confident species, among the best `per_species_per_day` of that species that local day; `forced`/`hidden` per photo from the review page override the rule. |
 | Audience | Public, no auth, exact local capture times shown. |
 | Composition | Static files only on the server. Each Pi pushes its own folder (web-sized photos, thumbs, `manifest.json`) with rsync over SSH. Fixed pages render everything in the browser from `sites.json` plus the manifests. No code runs on the server. |
@@ -143,7 +143,7 @@ Thread loop: wait on an `Event` with timeout = time until `max_interval` since t
 ```toml
 [publish]
 enabled = false                   # restart-only; when false the publisher is not constructed
-host = ""                         # restart-only; the gallery server, e.g. "91.98.229.209" or "birdy.cartaveo.com"
+host = ""                         # restart-only; the gallery server, e.g. "91.98.229.209" or "birdy.akibeo.com"
 user = "birdy"                    # restart-only; SSH user on the server
 remote_dir = "/"                  # restart-only; rsync target path as the server key sees it ("/" with the rrsync-restricted key;
                                   # the full path, e.g. "/srv/birdy/sites/home", only if the key is unrestricted)
@@ -190,7 +190,7 @@ New group **Publishing**: `min_confidence` (number 0–1 step 0.05) and `per_spe
 One site block added to the cartaveo Caddyfile and `/srv/birdy` bind-mounted read-only into the `web` service (`- /srv/birdy:/srv/birdy:ro` in its `volumes`). The user applies these two edits and reloads (`docker compose up -d web` or `docker exec cartaveo-web-1 caddy reload --config …`): the spec deliberately keeps Claude out of the production stack's files.
 
 ```
-birdy.cartaveo.com {
+birdy.akibeo.com {
     root * /srv/birdy
     file_server
     encode gzip
@@ -242,7 +242,7 @@ command="/usr/bin/rrsync /srv/birdy/sites/home",restrict ssh-ed25519 AAAA… bir
 - **Config/settings**: defaults; `enabled` without host → `ConfigError`; `site_id` regex; ranges; coverage tests; patch round-trip for the two live keys; restart-only keys preserved on save.
 - **Web**: badge and buttons render only when publishing is enabled; `POST /captures/{id}/publish` 303 + state change; 404; 503 when disabled; `filter=published`.
 - **Gallery**: a Python test parses `gallery/*.html` and checks every referenced local asset exists and that `app.js` contains no `fetch` of anything outside `sites.json`/`sites/`. Manual: `python -m http.server` in a folder with a seeded manifest, open the three pages in a browser (desktop + phone width).
-- **Pi / server**: `deploy/deploy.sh`; `install.sh` makes the key; user creates the `birdy` user, authorized_keys line, `sites.json`, Caddy block, DNS; `birdy publish` → files appear in `/srv/birdy/sites/home/`; open `https://birdy.cartaveo.com`; hide a photo on the review page → gone from the gallery within ~2 minutes.
+- **Pi / server**: `deploy/deploy.sh`; `install.sh` makes the key; user creates the `birdy` user, authorized_keys line, `sites.json`, Caddy block, DNS; `birdy publish` → files appear in `/srv/birdy/sites/home/`; open `https://birdy.akibeo.com`; hide a photo on the review page → gone from the gallery within ~2 minutes.
 
 ## Out of scope
 
