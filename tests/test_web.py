@@ -191,6 +191,8 @@ def _base_form():
         "watchlist": "",
         "alert_new_species": "on",
         "cooldown_minutes": "30",
+        "publish_min_confidence": "0.6",
+        "per_species_per_day": "3",
     }
 
 
@@ -530,3 +532,133 @@ def test_test_alert_disabled_503(store, state, live, config_path, classifier):
     r = c.post("/settings/test-alert")
     assert r.status_code == 503 and "disabled" in r.text
     assert "disabled" in c.get("/settings").text  # button state explained
+
+
+def test_settings_page_shows_publishing_group(client):
+    html = client.get("/settings").text
+    assert "Publishing" in html
+    assert 'name="publish_min_confidence"' in html and 'name="per_species_per_day"' in html
+    assert "publish.site_id" in html and "publish.enabled" in html
+
+
+def test_settings_post_saves_publish_fields(client, live):
+    r = post_settings(client, publish_min_confidence="0.9", per_species_per_day="1")
+    assert r.status_code == 303
+    assert live.get().publish.min_confidence == 0.9 and live.get().publish.per_species_per_day == 1
+
+
+class FakePublisher:
+    def __init__(self):
+        self.calls = []
+
+    def set_manual(self, capture_id, state):
+        self.calls.append((capture_id, state))
+        if capture_id == 999:
+            raise KeyError(capture_id)
+
+
+@pytest.fixture
+def publisher():
+    return FakePublisher()
+
+
+@pytest.fixture
+def pclient(store, state, live, config_path, classifier, notifier, publisher):
+    return TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=notifier, publisher=publisher))
+
+
+def test_index_without_publisher_has_no_buttons(client, store):
+    add(store, 0, True)
+    html = client.get("/").text
+    assert "/publish" not in html and "filter=published" not in html
+
+
+def test_index_renders_badges_and_buttons(pclient, store):
+    a = add(store, 0, True)
+    b = add(store, 1, True)
+    c = add(store, 2, True)
+    store.set_published(a.id, "auto")
+    store.set_published(b.id, "forced")
+    store.set_published(c.id, "hidden")
+    html = pclient.get("/").text
+    assert html.count('class="badge') == 3
+    assert ">published<" in html and ">forced<" in html and ">hidden<" in html
+    assert f'action="/captures/{a.id}/publish"' in html
+    assert "filter=published" in html
+
+
+def test_publish_post_sets_state_and_redirects_back(pclient, store, publisher):
+    a = add(store, 0, True)
+    r = pclient.post(f"/captures/{a.id}/publish", data={"state": "hidden", "next": "/?filter=birds&page=2"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=birds&page=2"
+    assert publisher.calls == [(a.id, "hidden")]
+    r = pclient.post(f"/captures/{a.id}/publish", data={"state": "auto"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert publisher.calls[-1] == (a.id, None)
+
+
+def test_publish_post_rejects_bad_input(pclient, store, publisher):
+    a = add(store, 0, True)
+    assert pclient.post(f"/captures/{a.id}/publish", data={"state": "maybe"}).status_code == 400
+    assert pclient.post("/captures/999/publish", data={"state": "forced"}).status_code == 404
+    for bad in ("//evil.example/x", "/\\evil.example", "http://evil", "/settings"):
+        r = pclient.post(f"/captures/{a.id}/publish", data={"state": "forced", "next": bad}, follow_redirects=False)
+        assert r.headers["location"] == "/", bad
+
+
+def test_publish_post_503_without_publisher(client, store):
+    a = add(store, 0, True)
+    assert client.post(f"/captures/{a.id}/publish", data={"state": "forced"}).status_code == 503
+
+
+def test_index_filter_published(pclient, store):
+    a = add(store, 0, True)
+    add(store, 1, True)
+    store.set_published(a.id, "auto")
+    html = pclient.get("/?filter=published").text
+    assert html.count('class="tile"') == 1
+
+
+def test_index_buttons_per_state(pclient, store):
+    caps = [add(store, i, True) for i in range(4)]
+    states = [None, "auto", "forced", "hidden"]
+    for c, st in zip(caps, states):
+        if st:
+            store.set_published(c.id, st)
+    html = pclient.get("/").text
+    forms = {}
+    for chunk in html.split("<form")[1:]:
+        chunk = chunk.split("</form>")[0]
+        m = re.search(r'action="/captures/(\d+)/publish"', chunk)
+        if m is None:
+            continue  # the header's camera switch
+        cid = int(m.group(1))
+        forms[cid] = set(re.findall(r'<button name="state" value="([a-z]+)"', chunk))
+    expected = {None: {"forced", "hidden"}, "auto": {"forced", "hidden"}, "forced": {"hidden", "auto"}, "hidden": {"forced", "auto"}}
+    assert forms == {c.id: expected[st] for c, st in zip(caps, states)}
+
+
+def test_camera_switch_sets_override_until_next_daylight_change(client, state, live):
+    r = client.post("/camera", data={"mode": "off", "next": "/settings"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/settings"
+    assert state.override == "off"
+    # no lat/lon in the test config: no daylight schedule, so it holds until switched back
+    assert state.override_until is None
+    assert client.get("/status").json()["override"] == "off"
+    page = client.get("/settings").text
+    assert "Back to schedule" in page
+    r = client.post("/camera", data={"mode": "auto", "next": "//evil"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    assert state.override is None
+    assert client.post("/camera", data={"mode": "maybe"}).status_code == 400
+
+
+def test_camera_switch_with_site_holds_until_next_change(client, state, live):
+    import dataclasses
+
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, site=dataclasses.replace(cfg.site, lat=38.72, lon=-9.14)))
+    client.post("/camera", data={"mode": "on"}, follow_redirects=False)
+    assert state.override == "on"
+    assert state.override_until is not None and state.override_until > datetime.now().astimezone()
+    assert "Turn" in client.get("/").text

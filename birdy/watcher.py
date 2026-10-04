@@ -16,10 +16,12 @@ log = logging.getLogger(__name__)
 def _restart_only(cfg: Config) -> tuple:
     """Settings only read at startup; changing them on disk needs a restart."""
     c = cfg.classifier
+    p = cfg.publish
     return (
         cfg.camera, cfg.web, cfg.storage, c.model, c.labels, c.bird_classes,
         cfg.species.model, cfg.species.labels,
         cfg.telegram.enabled, cfg.telegram.bot_token, cfg.telegram.chat_id, cfg.telegram.base_url,
+        p.enabled, p.host, p.user, p.remote_dir, p.site_id, p.ssh_key,
     )
 
 
@@ -55,7 +57,7 @@ class ConfigWatcher:
         if cfg == self._live.get():
             return False  # e.g. the settings page just wrote it
         if _restart_only(cfg) != _restart_only(self._live.get()):
-            log.warning("%s: camera/web/storage/model/telegram settings changed; restart birdy to apply them", self._path)
+            log.warning("%s: camera/web/storage/model/telegram/publish settings changed; restart birdy to apply them", self._path)
         self._live.replace(cfg)
         log.info("settings reloaded from %s (v%d)", self._path, self._live.version)
         return True

@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import datetime
 from pathlib import Path
@@ -232,9 +233,13 @@ def unchecked(store, ids):
 
 
 class SpeciesFake(FakeClassifier):
+    def __init__(self, species="Robin", conf=0.8, **kwargs):
+        super().__init__(**kwargs)
+        self.species, self.conf = species, conf
+
     def classify(self, image_path, roi_bbox, threshold=None):
         super().classify(image_path, roi_bbox, threshold)
-        return Prediction(is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8)
+        return Prediction(is_bird=True, confidence=0.9, species=self.species, species_confidence=self.conf)
 
 
 def test_sweep_drains_species_backlog(store, live):
@@ -366,3 +371,92 @@ def test_queued_event_passes_captured_at(store, live):
         assert n.calls[0][3] == ev.captured_at
     finally:
         p.stop()
+
+
+class FakePublisher:
+    def __init__(self, raise_exc=None):
+        self.raise_exc = raise_exc
+        self.evaluated = []
+
+    def evaluate(self, capture):
+        self.evaluated.append(capture)
+        if self.raise_exc:
+            raise self.raise_exc
+        return True
+
+
+def test_process_calls_publisher_with_stored_capture(store, live):
+    pub = FakePublisher()
+    p = Pipeline(store, SpeciesFake(), live, publisher=pub)
+    ev = add(store, 0)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert [c.id for c in pub.evaluated] == [ev.capture_id]
+    assert pub.evaluated[0].species == "Robin" and pub.evaluated[0].status == "done"
+
+
+def test_publisher_error_does_not_mark_row_error(store, live, caplog):
+    pub = FakePublisher(raise_exc=RuntimeError("boom"))
+    p = Pipeline(store, SpeciesFake(), live, publisher=pub)
+    ev = add(store, 0)
+    with caplog.at_level(logging.ERROR):
+        p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert store.get(ev.capture_id).status == "done"
+    assert "publish decision failed" in caplog.text
+
+
+def test_backfill_calls_publisher(store, live):
+    pub = FakePublisher()
+    p = Pipeline(store, SpeciesFake(), live, publisher=pub)
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p.sweep()
+    assert [c.id for c in pub.evaluated] == [ev.capture_id]
+    assert pub.evaluated[0].species == "Robin"
+
+
+def test_backfill_without_species_does_not_call_publisher(store, live):
+    pub = FakePublisher()
+    p = Pipeline(store, SpeciesFake(species=None, conf=None), live, publisher=pub)
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p.sweep()
+    assert pub.evaluated == []
+    assert store.species_backlog() == []
+
+
+def test_process_skips_publisher_without_species(store, live):
+    pub = FakePublisher()
+    p = Pipeline(store, FakeClassifier(), live, publisher=pub)
+    ev = add(store, 0)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert pub.evaluated == []
+    assert store.get(ev.capture_id).status == "done"
+
+
+def test_backfill_publisher_error_keeps_row_done_and_checked(store, live, caplog):
+    pub = FakePublisher(raise_exc=RuntimeError("boom"))
+    p = Pipeline(store, SpeciesFake(), live, publisher=pub)
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    with caplog.at_level(logging.ERROR):
+        p.sweep()
+    assert "publish decision failed" in caplog.text
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.species_checked is True and c.species == "Robin"
+    assert store.species_backlog() == []
+
+
+def test_failed_backfill_does_not_call_publisher(store, live):
+    pub = FakePublisher()
+    ev = add(store, 0)
+    p = Pipeline(store, SpeciesFake(fail_on={ev.path.name}), live, publisher=pub)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p.sweep()
+    assert pub.evaluated == []
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.species_checked is True
+    assert store.species_backlog() == []

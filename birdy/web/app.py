@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from birdy.classifier import Prediction
 from birdy.config import ConfigError
+from birdy.daylight import DaylightGate
 from birdy.live import LiveConfig
 from birdy.notify import TelegramError
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
@@ -51,6 +52,7 @@ def create_app(
     queue_depth: Callable[[], int] = lambda: 0,
     classifier: Any | None = None,
     notifier: Any | None = None,
+    publisher: Any | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
@@ -58,6 +60,8 @@ def create_app(
     `TwoStageClassifier`; None disables `/classify`.
 
     `notifier` is an object with `send_test()`; normally a `TelegramNotifier`; None = alerts disabled.
+
+    `publisher` has `set_manual(capture_id, state)`; None = publishing disabled.
     """
     app = FastAPI(title="birdy")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -84,7 +88,7 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, filter: str = "birds", page: int = 1, species: str | None = None):
         if filter not in FILTERS:
-            raise HTTPException(status_code=400, detail="filter must be one of all, birds, non-birds")
+            raise HTTPException(status_code=400, detail="filter must be one of " + ", ".join(FILTERS))
         summary = store.species_summary()
         if species == "":
             species = None
@@ -106,6 +110,7 @@ def create_app(
                 "species": species,
                 "species_rows": summary,
                 "status": status_payload(),
+                "publishing": publisher is not None,
             },
         )
 
@@ -211,6 +216,8 @@ def create_app(
                 "watchlist": "\n".join(cfg.telegram.watchlist),
                 "alert_new_species": cfg.telegram.alert_new_species,
                 "cooldown_minutes": cfg.telegram.cooldown_minutes,
+                "publish_min_confidence": cfg.publish.min_confidence,
+                "per_species_per_day": cfg.publish.per_species_per_day,
             }
         )
         roi = values.get("roi", "")
@@ -240,6 +247,11 @@ def create_app(
                 # never the token itself
                 "telegram.bot_token": "set" if cfg.telegram.bot_token else "not set",
                 "telegram.base_url": cfg.telegram.base_url,
+                "publish.enabled": cfg.publish.enabled,
+                "publish.host": cfg.publish.host or "–",
+                "publish.user": cfg.publish.user,
+                "publish.remote_dir": cfg.publish.remote_dir,
+                "publish.site_id": cfg.publish.site_id,
             },
             "species_seen": [r.species for r in store.species_summary()],
             "alerts_enabled": notifier is not None,
@@ -292,5 +304,42 @@ def create_app(
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
         ctx = settings_context(test=(True, "test alert sent — check Telegram"))
         return templates.TemplateResponse(request, "settings.html", ctx)
+
+    @app.post("/camera")
+    async def camera_switch(request: Request):
+        """Manual camera on/off, held until the next daylight change (sunrise/sunset ± margin);
+        `mode=auto` goes back to the schedule. Without lat/lon it holds until switched back."""
+        form = await request.form()
+        mode = str(form.get("mode", ""))
+        if mode not in ("on", "off", "auto"):
+            raise HTTPException(status_code=400, detail="mode must be on, off or auto")
+        nxt = str(form.get("next", "/"))
+        if not (nxt in ("/", "/settings") or nxt.startswith("/?")):
+            nxt = "/"
+        if mode == "auto":
+            state.set_override(None)
+        else:
+            cfg = live.get()
+            gate = DaylightGate(cfg.site.lat, cfg.site.lon, cfg.daylight.margin_minutes)
+            state.set_override(mode, gate.next_change(datetime.now().astimezone()))
+        return RedirectResponse(nxt, status_code=303)
+
+    @app.post("/captures/{capture_id}/publish")
+    async def capture_publish(capture_id: int, request: Request):
+        if publisher is None:
+            raise HTTPException(status_code=503, detail="publishing is disabled: set [publish] in birdy.toml and restart")
+        form = await request.form()
+        state = str(form.get("state", ""))
+        if state not in ("forced", "hidden", "auto"):
+            raise HTTPException(status_code=400, detail="state must be forced, hidden or auto")
+        nxt = str(form.get("next", "/"))
+        # only the review grid itself: rules out //host, /\host and absolute URLs
+        if not (nxt == "/" or nxt.startswith("/?")):
+            nxt = "/"
+        try:
+            await run_in_threadpool(publisher.set_manual, capture_id, None if state == "auto" else state)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown capture") from None
+        return RedirectResponse(nxt, status_code=303)
 
     return app

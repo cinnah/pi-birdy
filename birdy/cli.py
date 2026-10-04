@@ -1,4 +1,4 @@
-"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id."""
+"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id | publish."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from birdy.classifier import CropLoader, ImageNetBirdClassifier, TwoStageClassif
 from birdy.config import Config, ConfigError, load_config
 from birdy.live import LiveConfig
 from birdy.notify import HttpTelegramTransport, TelegramError, TelegramNotifier, fetch_chat_ids
+from birdy.publish import Publisher
 from birdy.species import InatBirdClassifier
 from birdy.store import Store
 
@@ -35,6 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("purge", help="run the retention purge once")
     tg = sub.add_parser("telegram-chat-id", help="print the chat ids that have messaged the bot (bot setup)")
     tg.add_argument("--token", default=None, help="override [telegram] bot_token")
+    p_publish = sub.add_parser("publish", help="build the gallery mirror and rsync it to the server once")
+    p_publish.add_argument(
+        "--rerank",
+        action="store_true",
+        help="re-rank every species/day with the current thresholds before pushing"
+        " (also runs automatically the first time publishing is enabled)",
+    )
     return p
 
 
@@ -80,14 +88,21 @@ def cmd_run(config: Config, config_path: Path) -> int:
     if config.telegram.enabled:
         notifier = TelegramNotifier(live, store, HttpTelegramTransport(config.telegram.bot_token))
         notifier.start()
-    pipeline = Pipeline(store, clf, live, notifier=notifier)
+    publisher = None
+    if config.publish.enabled:
+        publisher = Publisher(live, store, config.storage.data_dir / "publish")
+        publisher.start()
+    pipeline = Pipeline(store, clf, live, notifier=notifier, publisher=publisher)
     pipeline.start()
     retention = RetentionJob(store, live)
     retention.start()
     watcher = ConfigWatcher(config_path, live)
     watcher.start()
 
-    app = create_app(store, state, live, config_path, queue_depth=pipeline.queue_depth, classifier=clf, notifier=notifier)
+    app = create_app(
+        store, state, live, config_path,
+        queue_depth=pipeline.queue_depth, classifier=clf, notifier=notifier, publisher=publisher,
+    )
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
     web_thread = threading.Thread(target=server.run, name="web", daemon=True)
     web_thread.start()
@@ -97,8 +112,9 @@ def cmd_run(config: Config, config_path: Path) -> int:
         signal.signal(sig, lambda *_: stop.set())
 
     log.info(
-        "birdy starting: site=%s daylight_gate=%s alerts=%s web=%s:%d",
-        config.site.name, config.site.lat is not None, config.telegram.enabled, config.web.host, config.web.port,
+        "birdy starting: site=%s daylight_gate=%s alerts=%s publish=%s web=%s:%d",
+        config.site.name, config.site.lat is not None, config.telegram.enabled, config.publish.enabled,
+        config.web.host, config.web.port,
     )
     try:
         # If the port is taken, uvicorn sys.exit(1)s inside its thread; without this
@@ -119,6 +135,8 @@ def cmd_run(config: Config, config_path: Path) -> int:
         server.should_exit = True
         watcher.stop()
         pipeline.stop()
+        if publisher is not None:
+            publisher.stop()
         if notifier is not None:
             notifier.stop()
         retention.stop()
@@ -208,6 +226,34 @@ def cmd_telegram_chat_id(config: Config, token_override: str | None) -> int:
     return 0
 
 
+def cmd_publish(config: Config, rerank: bool = False) -> int:
+    """Build the gallery mirror and rsync it to the server once; meant for setup and debugging.
+
+    Safe while the service runs: both processes take an flock on the mirror folder's `.lock`,
+    so if they collide one of them skips its run with a log line (here: exit 1).
+    """
+    if not config.publish.enabled:
+        print("publishing is disabled: set [publish] enabled = true (with host) in birdy.toml", file=sys.stderr)
+        return 2
+    store = Store(config.storage.data_dir)
+    try:
+        publisher = Publisher(LiveConfig(config), store, config.storage.data_dir / "publish", rsync_timeout=3600.0)
+        if rerank:
+            print(f"re-ranked {publisher.evaluate_all()} days")
+        ok = publisher.run_once()
+    finally:
+        store.close()
+    if ok:
+        print(f"published to {config.publish.user}@{config.publish.host}:{config.publish.remote_dir}")
+        return 0
+    print(
+        "publish run skipped (another run in progress) or rsync failed; see the log above."
+        f" key: {config.publish.ssh_key}",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
@@ -238,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_purge(config)
     if args.command == "telegram-chat-id":
         return cmd_telegram_chat_id(config, args.token)
+    if args.command == "publish":
+        return cmd_publish(config, args.rerank)
     return 2
 
 

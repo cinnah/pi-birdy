@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cv2
@@ -287,3 +287,161 @@ def test_count_species_backlog(store):
     with store._lock, store._conn:
         store._conn.execute("UPDATE captures SET species_checked = 0")
     assert store.count_species_backlog() == 2
+
+
+def _bird(store, when, species, conf, is_bird=True):
+    _, rel = store.photo_path_for(when)
+    cid = store.add_capture(when, rel, 100)
+    store.update_classification(cid, is_bird, 0.9, species, conf)
+    return cid
+
+
+def test_fresh_db_has_publish_columns(store):
+    cols = {r["name"] for r in store._conn.execute("PRAGMA table_info(captures)")}
+    assert {"published", "web_path"} <= cols
+    assert "captures_published" in {r["name"] for r in store._conn.execute("PRAGMA index_list(captures)")}
+
+
+def test_migration_adds_publish_columns_to_old_db(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    conn = sqlite3.connect(data / "birdy.db")
+    conn.executescript(
+        "CREATE TABLE captures (id INTEGER PRIMARY KEY, captured_at TEXT NOT NULL, path TEXT NOT NULL,"
+        " thumb_path TEXT, motion_score INTEGER NOT NULL, is_bird INTEGER, confidence REAL, species TEXT,"
+        " species_confidence REAL, status TEXT NOT NULL DEFAULT 'pending', species_checked INTEGER NOT NULL DEFAULT 0);"
+        "INSERT INTO captures (captured_at, path, motion_score, status) VALUES ('2026-10-01T10:00:00.000+00:00', 'a.jpg', 1, 'done');"
+    )
+    conn.commit()
+    conn.close()
+    s = Store(data)
+    c = s.get(1)
+    assert c.published is None and c.web_path is None
+
+
+def test_set_published_and_manual_states(store):
+    t = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
+    a = _bird(store, t, "Robin", 0.9)
+    b = _bird(store, t + timedelta(minutes=1), "Robin", 0.8)
+    c = _bird(store, t + timedelta(minutes=2), "Robin", 0.7)
+    store.set_published(a, "auto")
+    store.set_published(b, "forced")
+    store.set_published(c, "hidden")
+    assert [x.id for x in store.published()] == [b, a]          # newest first, hidden excluded
+    assert store.manual_states() == {b: "forced", c: "hidden"}
+    store.set_published(a, None)
+    assert store.get(a).published is None
+    with pytest.raises(ValueError):
+        store.set_published(a, "maybe")
+
+
+def test_species_day_candidates_window_and_order(store):
+    t = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
+    low = _bird(store, t, "Robin", 0.5)
+    high = _bird(store, t + timedelta(minutes=1), "Robin", 0.9)
+    _bird(store, t, "Wren", 0.9)                           # other species
+    _bird(store, t + timedelta(days=1), "Robin", 0.95)     # outside the window
+    nb = _bird(store, t + timedelta(minutes=2), "Robin", 0.99, is_bird=False)  # non-bird with a label
+    pend = store.add_capture(t + timedelta(minutes=3), store.photo_path_for(t + timedelta(minutes=3))[1], 1)  # pending
+    got = store.species_day_candidates("Robin", t, t + timedelta(days=1))
+    assert [c.id for c in got] == [high, low]
+    assert nb not in [c.id for c in got] and pend not in [c.id for c in got]
+
+
+@pytest.fixture
+def lisbon(monkeypatch):
+    import time
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("TZ", "Europe/Lisbon")
+            time.tzset()
+            yield
+    finally:
+        time.tzset()
+
+
+def test_species_days_one_entry_per_species_per_local_day(store, lisbon):
+    # Same UTC date, different Lisbon days (UTC+1): 23:30 on the 4th and 00:30 on the 5th.
+    a = datetime(2026, 10, 4, 22, 30, tzinfo=timezone.utc)
+    b = datetime(2026, 10, 4, 23, 30, tzinfo=timezone.utc)
+    _bird(store, a, "Robin", 0.9)
+    _bird(store, b, "Robin", 0.9)
+    _bird(store, datetime(2026, 10, 4, 8, 0, tzinfo=timezone.utc), "Wren", 0.9)   # same local day twice
+    _bird(store, datetime(2026, 10, 4, 18, 0, tzinfo=timezone.utc), "Wren", 0.8)
+    got = sorted(store.species_days())
+    assert got == [
+        ("Robin", a),
+        ("Robin", b),
+        ("Wren", datetime(2026, 10, 4, 8, 0, tzinfo=timezone.utc)),
+    ]
+
+
+def test_species_days_excludes_non_birds_unlabelled_and_pending(store):
+    t = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
+    _bird(store, t, "Cat", 0.9, is_bird=False)
+    _bird(store, t, None, None)
+    store.add_capture(t, store.photo_path_for(t)[1], 1)   # pending
+    assert store.species_days() == []
+
+
+def test_set_web_path_and_stale_web_paths(store):
+    t = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
+    a = _bird(store, t, "Robin", 0.9)
+    b = _bird(store, t + timedelta(minutes=1), "Robin", 0.9)
+    store.set_published(a, "auto")
+    store.set_web_path(a, "2026/10/04/x.jpg")
+    store.set_web_path(b, "2026/10/04/y.jpg")   # has a web copy but is not published
+    assert store.get(a).web_path == "2026/10/04/x.jpg"
+    assert store.stale_web_paths() == [(b, "2026/10/04/y.jpg")]
+    store.set_published(a, "hidden")
+    assert sorted(store.stale_web_paths()) == [(a, "2026/10/04/x.jpg"), (b, "2026/10/04/y.jpg")]
+
+
+def _local(d, h, m=0):
+    return datetime(d.year, d.month, d.day, h, m).astimezone()   # naive -> local zone, DST-correct
+
+
+def test_publish_stats(store):
+    now = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc).astimezone()
+    today = now.date()
+    today9 = _local(today, 9)
+    yday9 = _local(today - timedelta(days=1), 9)
+    old9 = _local(today - timedelta(days=40), 9)
+    _bird(store, today9, "Robin", 0.9)
+    _bird(store, today9 + timedelta(minutes=5), "Robin", 0.8)
+    _bird(store, yday9, "Wren", 0.9)
+    _bird(store, old9, "Wren", 0.9)   # outside per_day but counted in totals
+    _bird(store, today9, None, None)                          # bird without species
+    _bird(store, today9, "Cat", 0.9, is_bird=False)           # not a bird: ignored everywhere
+    s = store.publish_stats(now)
+    assert s["total_birds"] == 5
+    assert s["species_count"] == 2
+    assert s["first_capture"] == old9.date().isoformat()
+    assert s["last_capture_at"] == (today9 + timedelta(minutes=5)).isoformat(timespec="seconds")
+    assert len(s["per_day"]) == 30 and s["per_day"][-1] == {"day": now.date().isoformat(), "birds": 3}
+    assert s["per_day"][-2]["birds"] == 1
+    assert len(s["per_hour"]) == 24 and s["per_hour"][9] == 5
+    assert s["species"][0] == {
+        "name": "Robin", "count": 2,
+        "first": today9.date().isoformat(), "last": (today9 + timedelta(minutes=5)).isoformat(timespec="seconds"),
+    }
+    assert s["species"][1]["name"] == "Wren" and s["species"][1]["count"] == 2
+
+
+def test_publish_stats_empty(store):
+    s = store.publish_stats(datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc))
+    assert s["total_birds"] == 0 and s["species"] == [] and s["first_capture"] is None
+    assert len(s["per_day"]) == 30 and sum(d["birds"] for d in s["per_day"]) == 0
+
+
+def test_purge_keeps_rows_with_any_published_state(store):
+    old = T0 - timedelta(days=10)
+    forced = add(store, old)
+    plain = add(store, old + timedelta(minutes=1))
+    for cid in (forced, plain):
+        store.update_classification(cid, False, 0.1, None, None)
+    store.set_published(forced, "forced")
+
+    assert store.purge_non_birds(older_than_days=7, now=T0) == 1
+    assert store.get(forced).published == "forced"
+    assert store.get(plain) is None

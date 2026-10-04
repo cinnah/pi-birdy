@@ -49,3 +49,19 @@ def test_next_change_after_sunset_is_tomorrow_start():
     g = DaylightGate(**LISBON, margin_minutes=0)
     nxt = g.next_change(utc(2026, 6, 21, 23))
     assert nxt.day == 22 and 4 <= nxt.hour <= 6
+
+
+def test_override_wins_until_it_expires():
+    from birdy.state import RuntimeState
+
+    gate = DaylightGate(**LISBON, margin_minutes=0)
+    night = utc(2026, 6, 21, 23)
+    s = RuntimeState()
+    assert not s.camera_wanted(gate, night)
+    s.set_override("on", gate.next_change(night))
+    assert s.camera_wanted(gate, night)
+    morning = gate.next_change(night)
+    assert s.camera_wanted(gate, morning)  # expired, but the schedule is on now anyway
+    assert s.override is None
+    s.set_override("off", None)
+    assert not s.camera_wanted(gate, utc(2026, 6, 21, 12))

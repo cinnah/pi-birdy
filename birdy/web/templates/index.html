@@ -5,7 +5,7 @@
 <style>
   .wrap { max-width: 1500px; margin: 0 auto; padding: 0 var(--gutter) 32px; }
   .stats {
-    display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 12px 0;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; padding: 12px 0;
     border-bottom: 1px solid var(--rule);
     font: 500 11px/1.3 var(--mono); font-stretch: 87.5%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
   }
@@ -25,8 +25,27 @@
   .filters .count b { color: var(--ink); }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
-  .tile { display: block; text-decoration: none; color: inherit; background: var(--osd-bar); outline: 1px solid var(--rule); outline-offset: 0; }
+  .stats .cam { margin-left: auto; }
+  .tile { display: flex; flex-direction: column; background: var(--osd-bar); outline: 1px solid var(--rule); outline-offset: 0; }
   .tile:hover { outline: 2px solid var(--ink); }
+  .tile a.photo { display: block; text-decoration: none; color: inherit; }
+  .pub {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: auto;
+    padding: 5px 6px 6px; border-top: 1px solid #2b2f2c; background: var(--osd-bar);
+    font: 700 11px/1 var(--mono); font-stretch: 81%; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .pub .badge { color: var(--osd-amber); margin-right: auto; }
+  .pub .badge.forced { color: var(--osd-bar); background: var(--osd-amber); padding: 3px 4px; }
+  .pub .badge.off { color: #a3aaa5; text-decoration: line-through; }
+  .pub .pb {
+    min-height: 28px; padding: 0 8px; margin-left: auto; cursor: pointer; border-radius: 0;
+    border: 1px solid #4a504b; background: transparent; color: var(--osd);
+    font: inherit; letter-spacing: inherit; text-transform: inherit;
+  }
+  .pub .badge ~ .pb { margin-left: 0; }
+  .pub .pb + .pb { margin-left: 0; }
+  .pub .pb:hover { border-color: var(--osd); }
+  .pub .pb:active { background: var(--osd); color: var(--osd-bar); }
   .tile img, .tile .nothumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
   .tile .nothumb { display: grid; place-items: center; color: #7d8580; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; }
   .tile .stamp + .stamp { padding-top: 0; }
@@ -45,7 +64,10 @@
     .stamp { font-size: 11px; padding: 4px 6px; font-stretch: 75%; letter-spacing: 0; }
     .filters { gap: 10px; }
     .filters select { flex: 1 1 100%; min-width: 0; order: 3; }
-    .tile .stamp:last-child { flex-direction: column; gap: 1px; }
+    .tile a.photo .stamp:last-child { flex-direction: column; gap: 1px; }
+    .pub .badge { width: 100%; margin: 2px 0 3px; }
+    .pub .badge.forced { width: auto; margin-right: 100%; }
+    .pub .pb, .pub .badge ~ .pb { flex: 1; margin-left: 0; }
     .tile .sp { order: -1; }
   }
 </style>
@@ -60,11 +82,12 @@
     <span>pending<b>{{ status.pending_count }}</b></span>
     <span>disk free<b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
     <span>up<b>{% if up >= 86400 %}{{ up // 86400 }}d {% endif %}{{ (up % 86400) // 3600 }}h {{ (up % 3600) // 60 }}m</b></span>
+    <div class="cam">{% with camera_next = request.url.path + ('?' + request.url.query if request.url.query else '') %}{% include "_camera.html" %}{% endwith %}</div>
   </div>
 
   <nav class="filters" aria-label="Filter photos">
     <div class="seg">
-      {% for f, label in [("all", "all"), ("birds", "birds"), ("non-birds", "not birds")] %}
+      {% for f, label in [("all", "all"), ("birds", "birds"), ("non-birds", "not birds")] + ([("published", "published")] if publishing else []) %}
         <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ label }}</a>
       {% endfor %}
     </div>
@@ -81,7 +104,8 @@
   <div class="grid">
     {% for c in captures %}
     {% set t = c.captured_at | local_time %}
-    <a class="tile{{ ' junk' if c.is_bird == false else '' }}" href="/photos/{{ c.path }}">
+    <div class="tile{{ ' junk' if c.is_bird == false else '' }}">
+    <a class="photo" href="/photos/{{ c.path }}">
       {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="{{ c.species or ('bird' if c.is_bird else 'capture') }} at {{ t }}" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
       <div class="stamp">
         <span>{{ t[5:] }}</span>
@@ -94,6 +118,18 @@
         {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
       </div>
     </a>
+    {% if publishing %}
+    <form method="post" action="/captures/{{ c.id }}/publish" class="pub">
+      <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      {% if c.published == 'auto' %}<span class="badge">published</span>
+      {% elif c.published == 'forced' %}<span class="badge forced">forced</span>
+      {% elif c.published == 'hidden' %}<span class="badge off">hidden</span>{% endif %}
+      {% if c.published != 'forced' %}<button name="state" value="forced" class="pb">Publish</button>{% endif %}
+      {% if c.published != 'hidden' %}<button name="state" value="hidden" class="pb">Hide</button>{% endif %}
+      {% if c.published in ('forced', 'hidden') %}<button name="state" value="auto" class="pb">Auto</button>{% endif %}
+    </form>
+    {% endif %}
+    </div>
     {% endfor %}
   </div>
   {% else %}

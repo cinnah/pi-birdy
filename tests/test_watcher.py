@@ -140,6 +140,8 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         watchlist=cur.telegram.watchlist,
         alert_new_species=cur.telegram.alert_new_species,
         cooldown_minutes=cur.telegram.cooldown_minutes,
+        publish_min_confidence=cur.publish.min_confidence,
+        per_species_per_day=cur.publish.per_species_per_day,
     )
     new = save_settings(config_path, cur, patch)
     live.replace(new)  # what the web handler does
@@ -156,3 +158,12 @@ def test_telegram_token_change_warns(config_path, live, caplog):
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
     assert "restart" in caplog.text and live.get().telegram.bot_token == "new"
+
+
+def test_publish_restart_only_keys_warn(config_path, live, caplog):
+    w = ConfigWatcher(config_path, live)
+    config_path.write_text(config_path.read_text() + '\n[publish]\nsite_id = "other"\n')
+    bump_mtime(config_path)
+    with caplog.at_level(logging.WARNING):
+        assert w.check_once() is True
+    assert "restart" in caplog.text and live.get().publish.site_id == "other"

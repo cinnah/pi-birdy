@@ -63,6 +63,7 @@
 
   /* ── setup menu ── */
   .menu { padding: 20px 24px 0; min-width: 0; }
+  .cambar { max-width: 1500px; margin: 0 auto; padding: 10px var(--gutter); border-bottom: 1px solid var(--rule); }
   .msgs { max-width: 1500px; margin: 0 auto; padding: 16px var(--gutter) 0; }
   .msgs .msg:last-child { margin-bottom: 0; }
   .group { margin-bottom: 28px; }
@@ -134,6 +135,7 @@
   .chip:hover { border-color: var(--ink); }
   .chip[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-fg); border-color: var(--sel-bg); }
 
+  .group-note { padding: 10px 0 0; max-width: 62ch; }
   .action { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 0 4px; }
   .action .hint { margin: 0; }
 
@@ -190,6 +192,7 @@
 
 {% block body %}
 <form method="post" action="/settings/test-alert" id="test-alert"></form>
+<div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}</div>
 {% if error_message or test_result %}
 <div class="msgs">
   {% if error_message %}<div class="msg bad" role="alert">{{ error_message }}</div>{% endif %}
@@ -298,6 +301,15 @@
       <button class="btn" type="submit" form="test-alert" {{ '' if alerts_enabled else 'disabled' }}>Send test alert</button>
       <p class="hint">{{ 'Sends "birdy test alert" to your chat.' if alerts_enabled else 'Alerts are off. Set [telegram] in birdy.toml and restart.' }}</p>
     </div>
+  </section>
+
+  <section class="group">
+    <header><h2 class="head">Publishing</h2><p>The public gallery</p></header>
+    {{ num("publish_min_confidence", "publish.min_confidence", "Publish certainty",
+           "How sure the species model must be before a photo can go to the gallery on its own.", 0, 1, 0.05) }}
+    {{ num("per_species_per_day", "publish.per_species_per_day", "Photos per species per day",
+           "The best photos of each species each day go to the gallery, up to this many.", 1, 20, 1, "/day") }}
+    <p class="hint group-note">Applies to days ranked from now on; earlier days keep their picks (<code class="key">birdy publish --rerank</code> on the Pi re-ranks history). Publish and Hide on the grid override this per photo.</p>
   </section>
 
   <section class="group">

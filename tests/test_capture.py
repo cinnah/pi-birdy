@@ -146,3 +146,33 @@ def test_paused_loop_wakes_promptly_on_settings_change(live, monkeypatch, caplog
         stop.set()
         t.join(timeout=3.0)
     assert not t.is_alive()
+
+
+def test_camera_switch_overrides_daylight_promptly(live, monkeypatch):
+    @contextmanager
+    def fake_session(cfg):
+        yield object()
+
+    monkeypatch.setattr(capture, "DaylightGate", FakeGate)
+    monkeypatch.setattr(capture, "camera_session", fake_session)
+    monkeypatch.setattr(capture, "lores_grey", lambda picam2, lores_size: np.zeros((240, 320), np.uint8))
+    monkeypatch.setattr(capture, "FRAME_INTERVAL", 0.02)
+    base = live.get()
+    live.replace(dataclasses.replace(base, site=dataclasses.replace(base.site, lat=38.72, lon=-9.14)))
+
+    state = RuntimeState()
+    stop = threading.Event()
+    t = threading.Thread(target=run_capture, args=(live, None, None, state, stop), daemon=True)
+    t.start()
+    try:
+        assert _wait(lambda: state.state == "daylight_paused")
+        state.set_override("on", None)
+        assert _wait(lambda: state.state == "capturing", timeout=3.0)  # not GATE_RECHECK (60 s)
+        state.set_override("off", None)
+        assert _wait(lambda: state.state == "manual_off", timeout=3.0)
+        state.set_override(None)
+        assert _wait(lambda: state.state == "daylight_paused", timeout=3.0)
+    finally:
+        stop.set()
+        t.join(timeout=3.0)
+    assert not t.is_alive()

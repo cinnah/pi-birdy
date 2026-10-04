@@ -323,6 +323,12 @@ The info bar a trail cam burns under every photo: OSD-black bar, OSD-white mono 
 ### Viewfinder and Walk Test (signature)
 The live frame at full column width on a black ground, corner brackets, burned-in mono text in the four corners (LIVE · 1S with an amber dot that greys when the frame is stale, CAM · 320×240, WATCH AREA · N CORNERS in amber, timestamp). The ROI is a 2px amber polygon with a 10% amber fill and square amber handles (outlined in OSD black, 14px while dragged) labelled A, B, C... Under it the walk test: a 22px segmented meter on a log scale (10 / 100 / 1k / 10k) whose lit cells are `signal` at 55% opacity below the trigger and full amber past it, a 2px ink TRIG tick that moves with "Movement to trigger", and the MOT / TRIG readout that becomes an amber block when hot, while the strip lamp switches to a blinking REC.
 
+### Camera Switch
+`_camera.html`, outside any other form: a one-line OSD readout (`CAMERA ON`, or `OFF` struck through when paused or switched off), an ink hold note when switched by hand ("switched off by hand · until 10-05 07:12"), and small outline buttons (`.btn.sm`, 32px): Turn on / Turn off, plus Back to schedule while an override holds. Sits right-aligned in the grid's stats row and as a full-width bar above the settings columns. The strip lamp reads `CAMERA OFF` for `manual_off`.
+
+### Publish Row
+When publishing is enabled, each grid tile gets a third burned-in bar under its stamps, on the same `osd-bar` black: a badge (`PUBLISHED` in amber text, `FORCED` as an amber block, `HIDDEN` dim and struck through) and 28px outline buttons in OSD white (Publish / Hide / Auto). On phones the badge takes its own line and the buttons split the width evenly.
+
 ### Save Bar
 Sticky at the bottom of the setup menu, opaque ground with a `rule-strong` top hairline: a mono uppercase state line ("NO UNSAVED CHANGES" / "N UNSAVED CHANGES", with an 8px amber square when dirty) and an 11px dim mono line under it saying whether it applies live, then the primary SAVE button (min 120px).
 

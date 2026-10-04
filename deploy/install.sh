@@ -18,6 +18,19 @@ sudo apt-get install -y python3-picamera2 python3-opencv python3-numpy python3-v
 chmod 600 birdy.toml   # holds the Telegram bot token; enforced on every run, not only on creation
 mkdir -p data
 
+# SSH key the publisher uses to rsync the gallery mirror to the server (see CLAUDE.md "Gallery setup").
+if [ ! -f ~/.ssh/birdy_publish ]; then
+  mkdir -p ~/.ssh && chmod 700 ~/.ssh
+  ssh-keygen -t ed25519 -N "" -f ~/.ssh/birdy_publish -C "birdy-publish@$(hostname)" >/dev/null
+  echo "created ~/.ssh/birdy_publish"
+fi
+if [ -f ~/.ssh/birdy_publish.pub ]; then
+  echo "gallery server authorized_keys line for this Pi (see CLAUDE.md):"
+  # The restricted folder follows [publish] site_id in birdy.toml (default "home").
+  SITE_ID=$(sed -n 's/^site_id *= *"\([a-z0-9-]*\)".*/\1/p' birdy.toml 2>/dev/null | head -1); SITE_ID="${SITE_ID:-home}"
+  echo "command=\"/usr/bin/rrsync /srv/birdy/sites/$SITE_ID\",restrict $(cat ~/.ssh/birdy_publish.pub)"
+fi
+
 sudo cp deploy/birdy.service /etc/systemd/system/birdy.service
 sudo systemctl daemon-reload
 sudo systemctl enable birdy

@@ -34,6 +34,8 @@ FIELD_KEYS = {
     "watchlist": "telegram.watchlist",
     "alert_new_species": "telegram.alert_new_species",
     "cooldown_minutes": "telegram.cooldown_minutes",
+    "publish_min_confidence": "publish.min_confidence",
+    "per_species_per_day": "publish.per_species_per_day",
 }
 
 
@@ -56,6 +58,8 @@ class SettingsPatch:
     watchlist: tuple[str, ...]
     alert_new_species: bool
     cooldown_minutes: int
+    publish_min_confidence: float
+    per_species_per_day: int
 
 
 def config_to_dict(config: Config) -> dict:
@@ -103,6 +107,16 @@ def config_to_dict(config: Config) -> dict:
             "alert_new_species": config.telegram.alert_new_species,
             "cooldown_minutes": config.telegram.cooldown_minutes,
         },
+        "publish": {
+            "enabled": config.publish.enabled,
+            "host": config.publish.host,
+            "user": config.publish.user,
+            "remote_dir": config.publish.remote_dir,
+            "site_id": config.publish.site_id,
+            "ssh_key": str(config.publish.ssh_key),
+            "min_confidence": config.publish.min_confidence,
+            "per_species_per_day": config.publish.per_species_per_day,
+        },
     }
 
 
@@ -130,6 +144,10 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
         watchlist=list(patch.watchlist),
         alert_new_species=patch.alert_new_species,
         cooldown_minutes=patch.cooldown_minutes,
+    )
+    data["publish"].update(
+        min_confidence=patch.publish_min_confidence,
+        per_species_per_day=patch.per_species_per_day,
     )
     return data
 
@@ -215,4 +233,6 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         watchlist=_watchlist(form),
         alert_new_species=form.get("alert_new_species") is not None,
         cooldown_minutes=_num(form, "cooldown_minutes", int),
+        publish_min_confidence=_num(form, "publish_min_confidence", float),
+        per_species_per_day=_num(form, "per_species_per_day", int),
     )

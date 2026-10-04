@@ -206,3 +206,81 @@ def test_telegram_chat_id_accepts_int(tmp_path):
 def test_telegram_base_url_trailing_slash_stripped(tmp_path):
     cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nbase_url = "http://example.test/"\n'))
     assert cfg.telegram.base_url == "http://example.test"
+
+
+
+def test_publish_defaults(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL))
+    pub = cfg.publish
+    assert pub.enabled is False
+    assert pub.host == ""
+    assert pub.user == "birdy"
+    assert pub.remote_dir == "/"
+    assert pub.site_id == "home"
+    assert pub.ssh_key == Path("~/.ssh/birdy_publish").expanduser()
+    assert pub.min_confidence == 0.6
+    assert pub.per_species_per_day == 3
+
+
+def test_publish_enabled_requires_host(tmp_path):
+    with pytest.raises(ConfigError, match="publish.host is required"):
+        load_config(write(tmp_path, MINIMAL + "\n[publish]\nenabled = true\n"))
+
+
+@pytest.mark.parametrize("line, msg", [
+    ('user = ""', "publish.user is required"),
+    ('remote_dir = ""', "publish.remote_dir must be an absolute path"),
+    ('remote_dir = "rel"', "publish.remote_dir must be an absolute path"),
+    ('host = "-x"', "publish.host must be a plain hostname or IP"),
+    ('host = "a b"', "publish.host must be a plain hostname or IP"),
+    ('user = "a@b"', "publish.user must be a plain user name"),
+])
+def test_publish_enabled_rejects_unsafe_target(tmp_path, line, msg):
+    host = "" if line.startswith("host") else 'host = "gallery.example.org"\n'
+    with pytest.raises(ConfigError, match=msg):
+        load_config(write(tmp_path, MINIMAL + f"\n[publish]\nenabled = true\n{host}{line}\n"))
+
+
+def test_publish_target_is_stripped(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[publish]\nenabled = true\nhost = " gallery.example.org "\n'
+                                                'user = " birdy "\nremote_dir = " / "\n'))
+    assert (cfg.publish.host, cfg.publish.user, cfg.publish.remote_dir) == ("gallery.example.org", "birdy", "/")
+
+
+@pytest.mark.parametrize("site_id", ["", "Home", "a b", "x" * 33, "home/../x"])
+def test_publish_site_id_pattern(tmp_path, site_id):
+    with pytest.raises(ConfigError, match="publish.site_id"):
+        load_config(write(tmp_path, MINIMAL + f'\n[publish]\nsite_id = "{site_id}"\n'))
+
+
+@pytest.mark.parametrize("line, key", [
+    ("min_confidence = 1.5", "publish.min_confidence"),
+    ("min_confidence = -0.1", "publish.min_confidence"),
+    ("per_species_per_day = 0", "publish.per_species_per_day"),
+    ("per_species_per_day = 21", "publish.per_species_per_day"),
+    ("per_species_per_day = 2.5", "publish.per_species_per_day"),
+    ("enabled = 1", "publish.enabled"),
+])
+def test_publish_ranges(tmp_path, line, key):
+    with pytest.raises(ConfigError, match=key):
+        load_config(write(tmp_path, MINIMAL + f"\n[publish]\n{line}\n"))
+
+
+def test_publish_whole_float_count_accepted(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + "\n[publish]\nper_species_per_day = 3.0\n"))
+    assert cfg.publish.per_species_per_day == 3 and isinstance(cfg.publish.per_species_per_day, int)
+
+
+def test_int_key_rejects_fractional_float(tmp_path):
+    with pytest.raises(ConfigError, match="web.port must be an integer"):
+        load_config(write(tmp_path, MINIMAL + "\n[web]\nport = 80.5\n"))
+
+
+def test_publish_full_section(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[publish]\nenabled = true\nhost = "gallery.example.org"\n'
+                                                'user = "birdy"\nremote_dir = "/"\nsite_id = "sintra-1"\n'
+                                                'ssh_key = "keys/pub"\nmin_confidence = 0.75\nper_species_per_day = 5\n'))
+    assert cfg.publish.enabled and cfg.publish.host == "gallery.example.org"
+    assert cfg.publish.site_id == "sintra-1"
+    assert cfg.publish.ssh_key == tmp_path.resolve() / "keys/pub"   # relative to the config file, like _path
+    assert cfg.publish.min_confidence == 0.75 and cfg.publish.per_species_per_day == 5
