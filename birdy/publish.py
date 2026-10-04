@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -78,16 +79,35 @@ RSYNC_TIMEOUT = 300.0  # seconds; rsync's own --timeout only covers I/O stalls, 
 Runner = Callable[[list[str]], int]
 
 
+class _UnreadableOriginal(Exception):
+    """The full-res JPEG cannot be decoded (zero-byte power-cut leftover, deleted by hand)."""
+
+
+class _MirrorWriteError(Exception):
+    """The mirror copy could not be written (disk full, permissions); transient, retried next run."""
+
+
 def rsync_command(mirror_dir: Path, cfg: PublishConfig) -> list[str]:
-    """Trailing slash on the source: sync the folder's contents, not the folder itself."""
-    ssh = f"ssh -i {shlex.quote(str(cfg.ssh_key))} -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
-    return ["rsync", "-az", "--delete", "--timeout=120", "-e", ssh, f"{mirror_dir}/", f"{cfg.user}@{cfg.host}:{cfg.remote_dir}"]
+    """Trailing slash on the source: sync the folder's contents, not the folder itself.
+
+    --delay-updates/--delete-after: every file lands in one pass at the end, so the server never
+    serves a manifest that lists photos not yet uploaded, and a timeout leaves it consistent.
+    """
+    ssh = (
+        f"ssh -i {shlex.quote(str(cfg.ssh_key))} -o BatchMode=yes -o ConnectTimeout=20"
+        " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    )
+    return [
+        "rsync", "-az", "--delete", "--delete-after", "--delay-updates", "--timeout=120",
+        "-e", ssh, f"{mirror_dir}/", f"{cfg.user}@{cfg.host}:{cfg.remote_dir}",
+    ]
 
 
 def _default_runner(cmd: list[str]) -> int:
     try:
         return subprocess.call(cmd, stdin=subprocess.DEVNULL, timeout=RSYNC_TIMEOUT)
     except subprocess.TimeoutExpired:
+        log.warning("publish: rsync timed out after %.0f s", RSYNC_TIMEOUT)
         return -1
     except OSError as e:  # rsync/ssh not installed
         log.error("cannot run rsync: %s", e)
@@ -98,7 +118,8 @@ class Publisher:
     """Decides what is published (DB), keeps the mirror folder and pushes it to the server.
 
     `evaluate`/`set_manual` are called from the pipeline and web threads; `run_once` from the
-    worker thread (or `birdy publish` on the CLI). `_lock` serialises the read-rank-write cycle.
+    worker thread (or `birdy publish` on the CLI). `_lock` serialises the read-rank-write cycle,
+    `_run_lock` keeps two runs from racing on the mirror folder.
     """
 
     def __init__(
@@ -119,6 +140,8 @@ class Publisher:
         self._debounce = debounce
         self._max_interval = max_interval
         self._lock = threading.Lock()
+        self._run_lock = threading.Lock()
+        self._last_published_ids: set[int] | None = None
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="publisher", daemon=True)
@@ -168,6 +191,15 @@ class Publisher:
 
     def run_once(self, now: datetime | None = None) -> bool:
         """Mirror, manifest, rsync. Returns False when rsync failed (the next tick retries)."""
+        if not self._run_lock.acquire(blocking=False):
+            log.warning("publish: a run is already in progress; skipping")
+            return False
+        try:
+            return self._run_once(now)
+        finally:
+            self._run_lock.release()
+
+    def _run_once(self, now: datetime | None) -> bool:
         cfg = self._live.get().publish
         photos = self._sync_mirror()
         self._write_manifest(photos, now)
@@ -175,7 +207,10 @@ class Publisher:
         if rc != 0:
             log.warning("publish: rsync to %s@%s failed (exit %d); will retry", cfg.user, cfg.host, rc)
             return False
-        log.info("publish: %d photos synced to %s", len(photos), cfg.host)
+        ids = {c.id for c in photos}
+        level = logging.INFO if ids != self._last_published_ids else logging.DEBUG
+        self._last_published_ids = ids
+        log.log(level, "publish: %d photos synced to %s", len(photos), cfg.host)
         return True
 
     def _sync_mirror(self) -> list[Capture]:
@@ -185,44 +220,65 @@ class Publisher:
         keep: set[str] = set()
         out: list[Capture] = []
         for c in self._store.published():
-            if c.web_path is None or not (self.photos_dir / c.web_path).exists():
-                if not self._make_web_copy(c):
-                    with self._lock:  # don't interleave with a concurrent re-rank of this day
-                        self._store.set_published(c.id, "hidden")
-                    log.warning("publish: cannot read %s; hiding capture %d", c.path, c.id)
-                    continue
-                self._store.set_web_path(c.id, c.path)
-                c = self._store.get(c.id)
-            keep.add(c.web_path)
+            rel = c.path
+            try:
+                self._ensure_web_copy(c, rel)
+            except _UnreadableOriginal:
+                with self._lock:  # don't interleave with a concurrent re-rank of this day
+                    self._store.set_published(c.id, "hidden")
+                    if c.species and c.status == "done":
+                        self._rank(c.species, c.captured_at)  # the next-best photo takes the freed slot
+                log.warning("publish: cannot read %s; hiding capture %d", rel, c.id)
+                self.notify()
+                continue
+            except _MirrorWriteError as e:
+                log.warning("publish: cannot write web copy of %s (%s); will retry", rel, e)
+                continue
+            if c.web_path != rel:
+                self._store.set_web_path(c.id, rel)
+                c = dataclasses.replace(c, web_path=rel)
+            keep.add(rel)
             out.append(c)
         for root in (self.photos_dir, self.thumbs_dir):
             for f in root.rglob("*.jpg"):
                 if f.relative_to(root).as_posix() not in keep:
-                    f.unlink()
+                    f.unlink(missing_ok=True)
+            for d in sorted((d for d in root.rglob("*") if d.is_dir()), reverse=True):  # children before parents
+                try:
+                    d.rmdir()  # only succeeds when empty
+                except OSError:
+                    pass
         # Files first, then the DB: a web_path pointing at a missing file is repaired on the next run anyway.
         for cid, _ in self._store.stale_web_paths():
             self._store.set_web_path(cid, None)
         return out
 
-    def _make_web_copy(self, c: Capture) -> bool:
-        """Web-sized JPEG (longest side <= WEB_MAX_SIDE, never upscaled) plus the store's thumb, copied as is."""
-        img = cv2.imread(str(self._store.photos_dir / c.path))
-        if img is None:
-            return False
-        h, w = img.shape[:2]
-        scale = WEB_MAX_SIDE / max(h, w)
-        if scale < 1:
-            img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
-        out = self.photos_dir / c.path
-        out.parent.mkdir(parents=True, exist_ok=True)
-        if not cv2.imwrite(str(out), img, [cv2.IMWRITE_JPEG_QUALITY, WEB_JPEG_QUALITY]):
-            return False
+    def _ensure_web_copy(self, c: Capture, rel: str) -> None:
+        """Web-sized JPEG (longest side <= WEB_MAX_SIDE, never upscaled) plus the store's thumb, copied as is.
+
+        Both live at `rel` under photos/ and thumbs/: the thumb's mirror path equals `web_path` by
+        construction (the store mirrors thumb paths on photo paths too). Missing files are (re)made.
+        """
+        photo = self.photos_dir / rel
+        thumb = self.thumbs_dir / rel
         src_thumb = None if c.thumb_path is None else self._store.thumbs_dir / c.thumb_path
-        if src_thumb is not None and src_thumb.exists():
-            dst = self.thumbs_dir / c.path
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src_thumb, dst)
-        return True
+        try:
+            if not photo.exists():
+                img = cv2.imread(str(self._store.photos_dir / rel))
+                if img is None:
+                    raise _UnreadableOriginal(rel)
+                h, w = img.shape[:2]
+                scale = WEB_MAX_SIDE / max(h, w)
+                if scale < 1:
+                    img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+                photo.parent.mkdir(parents=True, exist_ok=True)
+                if not cv2.imwrite(str(photo), img, [cv2.IMWRITE_JPEG_QUALITY, WEB_JPEG_QUALITY]):
+                    raise _MirrorWriteError(f"imwrite {photo} failed")
+            if not thumb.exists() and src_thumb is not None and src_thumb.exists():
+                thumb.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src_thumb, thumb)
+        except OSError as e:
+            raise _MirrorWriteError(str(e)) from e
 
     def _photo_entry(self, c: Capture) -> dict:
         thumb = f"thumbs/{c.web_path}" if (self.thumbs_dir / c.web_path).exists() else f"photos/{c.web_path}"
@@ -241,15 +297,14 @@ class Publisher:
         cfg = self._live.get()
         now = (now or datetime.now(timezone.utc)).astimezone()
         stats = self._store.publish_stats(now)
-        site = self._store.site() or {"name": cfg.site.name, "lat": cfg.site.lat, "lon": cfg.site.lon}
         return {
             "version": MANIFEST_VERSION,
             "generated_at": now.isoformat(timespec="seconds"),
             "site": {
                 "id": cfg.publish.site_id,
-                "name": site["name"],
-                "lat": None if site["lat"] is None else round(site["lat"], 2),
-                "lon": None if site["lon"] is None else round(site["lon"], 2),
+                "name": cfg.site.name,
+                "lat": None if cfg.site.lat is None else round(cfg.site.lat, 2),
+                "lon": None if cfg.site.lon is None else round(cfg.site.lon, 2),
                 "since": stats["first_capture"],
                 "utc_offset_minutes": int(now.utcoffset().total_seconds() // 60),
             },

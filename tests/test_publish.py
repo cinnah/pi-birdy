@@ -75,13 +75,13 @@ def test_rank_day_hidden_takes_no_slot():
 
 @pytest.fixture
 def lisbon(monkeypatch):
-    monkeypatch.setenv("TZ", "Europe/Lisbon")
-    time.tzset()
     try:
-        yield
+        with monkeypatch.context() as m:
+            m.setenv("TZ", "Europe/Lisbon")
+            time.tzset()
+            yield
     finally:
-        monkeypatch.undo()
-        time.tzset()
+        time.tzset()  # back to the process zone
 
 
 def test_local_day_bounds(lisbon):
@@ -125,9 +125,11 @@ def bird(store, when, species, conf, size=(2464, 3280), is_bird=True, write=True
     return store.get(cid)
 
 
-def make(live, store, config, runner=None, **kw):
+def make(live, store, config, runner=None, debounce=0.1, max_interval=0.5, **kw):
     live.replace(enabled(config, **kw))
-    return Publisher(live, store, store.data_dir / "publish", runner=runner or FakeRunner(), debounce=0.05, max_interval=0.5)
+    return Publisher(
+        live, store, store.data_dir / "publish", runner=runner or FakeRunner(), debounce=debounce, max_interval=max_interval
+    )
 
 
 # --- evaluate / set_manual -------------------------------------------------
@@ -222,8 +224,12 @@ def test_run_once_builds_mirror_and_manifest_and_rsyncs(live, store, config):
     assert runner.calls == [rsync_command(pub.mirror_dir, live.get().publish)]
     cmd = runner.calls[0]
     assert cmd[:3] == ["rsync", "-az", "--delete"]
+    assert "--delete-after" in cmd and "--delay-updates" in cmd   # server never lists a photo before it arrives
     assert cmd[-2] == f"{pub.mirror_dir}/" and cmd[-1] == "birdy@gallery.example:/"
-    assert "-i /keys/pub" in cmd[cmd.index("-e") + 1] and "BatchMode=yes" in cmd[cmd.index("-e") + 1]
+    ssh = cmd[cmd.index("-e") + 1]
+    assert ssh.startswith("ssh -i /keys/pub ")
+    for opt in ("BatchMode=yes", "ConnectTimeout=20", "IdentitiesOnly=yes", "StrictHostKeyChecking=accept-new"):
+        assert f"-o {opt}" in ssh
 
 
 def test_run_once_never_upscales(live, store, config):
@@ -256,6 +262,46 @@ def test_run_once_hides_unreadable_original(live, store, config, caplog):
     assert store.get(a.id).published == "hidden"
     assert "hiding capture" in caplog.text
     assert json.loads((pub.mirror_dir / "manifest.json").read_text())["photos"] == []
+
+
+def test_run_once_unreadable_original_frees_the_slot(live, store, config):
+    pub = make(live, store, config, per_species_per_day=1)
+    a = bird(store, T0, "Robin", 0.9, write=False)
+    (store.photos_dir / a.path).write_bytes(b"")
+    b = bird(store, T0 + timedelta(minutes=1), "Robin", 0.7)
+    pub.evaluate(b)
+    assert (store.get(a.id).published, store.get(b.id).published) == ("auto", None)
+    pub.run_once()
+    assert (store.get(a.id).published, store.get(b.id).published) == ("hidden", "auto")
+    assert pub._wake.is_set()   # the next run mirrors b
+
+
+def test_run_once_write_failure_keeps_state_and_retries(live, store, config, caplog, monkeypatch):
+    pub = make(live, store, config)
+    a = bird(store, T0, "Robin", 0.9)
+    pub.evaluate(a)
+    with monkeypatch.context() as m, caplog.at_level(logging.WARNING):
+        m.setattr(cv2, "imwrite", lambda *args, **kw: False)   # disk full
+        pub.run_once()
+    assert store.get(a.id).published == "auto"
+    assert store.get(a.id).web_path is None
+    assert "cannot write web copy" in caplog.text
+    assert json.loads((pub.mirror_dir / "manifest.json").read_text())["photos"] == []
+    pub.run_once()   # next run succeeds
+    assert json.loads((pub.mirror_dir / "manifest.json").read_text())["photos"][0]["id"] == a.id
+
+
+def test_run_once_recopies_missing_thumb_and_prunes_empty_dirs(live, store, config):
+    pub = make(live, store, config)
+    a = bird(store, T0, "Robin", 0.9)
+    pub.evaluate(a)
+    pub.run_once()
+    (pub.thumbs_dir / a.path).unlink()
+    pub.run_once()
+    assert (pub.thumbs_dir / a.path).exists()
+    pub.set_manual(a.id, "hidden")
+    pub.run_once()
+    assert not any(pub.photos_dir.iterdir()) and not any(pub.thumbs_dir.iterdir())
 
 
 def test_run_once_rsync_failure_logs_and_returns_false(live, store, config, caplog):
@@ -293,15 +339,46 @@ def test_thread_runs_on_start_and_coalesces_notifies(live, store, config):
     pub.start()
     try:
         assert wait_until(lambda: len(runner.calls) == 1)      # reconcile on start
-        pub.notify()
-        pub.notify()
-        pub.notify()
-        assert wait_until(lambda: len(runner.calls) == 2)      # one run for the burst
+        for _ in range(3):                                      # a burst, within the debounce
+            pub.notify()
+            time.sleep(0.02)
+        assert wait_until(lambda: len(runner.calls) >= 2)      # one run for the burst
+        n = len(runner.calls)
         time.sleep(0.15)
-        assert len(runner.calls) == 2
-        assert wait_until(lambda: len(runner.calls) >= 3, timeout=3.0)   # max_interval tick
+        assert len(runner.calls) == n                           # no extra run for the burst
+        assert wait_until(lambda: len(runner.calls) > n, timeout=3.0)   # max_interval tick
     finally:
         pub.stop()
+
+
+def test_thread_notify_during_run_causes_another_run(live, store, config):
+    class Runner:
+        calls = 0
+
+        def __call__(self, cmd):
+            self.calls += 1
+            if self.calls == 1:
+                pub.notify()   # e.g. _sync_mirror hid a photo and re-ranked
+            return 0
+
+    runner = Runner()
+    pub = make(live, store, config, runner=runner, max_interval=60)
+    pub.start()
+    try:
+        assert wait_until(lambda: runner.calls >= 2)
+    finally:
+        pub.stop()
+
+
+def test_thread_stop_returns_promptly(live, store, config):
+    runner = FakeRunner()
+    pub = make(live, store, config, runner=runner, max_interval=60)
+    pub.start()
+    assert wait_until(lambda: len(runner.calls) == 1)
+    t = time.monotonic()
+    pub.stop()
+    assert time.monotonic() - t < 1.0
+    assert not pub._thread.is_alive()
 
 
 def test_thread_survives_run_errors(live, store, config, caplog):
