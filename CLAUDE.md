@@ -29,6 +29,7 @@ ssh -t yassine@birdy.local 'cd ~/pi-birdy && deploy/install.sh'   # -t required:
 deploy/install.sh               # one-time: apt deps, venv, birdy.toml, systemd unit (run via ssh -t)
 .venv/bin/birdy run             # what the service runs
 .venv/bin/birdy classify <file> # gate + species verdict, then both models' top-5
+.venv/bin/birdy classify --capture <id>  # a stored capture, with the service's crop
 .venv/bin/birdy purge           # run the retention job now
 .venv/bin/birdy telegram-chat-id   # print chat ids that have messaged the bot (--token overrides [telegram] bot_token)
 .venv/bin/birdy publish           # build the gallery mirror and rsync it to the server once
@@ -90,7 +91,7 @@ publisher (mirror + rsync) ◀── pipeline / web publish buttons
 ```
 
 - `birdy/capture.py` is the **only** module that imports `picamera2`. Everything else must import and test on the Mac. Keep it that way; put any new camera-touching code there.
-- `birdy/motion.py` is a pure-numpy/OpenCV detector (ROI mask → running background → diff → threshold → cooldown) so it can be tested with synthetic 320×240 frames. No camera code in it.
+- `birdy/motion.py` is a pure-numpy/OpenCV detector (ROI mask → running background → diff → threshold → cooldown) so it can be tested with synthetic 320×240 frames. No camera code in it. It also returns the union box of the changed-pixel blobs (`MotionResult.bbox`); `crop_box()` turns a capture's stored box + the current ROI into the crop to classify: a square 2× the motion box (min 40 lores px, shifted inside the frame), or the ROI box + 10 % when there is no box or the motion covers > 50 % of the ROI box.
 - `birdy/classifier.py` exposes a `Classifier` protocol returning `Prediction(is_bird, confidence, species, species_confidence)`. The implementation is `TwoStageClassifier`: an ImageNet gate (`ImageNetBirdClassifier.predict` → P(bird), summed over ImageNet bird classes from MobileNetV2) plus `InatBirdClassifier` (`birdy/species.py`, 965 iNat bird species), both run on one decoded crop (`CropLoader`). Species is reported when its probability ≥ `species.threshold`; a gate-rejected frame is *rescued* (`is_bird=True`, `confidence = max(gate, species)`) when species ≥ `species.rescue_threshold`.
 - The pipeline worker and the web upload box share **one** `TwoStageClassifier` (built in `cmd_run`); it serialises inference under its own lock because TFLite interpreters aren't thread-safe. Don't build a second one for the web.
 - `species_checked` marks rows the species model has seen. Each pipeline sweep backfills up to 50 older `done` rows (`_backfill_species`): it never demotes a bird to non-bird, never flips a `done` row to `error` on failure (it marks it checked instead), yields as soon as a live event is queued, and logs one summary line per sweep.
@@ -110,7 +111,7 @@ publisher (mirror + rsync) ◀── pipeline / web publish buttons
 ## Conventions and gotchas
 
 - Config is `birdy.toml` (gitignored). Every key must be documented in `birdy.toml.example`; add new keys to both the dataclass in `config.py` and the example file.
-- ROI polygon coordinates are in **lores** (320×240) space. The classifier scales that bbox to main-stream coordinates before cropping.
+- ROI polygon coordinates are in **lores** (320×240) space. The classifier scales that bbox to main-stream coordinates before cropping. Each capture's motion box is stored as `motion_x/y/w/h`, fractions of the lores frame (NULL for captures from before the motion crop, which keep the ROI crop). `camera.main_size` and `lores_size` must share an aspect ratio (validated).
 - `picamera2` and OpenCV come from apt on the Pi, so the Pi venv is created with `--system-site-packages`. Do not add them as pip dependencies in `pyproject.toml`.
 - The Pi runs Raspberry Pi OS Trixie (Debian 13, Python 3.13, NumPy 2.x, OpenCV 4.10 from apt). Never pin `numpy` in `pyproject.toml`: with `--system-site-packages` the apt NumPy must satisfy it, or pip installs a second NumPy that breaks the apt `cv2`. `opencv-python-headless` is a dev-only extra for the Mac.
 - Photos live at `data/photos/YYYY/MM/DD/HHMMSS_mmm.jpg` with thumbs mirrored under `data/thumbs/`; paths in the DB are relative to those roots. `data/`, `.venv/` and `birdy.toml` are excluded from deploy rsync.
@@ -119,7 +120,7 @@ publisher (mirror + rsync) ◀── pipeline / web publish buttons
 - The hosted MobileNetV2 TFLite model outputs **logits** (no softmax layer); `ImageNetBirdClassifier` applies softmax itself. Don't "fix" the dequantized sum ≠ 1.
 - The iNat species model's output is the opposite: already softmax-scaled (uint8 at 1/256). **Never re-softmax it**; its probabilities sum to ~0.8–0.95 because quantisation truncates the long tail.
 - Both models must get the **same RGB** array (`CropLoader` converts once). Feeding BGR silently degrades results — a blue tit comes out as a hummingbird.
-- `birdy classify <file>` prints the final verdict with the raw gate probability (and whether species rescued it), then both models' top-5 — the first thing to run when a capture looks misclassified.
+- `birdy classify <file>` prints the final verdict with the raw gate probability (and whether species rescued it), then both models' top-5 — the first thing to run when a capture looks misclassified. `birdy classify --capture <id>` classifies a stored capture with the crop the service uses and prints which crop (`motion`/`roi`); the grid's **Model view** link (`/captures/{id}/crop.jpg`) shows the same crop.
 - `MotionDetector` suppresses triggers for its first `warmup_frames` (default 10) so camera auto-exposure settling at session start doesn't produce junk captures.
 - `telegram.bot_token` is a secret. It lives only in the Pi's `birdy.toml` (0600, gitignored, rsync-excluded), is written back by every settings-page save (`config_to_dict` includes it, so a save never wipes it), is excluded from `repr(Config)` (`field(repr=False)`), is never logged, and every `TelegramError` message is redacted (`_redact`; request URLs are never included). Never put it in git, docs, tests, memory or log lines. The settings page shows only "set"/"not set".
 - `telegram.enabled`, `bot_token`, `chat_id`, `base_url` are restart-only (the watcher warns); `watchlist`, `alert_new_species`, `cooldown_minutes` are live. Cooldown state is in memory, so a restart may re-alert a species once; "new species" is derived from the DB (`store.count("birds", species=...) == 1`) and survives restarts.
