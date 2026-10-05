@@ -48,6 +48,8 @@
   .acts .pb:active { background: var(--osd); color: var(--osd-bar); }
   .acts .pb.del { flex: 0 1 auto; color: #a3aaa5; }
   .acts .pb.del:hover { color: #ff4d3d; border-color: #ff4d3d; }
+  .acts a.pb { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+  .acts .pb.view { flex: 0 1 auto; color: #a3aaa5; }
 
   .bulk {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 12px;
@@ -80,6 +82,7 @@
     .filters select { flex: 1 1 100%; min-width: 0; order: 3; }
     .tile a.photo .stamp:last-child { flex-direction: column; gap: 1px; }
     .acts .pb.del { flex: 1 1 100%; }
+    .acts .pb.view { flex: 1 1 auto; }
     .tile .sp { order: -1; }
   }
 </style>
@@ -154,6 +157,7 @@
       {% if c.published in ('forced', 'hidden') %}<button name="state" value="auto" class="pb">Auto</button>{% endif %}
     </form>
     {% endif %}
+    <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
     <form method="post" action="/captures/{{ c.id }}/delete" data-confirm="Sure?">
       <input type="hidden" name="next" value="{{ here }}">
       <button class="pb del" type="submit" aria-label="Delete this photo">Delete</button>

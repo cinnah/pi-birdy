@@ -703,3 +703,36 @@ def test_index_has_delete_buttons_and_bulk_only_on_non_birds(client, store):
     assert "/captures/delete-non-birds" not in html
     html = client.get("/?filter=non-birds").text
     assert "/captures/delete-non-birds" in html and f'name="ids" value="{j.id}"' in html
+
+
+def _add_photo(store, box=None):
+    abs_path, rel = store.photo_path_for(T0)
+    cv2.imwrite(str(abs_path), np.full((480, 640, 3), 90, np.uint8))   # 2x the 320x240 lores frame
+    return store.add_capture(T0, rel, 100, motion_box=box)
+
+
+def test_crop_jpg_is_the_motion_crop(client, store):
+    cid = _add_photo(store, (100 / 320, 100 / 240, 20 / 320, 20 / 240))
+    r = client.get(f"/captures/{cid}/crop.jpg")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+    assert img.shape[:2] == (80, 80)   # 40 lores px square, x2
+
+
+def test_crop_jpg_falls_back_to_roi(client, store, config):
+    from birdy.motion import roi_bbox
+
+    cid = _add_photo(store)
+    img = cv2.imdecode(np.frombuffer(client.get(f"/captures/{cid}/crop.jpg").content, np.uint8), cv2.IMREAD_COLOR)
+    rb = roi_bbox(config.motion.roi)   # 240 x 160 lores, padded 10 % each side, x2
+    assert img.shape[1] == round((rb.w * 1.2) * 2) and img.shape[0] == round((rb.h * 1.2) * 2)
+
+
+def test_crop_jpg_unknown_capture(client):
+    assert client.get("/captures/999/crop.jpg").status_code == 404
+
+
+def test_grid_tile_links_model_view(client, store):
+    cid = _add_photo(store)
+    store.update_classification(cid, True, 0.9, None, None)
+    assert f'href="/captures/{cid}/crop.jpg"' in client.get("/?filter=all").text

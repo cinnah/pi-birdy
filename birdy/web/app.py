@@ -17,10 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from birdy.classifier import Prediction
+from birdy.classifier import CropLoader, Prediction
 from birdy.config import ConfigError
 from birdy.daylight import DaylightGate
 from birdy.live import LiveConfig
+from birdy.motion import crop_box
 from birdy.notify import TelegramError
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
 from birdy.state import RuntimeState
@@ -73,6 +74,19 @@ def create_app(
     app.mount("/photos", StaticFiles(directory=str(store.photos_dir)), name="photos")
     app.mount("/thumbs", StaticFiles(directory=str(store.thumbs_dir)), name="thumbs")
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+
+    # Camera keys are restart-only: crop with the size the running process started with.
+    lores_size = live.get().camera.lores_size
+
+    def _crop_jpeg(c) -> bytes | None:
+        """The exact crop the classifier sees for this capture (BGR JPEG); None if unreadable."""
+        crop = crop_box(c.motion_box, live.get().motion.roi, lores_size)
+        try:
+            rgb = CropLoader(lores_size).load(store.photos_dir / c.path, crop.bbox, crop.pad)
+        except ValueError:
+            return None
+        ok, jpg = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return jpg.tobytes() if ok else None
 
     def status_payload() -> dict:
         snap = state.snapshot()
@@ -144,6 +158,17 @@ def create_app(
         if not ok:
             raise HTTPException(status_code=500, detail="encode failed")
         return Response(content=jpg.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.get("/captures/{capture_id}/crop.jpg")
+    async def capture_crop(capture_id: int):
+        """What the model saw: the motion crop, or the ROI crop for captures without a motion box."""
+        c = await run_in_threadpool(store.get, capture_id)
+        if c is None:
+            raise HTTPException(status_code=404, detail="unknown capture")
+        jpg = await run_in_threadpool(_crop_jpeg, c)   # decodes the full-size still: off the event loop
+        if jpg is None:
+            raise HTTPException(status_code=404, detail="photo unreadable")
+        return Response(content=jpg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     def species_context(result: dict | None = None, error: str | None = None) -> dict:
         return {"rows": store.species_summary(), "result": result, "error": error, "status": status_payload()}
