@@ -187,10 +187,11 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
     real_init = pipeline.Pipeline.__init__
 
-    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None):
+    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None, lores_size=(320, 240)):
         seen["pipeline_classifier"] = classifier
         seen["pipeline_notifier"] = notifier
-        return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher)
+        seen["pipeline_lores_size"] = lores_size
+        return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher, lores_size=lores_size)
 
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
 
@@ -229,6 +230,8 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     # The pipeline and the upload box share one classifier (and therefore its lock).
     assert seen["pipeline_classifier"] is clf
     assert seen["web_classifier"] is clf
+    # The pipeline crops with the camera's lores size, not a hard-coded default.
+    assert seen["pipeline_lores_size"] == config.camera.lores_size
     # Alerts are off in the default config: no notifier anywhere.
     assert seen["pipeline_notifier"] is None
     assert seen["web_notifier"] is None
@@ -440,3 +443,44 @@ def test_publish_command_exit_1_when_rsync_fails(tmp_path, monkeypatch, capsys):
     assert cli.main(["--config", str(cfg), "publish"]) == 1
     err = capsys.readouterr().err
     assert "another run in progress" in err and "rsync failed" in err
+
+
+def test_parser_classify_capture():
+    args = build_parser().parse_args(["classify", "--capture", "7"])
+    assert args.capture == 7 and args.image is None
+
+
+def test_classify_needs_image_or_capture(config_path):
+    from birdy import cli
+
+    assert cli.main(["--config", str(config_path), "classify"]) == 2
+
+
+def test_classify_capture_uses_stored_crop(tmp_path):
+    import cv2
+
+    from birdy.store import Store
+
+    bird = FIXTURES / "bird.jpg"
+    if not bird.exists() or not (ROOT / "models" / "mobilenet_v2_1.0_224_quant.tflite").exists():
+        pytest.skip("fixtures/model missing")
+    data = tmp_path / "data"
+    store = Store(data)
+    when = datetime(2026, 10, 3, 10, 0).astimezone()
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), cv2.imread(str(bird)))
+    with_box = store.add_capture(when, rel, 100, motion_box=(2 / 320, 2 / 240, 5 / 320, 5 / 240))
+    without = store.add_capture(when, rel, 100)
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    cfg.write_text(cfg.read_text() + f'[storage]\ndata_dir = "{data}"\n')
+
+    proc = _run_cli("--config", str(cfg), "classify", "--capture", str(with_box))
+    assert proc.returncode == 0, proc.stderr
+    assert "motion crop" in proc.stdout and "gate (ImageNet):" in proc.stdout
+
+    proc = _run_cli("--config", str(cfg), "classify", "--capture", str(without))
+    assert proc.returncode == 0, proc.stderr
+    assert "roi crop" in proc.stdout
+
+    proc = _run_cli("--config", str(cfg), "classify", "--capture", "999")
+    assert proc.returncode == 1

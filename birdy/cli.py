@@ -14,6 +14,7 @@ from pathlib import Path
 from birdy.classifier import CropLoader, ImageNetBirdClassifier, TwoStageClassifier
 from birdy.config import Config, ConfigError, load_config
 from birdy.live import LiveConfig
+from birdy.motion import crop_box
 from birdy.notify import HttpTelegramTransport, TelegramError, TelegramNotifier, fetch_chat_ids
 from birdy.publish import Publisher
 from birdy.species import InatBirdClassifier
@@ -31,8 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run", help="run the capture service")
     roi = sub.add_parser("roi", help="save one lores frame (with ROI drawn) for picking coordinates")
     roi.add_argument("--out", default="roi.png")
-    cls = sub.add_parser("classify", help="classify a single image file")
-    cls.add_argument("image")
+    cls = sub.add_parser("classify", help="classify an image file, or a stored capture with its crop")
+    cls.add_argument("image", nargs="?", help="image file (classified whole, no crop)")
+    cls.add_argument("--capture", type=int, default=None, help="capture id: classify its photo with the crop the service uses")
     sub.add_parser("purge", help="run the retention purge once")
     tg = sub.add_parser("telegram-chat-id", help="print the chat ids that have messaged the bot (bot setup)")
     tg.add_argument("--token", default=None, help="override [telegram] bot_token")
@@ -92,7 +94,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     if config.publish.enabled:
         publisher = Publisher(live, store, config.storage.data_dir / "publish")
         publisher.start()
-    pipeline = Pipeline(store, clf, live, notifier=notifier, publisher=publisher)
+    pipeline = Pipeline(store, clf, live, notifier=notifier, publisher=publisher, lores_size=config.camera.lores_size)
     pipeline.start()
     retention = RetentionJob(store, live)
     retention.start()
@@ -166,16 +168,34 @@ def cmd_roi(config: Config, out: str) -> int:
     return 0
 
 
-def cmd_classify(config: Config, image: str) -> int:
+def cmd_classify(config: Config, image: str | None, capture_id: int | None = None) -> int:
     """Classify one image and print both models' views.
 
-    `clf.gate.predict` / `top_k` bypass the classifier's lock and decode again: fine for this
-    one-shot CLI, never do that in the service.
+    With `--capture`, the stored photo is cropped exactly as the pipeline crops it (motion
+    crop, else the ROI crop). `clf.gate.predict` / `top_k_image` bypass the classifier's lock:
+    fine for this one-shot CLI, never do that in the service.
     """
+    if (image is None) == (capture_id is None):
+        print("classify: give an image file or --capture <id>", file=sys.stderr)
+        return 2
+    bbox, pad = None, None
+    if capture_id is not None:
+        store = Store(config.storage.data_dir)
+        c = store.get(capture_id)
+        if c is None:
+            print(f"no capture {capture_id}", file=sys.stderr)
+            return 1
+        path = store.photos_dir / c.path
+        crop = crop_box(c.motion_box, config.motion.roi, config.camera.lores_size)
+        bbox, pad = crop.bbox, crop.pad
+        b = crop.bbox
+        print(f"capture {c.id} {c.path}: {crop.kind} crop x={b.x} y={b.y} w={b.w} h={b.h} (lores px)")
+    else:
+        path = Path(image)
     live = LiveConfig(config)
     clf = _classifier(config, live)
     try:
-        img = CropLoader(config.camera.lores_size).load(Path(image), None)
+        img = CropLoader(config.camera.lores_size).load(path, bbox, pad)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -188,7 +208,7 @@ def cmd_classify(config: Config, image: str) -> int:
         f"species={pred.species or '-'}"
     )
     print("gate (ImageNet):")
-    for label, prob in clf.gate.top_k(Path(image), None, k=5):
+    for label, prob in clf.gate.top_k_image(img, k=5):
         print(f"  {prob:.3f}  {label}")
     print("species (iNat):")
     for label, prob in top:
@@ -272,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             return cmd_run(config, Path(args.config))
         if args.command == "classify":
-            return cmd_classify(config, args.image)
+            return cmd_classify(config, args.image, args.capture)
     except ModelLoadError as e:
         # Exit 2 like a config error so systemd does not restart-loop on something only a
         # human can fix. Other startup errors (e.g. an unmounted data dir) keep restarting.
