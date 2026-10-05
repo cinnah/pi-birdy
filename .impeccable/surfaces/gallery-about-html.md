@@ -7,7 +7,7 @@ related_targets: ["gallery/style.css","gallery/index.html","gallery/site.html","
 
 # Gallery About page (birdy.akibeo.com/about.html)
 
-Scope: one static page, no JavaScript. Visitor mode: Read. Audience: a friend who was sent the link, or a collaborator who wants to understand the thing they are about to put in their window. Job: understand what birdy is and why, how a visit becomes a row on the sheet, what the rig is, how to join, who to credit. Constraints: same world as the sheets (`gallery-index-html.md`); static files; self-hosted fonts; light and dark; never loud; no install tutorial (the notes travel by email while the repo is private).
+Scope: one static page, no JavaScript. Visitor mode: Read. Audience: a friend who was sent the link, or a collaborator who wants to understand the thing they are about to put in their window. Job: understand what birdy is and why, how a visit becomes a row on the sheet, what the rig is, how to join, who to credit. Constraints: same world as the sheets (`gallery-index-html.md`); static files; self-hosted fonts; light and dark; never loud; no install tutorial, no contact details, no names, no repo URL (collaborators ask the owner directly).
 
 ## Direction
 
