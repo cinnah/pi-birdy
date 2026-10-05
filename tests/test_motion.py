@@ -1,6 +1,6 @@
 import numpy as np
 
-from birdy.motion import BBox, MotionDetector, roi_bbox
+from birdy.motion import BBox, MotionDetector, blob_bbox, roi_bbox
 
 W, H = 320, 240
 ROI = ((40, 60), (280, 60), (280, 220), (40, 220))
@@ -127,3 +127,44 @@ def test_non_rectangular_roi_uses_polygon_not_bbox():
 
 def test_roi_bbox():
     assert roi_bbox(ROI) == BBox(x=40, y=60, w=240, h=160)
+
+
+def test_trigger_reports_blob_bbox():
+    d = make_detector(FakeClock())
+    d.process(blank())
+    r = d.process(with_blob(100, 100))
+    assert r.bbox is not None
+    # 30x30 blob, plus the blur halo and the 3x3 dilation: a few px larger on each side.
+    assert 95 <= r.bbox.x <= 100 and 95 <= r.bbox.y <= 100
+    assert 30 <= r.bbox.w <= 36 and 30 <= r.bbox.h <= 36
+
+
+def test_no_motion_has_no_bbox():
+    d = make_detector(FakeClock())
+    d.process(blank())
+    assert d.process(blank()).bbox is None
+
+
+def test_blob_outside_roi_has_no_bbox():
+    d = make_detector(FakeClock())
+    d.process(blank())
+    assert d.process(with_blob(0, 0)).bbox is None
+
+
+def test_blob_bbox_unions_blobs_and_drops_specks():
+    changed = np.zeros((H, W), np.uint8)
+    changed[100:110, 100:110] = 1     # blob A
+    changed[150:160, 200:210] = 1     # blob B
+    changed[50, 50] = 1               # 1 px speck: dropped (< MIN_BLOB_AREA original pixels)
+    b = blob_bbox(changed)
+    assert b is not None
+    assert b.x <= 100 and b.y <= 100
+    assert b.x + b.w >= 210 and b.y + b.h >= 160
+    assert b.x >= 98 and b.y >= 98    # the speck at (50, 50) did not widen it
+
+
+def test_blob_bbox_none_for_specks_only():
+    changed = np.zeros((H, W), np.uint8)
+    changed[50, 50] = 1
+    changed[200, 300] = 1
+    assert blob_bbox(changed) is None

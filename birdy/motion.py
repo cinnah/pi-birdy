@@ -20,10 +20,16 @@ class BBox(NamedTuple):
     h: int
 
 
+MIN_BLOB_AREA = 4  # changed (pre-dilation) pixels; smaller blobs are noise specks
+_JOIN_KERNEL = np.ones((3, 3), np.uint8)
+
+
 @dataclass(frozen=True)
 class MotionResult:
     score: int
     triggered: bool
+    # Union box of the changed-pixel blobs inside the ROI, lores px; None when nothing moved.
+    bbox: BBox | None = None
 
 
 def roi_bbox(roi: Sequence[Point]) -> BBox:
@@ -36,6 +42,27 @@ def roi_bbox(roi: Sequence[Point]) -> BBox:
     xs = [p[0] for p in roi]
     ys = [p[1] for p in roi]
     return BBox(x=min(xs), y=min(ys), w=max(xs) - min(xs), h=max(ys) - min(ys))
+
+
+def blob_bbox(changed: np.ndarray, min_area: int = MIN_BLOB_AREA) -> BBox | None:
+    """Union box of the blobs in a 0/1 changed-pixel mask.
+
+    A 3x3 dilation joins a bird's parts (head, tail, wing) into one blob; blobs with fewer
+    than `min_area` changed pixels *before* dilation are dropped as noise.
+    """
+    joined = cv2.dilate(changed, _JOIN_KERNEL)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(joined, connectivity=8)
+    if n <= 1:
+        return None
+    original = np.bincount(labels[changed > 0], minlength=n)
+    keep = [i for i in range(1, n) if original[i] >= min_area]
+    if not keep:
+        return None
+    x0 = min(int(stats[i, cv2.CC_STAT_LEFT]) for i in keep)
+    y0 = min(int(stats[i, cv2.CC_STAT_TOP]) for i in keep)
+    x1 = max(int(stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH]) for i in keep)
+    y1 = max(int(stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT]) for i in keep)
+    return BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0)
 
 
 class MotionDetector:
@@ -85,6 +112,7 @@ class MotionDetector:
         diff = np.abs(blurred - self._bg)
         changed = (diff > self._pixel_threshold).astype(np.uint8) * self._mask
         score = int(changed.sum())
+        bbox = blob_bbox(changed) if score else None
 
         self._bg = (1.0 - self._alpha) * self._bg + self._alpha * blurred
 
@@ -97,4 +125,4 @@ class MotionDetector:
         )
         if triggered:
             self._last_trigger = now
-        return MotionResult(score=score, triggered=triggered)
+        return MotionResult(score=score, triggered=triggered, bbox=bbox)
