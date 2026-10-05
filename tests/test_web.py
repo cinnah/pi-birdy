@@ -736,3 +736,9 @@ def test_grid_tile_links_model_view(client, store):
     cid = _add_photo(store)
     store.update_classification(cid, True, 0.9, None, None)
     assert f'href="/captures/{cid}/crop.jpg"' in client.get("/?filter=all").text
+
+
+def test_crop_jpg_missing_photo(client, store):
+    cid = _add_photo(store)
+    (store.photos_dir / store.get(cid).path).unlink()
+    assert client.get(f"/captures/{cid}/crop.jpg").status_code == 404

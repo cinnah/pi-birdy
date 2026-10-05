@@ -14,7 +14,7 @@ import numpy as np
 from birdy.config import Config
 from birdy.daylight import DaylightGate
 from birdy.live import LiveConfig
-from birdy.motion import MotionDetector, normalise_bbox
+from birdy.motion import MotionDetector, NormBox, normalise_bbox
 from birdy.pipeline import MotionEvent, Pipeline
 from birdy.state import RuntimeState
 from birdy.store import Store
@@ -70,7 +70,7 @@ def grab_lores_frame(config: Config):
         return lores_grey(picam2, config.camera.lores_size)
 
 
-def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int, motion_box=None) -> None:
+def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int, motion_box: NormBox | None = None) -> None:
     global _low_disk_warned
     free = store.disk_free_bytes()
     if free < MIN_FREE_BYTES:

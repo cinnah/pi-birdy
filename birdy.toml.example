@@ -12,7 +12,10 @@ name = "home"
 [camera]
 main_size = [3280, 2464]   # full-res stills. Drop to [1640, 1232] if the
                            # camera fails to allocate buffers (CMA memory).
-lores_size = [320, 240]    # analysis stream; ROI coordinates use this size
+lores_size = [320, 240]    # analysis stream; ROI coordinates use this size.
+                           # main_size and lores_size must share an aspect
+                           # ratio (checked at start): the motion crop is
+                           # drawn in lores coordinates.
 jpeg_quality = 90
 
 [motion]

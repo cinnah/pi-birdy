@@ -28,7 +28,7 @@ _JOIN_KERNEL = np.ones((3, 3), np.uint8)
 class MotionResult:
     score: int
     triggered: bool
-    # Union box of the changed-pixel blobs inside the ROI, lores px; None when nothing moved.
+    # Union box of the changed-pixel blobs inside the ROI, lores px; set only on a trigger.
     bbox: BBox | None = None
 
 
@@ -112,7 +112,6 @@ class MotionDetector:
         diff = np.abs(blurred - self._bg)
         changed = (diff > self._pixel_threshold).astype(np.uint8) * self._mask
         score = int(changed.sum())
-        bbox = blob_bbox(changed) if score else None
 
         self._bg = (1.0 - self._alpha) * self._bg + self._alpha * blurred
 
@@ -125,6 +124,8 @@ class MotionDetector:
         )
         if triggered:
             self._last_trigger = now
+        # Only a trigger consumes the box: skip the blob search on every other frame.
+        bbox = blob_bbox(changed) if triggered else None
         return MotionResult(score=score, triggered=triggered, bbox=bbox)
 
 

@@ -501,3 +501,21 @@ def test_sweep_uses_the_stored_box(store, live):
     add_with_box(store, 3, (100 / 320, 100 / 240, 20 / 320, 20 / 240))  # pending, never submitted
     p.sweep()
     assert clf.bboxes[0] == BBox(90, 90, 40, 40)
+
+
+def test_backfill_uses_the_stored_box(store, live):
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, live, lores_size=(320, 240))
+    ev = add_with_box(store, 4, (100 / 320, 100 / 240, 20 / 320, 20 / 240))
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    p.sweep()
+    assert clf.bboxes == [BBox(90, 90, 40, 40)] and clf.pads == [0.0]
+
+
+def test_corrupt_stored_box_marks_error(store, live):
+    p = Pipeline(store, FakeClassifier(), live, lores_size=(320, 240))
+    # Inf is stored as is (NaN would be stored as NULL and read back as "no box").
+    ev = add_with_box(store, 5, (float("inf"), 0.1, 0.1, 0.1))
+    p.process(ev.capture_id, ev.path, ev.captured_at, store.get(ev.capture_id).motion_box)
+    assert store.get(ev.capture_id).status == "error"

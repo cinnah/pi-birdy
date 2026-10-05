@@ -80,8 +80,9 @@ class Pipeline:
 
     def process(self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None) -> None:
         cfg = self._live.get()
-        crop = crop_box(motion_box, cfg.motion.roi, self._lores_size)
         try:
+            # Inside the try: a bad stored box marks the row 'error' instead of retrying it forever.
+            crop = crop_box(motion_box, cfg.motion.roi, self._lores_size)
             pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
         except Exception:
             log.exception("classification failed for %s", path)
