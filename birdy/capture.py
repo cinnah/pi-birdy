@@ -14,7 +14,7 @@ import numpy as np
 from birdy.config import Config
 from birdy.daylight import DaylightGate
 from birdy.live import LiveConfig
-from birdy.motion import MotionDetector
+from birdy.motion import MotionDetector, normalise_bbox
 from birdy.pipeline import MotionEvent, Pipeline
 from birdy.state import RuntimeState
 from birdy.store import Store
@@ -70,7 +70,7 @@ def grab_lores_frame(config: Config):
         return lores_grey(picam2, config.camera.lores_size)
 
 
-def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int) -> None:
+def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int, motion_box=None) -> None:
     global _low_disk_warned
     free = store.disk_free_bytes()
     if free < MIN_FREE_BYTES:
@@ -81,7 +81,7 @@ def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int) -> None
     now = datetime.now().astimezone()
     abs_path, rel_path = store.photo_path_for(now)
     picam2.capture_file(str(abs_path))
-    capture_id = store.add_capture(now, rel_path, score)
+    capture_id = store.add_capture(now, rel_path, score, motion_box=motion_box)
     pipeline.submit(MotionEvent(capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score))
     log.info("captured %s (motion %d)", rel_path, score)
 
@@ -202,7 +202,8 @@ def run_capture(
                         # RuntimeState.lores_frame() copies on read.
                         state.update(motion_score=result.score, latest_lores=frame)
                         if result.triggered:
-                            _capture_still(picam2, store, pipeline, result.score)
+                            box = None if result.bbox is None else normalise_bbox(result.bbox, config.camera.lores_size)
+                            _capture_still(picam2, store, pipeline, result.score, box)
                         consecutive_errors = 0
                     except Exception:
                         consecutive_errors += 1

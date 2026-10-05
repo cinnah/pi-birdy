@@ -6,11 +6,13 @@ import threading
 import time
 from contextlib import contextmanager
 
+import cv2
 import numpy as np
 
 from birdy import capture
 from birdy.capture import _build_tunables, run_capture
 from birdy.state import RuntimeState
+from birdy.store import Store
 
 
 def test_build_tunables_uses_pinned_lores_size_not_config(config):
@@ -57,7 +59,7 @@ def test_run_capture_pins_camera_and_rebuilds_only_when_relevant(live, monkeypat
     stills: list[int] = []
     monkeypatch.setattr(capture, "camera_session", fake_session)
     monkeypatch.setattr(capture, "lores_grey", fake_lores_grey)
-    monkeypatch.setattr(capture, "_capture_still", lambda picam2, store, pipeline, score: stills.append(score))
+    monkeypatch.setattr(capture, "_capture_still", lambda picam2, store, pipeline, score, motion_box=None: stills.append(score))
     monkeypatch.setattr(capture, "FRAME_INTERVAL", 0.02)
 
     state = RecordingState()
@@ -176,3 +178,26 @@ def test_camera_switch_overrides_daylight_promptly(live, monkeypatch):
         stop.set()
         t.join(timeout=3.0)
     assert not t.is_alive()
+
+
+class _StillCamera:
+    def capture_file(self, path):
+        cv2.imwrite(path, np.zeros((60, 80, 3), np.uint8))
+
+
+class _Sink:
+    def __init__(self):
+        self.events = []
+
+    def submit(self, ev):
+        self.events.append(ev)
+        return True
+
+
+def test_capture_still_stores_motion_box(tmp_path):
+    store = Store(tmp_path / "data")
+    sink = _Sink()
+    capture._capture_still(_StillCamera(), store, sink, 321, (0.25, 0.5, 0.125, 0.0625))
+    c = store.get(sink.events[0].capture_id)
+    assert c.motion_score == 321
+    assert c.motion_box == (0.25, 0.5, 0.125, 0.0625)
