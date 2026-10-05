@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from birdy.classifier import Classifier
 from birdy.live import LiveConfig
-from birdy.motion import roi_bbox
+from birdy.motion import NormBox, crop_box
 from birdy.store import Capture, Store
 
 if TYPE_CHECKING:
@@ -41,6 +41,7 @@ class Pipeline:
         live: LiveConfig,
         notifier: "TelegramNotifier | None" = None,
         publisher: "Publisher | None" = None,
+        lores_size: tuple[int, int] = (320, 240),
         maxsize: int = 50,
         sweep_interval: float = 300.0,
     ) -> None:
@@ -49,6 +50,9 @@ class Pipeline:
         self._live = live
         self._notifier = notifier
         self._publisher = publisher
+        # The process's pinned lores size (camera keys are restart-only): motion boxes and the
+        # ROI are in this frame.
+        self._lores_size = lores_size
         self._queue: queue.Queue[MotionEvent] = queue.Queue(maxsize=maxsize)
         self._sweep_interval = sweep_interval
         self._stop = threading.Event()
@@ -74,10 +78,11 @@ class Pipeline:
     def queue_depth(self) -> int:
         return self._queue.qsize()
 
-    def process(self, capture_id: int, path: Path, captured_at: datetime) -> None:
+    def process(self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None) -> None:
         cfg = self._live.get()
+        crop = crop_box(motion_box, cfg.motion.roi, self._lores_size)
         try:
-            pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
+            pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
         except Exception:
             log.exception("classification failed for %s", path)
             try:
@@ -115,7 +120,7 @@ class Pipeline:
             current = self._store.get(c.id)
             if current is None or current.status != "pending":
                 continue
-            self.process(c.id, self._store.photos_dir / c.path, c.captured_at)
+            self.process(c.id, self._store.photos_dir / c.path, c.captured_at, current.motion_box)
         # Rows classified before species recognition existed: re-run the (two-stage)
         # classifier so they get a species. Bounded per sweep to keep the Pi responsive,
         # and yields to live events (the remainder drains on the next sweep).
@@ -136,7 +141,8 @@ class Pipeline:
         cfg = self._live.get()
         path = self._store.photos_dir / c.path
         try:
-            pred = self._classifier.classify(path, roi_bbox(cfg.motion.roi), threshold=cfg.classifier.threshold)
+            crop = crop_box(c.motion_box, cfg.motion.roi, self._lores_size)
+            pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
             # Never demote: a bird stays a bird. Confidence comes from the new verdict when it
             # is a bird (gate or rescue); the old confidence is kept only when it says non-bird.
             is_bird = bool(c.is_bird) or pred.is_bird
@@ -171,7 +177,7 @@ class Pipeline:
                     if current is None or current.status != "pending":
                         log.debug("capture %d no longer pending; skipping", ev.capture_id)
                     else:
-                        self.process(ev.capture_id, ev.path, ev.captured_at)
+                        self.process(ev.capture_id, ev.path, ev.captured_at, current.motion_box)
                 except Exception:
                     log.exception("processing capture %d failed", ev.capture_id)
             if time.monotonic() >= next_sweep:

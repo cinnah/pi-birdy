@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from birdy.classifier import Prediction
+from birdy.motion import BBox, roi_bbox
 from birdy.pipeline import MotionEvent, Pipeline
 from birdy.store import Store
 
@@ -462,3 +463,41 @@ def test_failed_backfill_does_not_call_publisher(store, live):
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.species_checked is True
     assert store.species_backlog() == []
+
+
+def add_with_box(store, i, box):
+    when = T0.replace(minute=i)
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), np.zeros((60, 80, 3), np.uint8))
+    cid = store.add_capture(when, rel, 100, motion_box=box)
+    return MotionEvent(capture_id=cid, path=abs_path, captured_at=when, motion_score=100)
+
+
+def test_live_capture_is_classified_on_its_motion_crop(store, live):
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, live, lores_size=(320, 240))
+    p.start()
+    try:
+        p.submit(add_with_box(store, 1, (100 / 320, 100 / 240, 20 / 320, 20 / 240)))
+        assert wait_until(lambda: clf.calls)
+    finally:
+        p.stop()
+    assert clf.bboxes[-1] == BBox(90, 90, 40, 40)  # 20x20 at (100,100) -> 40 px square
+    assert clf.pads[-1] == 0.0
+
+
+def test_capture_without_box_uses_roi_crop(store, live, config):
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, live, lores_size=(320, 240))
+    ev = add(store, 2)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert clf.bboxes[-1] == roi_bbox(config.motion.roi)
+    assert clf.pads[-1] == 0.1
+
+
+def test_sweep_uses_the_stored_box(store, live):
+    clf = FakeClassifier()
+    p = Pipeline(store, clf, live, lores_size=(320, 240))
+    add_with_box(store, 3, (100 / 320, 100 / 240, 20 / 320, 20 / 240))  # pending, never submitted
+    p.sweep()
+    assert clf.bboxes[0] == BBox(90, 90, 40, 40)
