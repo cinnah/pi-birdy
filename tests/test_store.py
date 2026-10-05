@@ -470,3 +470,31 @@ def test_delete_non_birds_skips_birds_and_pending(store):
     assert sorted(c.id for c in gone) == sorted([junk, err])
     assert store.get(bird) is not None and store.get(pending) is not None
     assert store.get(junk) is None and store.get(err) is None
+
+
+def test_add_capture_stores_motion_box(store):
+    _, rel = store.photo_path_for(T0)
+    cid = store.add_capture(T0, rel, 100, motion_box=(0.25, 0.5, 0.125, 0.0625))
+    assert store.get(cid).motion_box == (0.25, 0.5, 0.125, 0.0625)
+
+
+def test_add_capture_without_motion_box(store):
+    _, rel = store.photo_path_for(T0)
+    cid = store.add_capture(T0, rel, 100)
+    assert store.get(cid).motion_box is None
+
+
+def test_old_database_gets_motion_columns(tmp_path):
+    data = tmp_path / "old"
+    data.mkdir()
+    conn = sqlite3.connect(data / "birdy.db")
+    conn.execute(
+        "CREATE TABLE captures (id INTEGER PRIMARY KEY, captured_at TEXT NOT NULL, path TEXT NOT NULL,"
+        " thumb_path TEXT, motion_score INTEGER NOT NULL, is_bird INTEGER, confidence REAL, species TEXT,"
+        " species_confidence REAL, status TEXT NOT NULL DEFAULT 'pending')"
+    )
+    conn.execute("INSERT INTO captures (captured_at, path, motion_score) VALUES ('2026-10-01T10:00:00.000+00:00', 'a.jpg', 5)")
+    conn.commit()
+    conn.close()
+    s = Store(data)
+    assert s.get(1).motion_box is None

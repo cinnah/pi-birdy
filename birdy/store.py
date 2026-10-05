@@ -65,6 +65,8 @@ class Capture:
     species_checked: bool
     published: str | None = None   # None | 'auto' | 'forced' | 'hidden'
     web_path: str | None = None    # relative path of the web-sized copy under data/publish/photos
+    # Motion box at the trigger frame as fractions (x, y, w, h) of the lores frame; None = unknown.
+    motion_box: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,7 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         species_checked=bool(row["species_checked"]),
         published=row["published"],
         web_path=row["web_path"],
+        motion_box=None if row["motion_x"] is None else (row["motion_x"], row["motion_y"], row["motion_w"], row["motion_h"]),
     )
 
 
@@ -124,6 +127,10 @@ class Store:
                 ("species_checked", "INTEGER NOT NULL DEFAULT 0"),
                 ("published", "TEXT"),
                 ("web_path", "TEXT"),
+                ("motion_x", "REAL"),
+                ("motion_y", "REAL"),
+                ("motion_w", "REAL"),
+                ("motion_h", "REAL"),
             ):
                 if name not in cols:
                     try:
@@ -173,12 +180,20 @@ class Store:
             return None
         return rel_path
 
-    def add_capture(self, captured_at: datetime, rel_path: Path, motion_score: int) -> int:
+    def add_capture(
+        self,
+        captured_at: datetime,
+        rel_path: Path,
+        motion_score: int,
+        motion_box: tuple[float, float, float, float] | None = None,
+    ) -> int:
         thumb = self._make_thumbnail(rel_path)
+        mx, my, mw, mh = motion_box if motion_box is not None else (None, None, None, None)
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "INSERT INTO captures (captured_at, path, thumb_path, motion_score, status) VALUES (?, ?, ?, ?, 'pending')",
-                (_to_db_time(captured_at), str(rel_path), None if thumb is None else str(thumb), motion_score),
+                "INSERT INTO captures (captured_at, path, thumb_path, motion_score, status, motion_x, motion_y, motion_w, motion_h)"
+                " VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+                (_to_db_time(captured_at), str(rel_path), None if thumb is None else str(thumb), motion_score, mx, my, mw, mh),
             )
             return int(cur.lastrowid)
 
