@@ -155,7 +155,7 @@ lat = 38.72
 lon = -9.14
 
 [camera]
-main_size = [1920, 1080]
+main_size = [1920, 1440]
 lores_size = [640, 480]
 jpeg_quality = 80
 

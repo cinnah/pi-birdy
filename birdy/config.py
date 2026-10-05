@@ -210,6 +210,11 @@ def load_config(path: Path) -> Config:
     cam = raw.get("camera", {})
     main_size = _size(cam.get("main_size", [3280, 2464]), "camera.main_size")
     lores_size = _size(cam.get("lores_size", [320, 240]), "camera.lores_size")
+    (mw, mh), (lw0, lh0) = main_size, lores_size
+    _check(
+        abs(mw / mh - lw0 / lh0) <= 0.01 * (mw / mh),
+        "camera.main_size and camera.lores_size must have the same aspect ratio (the motion crop is drawn in lores coordinates)",
+    )
     jpeg_quality = _num(cam, "camera", "jpeg_quality", 90, int)
     _check(1 <= jpeg_quality <= 100, "camera.jpeg_quality must be between 1 and 100")
 

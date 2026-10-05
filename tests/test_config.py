@@ -87,7 +87,7 @@ def _with_site(extra: str) -> str:
         (MINIMAL.replace("[10, 10]", "[320, 10]"), "motion.roi point .* outside camera.lores_size"),
         (MINIMAL.replace("[0, 10]]", "[0, 240]]"), "motion.roi point .* outside camera.lores_size"),
         (MINIMAL.replace("[0, 0], [10, 0]", "[-1, 0], [10, 0]"), "motion.roi point .* outside camera.lores_size"),
-        (MINIMAL + "\n[camera]\nlores_size = [8, 8]\n", "motion.roi point .* outside camera.lores_size"),
+        (MINIMAL + "\n[camera]\nmain_size = [8, 8]\nlores_size = [8, 8]\n", "motion.roi point .* outside camera.lores_size"),
     ],
 )
 def test_range_checks(tmp_path, text, key):
@@ -284,3 +284,14 @@ def test_publish_full_section(tmp_path):
     assert cfg.publish.site_id == "sintra-1"
     assert cfg.publish.ssh_key == tmp_path.resolve() / "keys/pub"   # relative to the config file, like _path
     assert cfg.publish.min_confidence == 0.75 and cfg.publish.per_species_per_day == 5
+
+
+def test_camera_streams_must_share_aspect_ratio(tmp_path):
+    bad = MINIMAL + "\n[camera]\nmain_size = [1920, 1080]\nlores_size = [320, 240]\n"
+    with pytest.raises(ConfigError, match="aspect ratio"):
+        load_config(write(tmp_path, bad))
+
+
+def test_default_camera_streams_share_aspect_ratio(tmp_path):
+    ok = MINIMAL + "\n[camera]\nmain_size = [1640, 1232]\nlores_size = [320, 240]\n"
+    assert load_config(write(tmp_path, ok)).camera.main_size == (1640, 1232)
