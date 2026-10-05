@@ -32,7 +32,9 @@ class Prediction:
 
 
 class Classifier(Protocol):
-    def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction: ...
+    def classify(
+        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None
+    ) -> Prediction: ...
 
 
 def load_bird_indices(path: Path) -> frozenset[int]:
@@ -83,12 +85,13 @@ class CropLoader:
         self._pad = pad
         self._warned_bbox: BBox | None = None
 
-    def load(self, image_path: Path, roi_bbox: BBox | None) -> np.ndarray:
+    def load(self, image_path: Path, roi_bbox: BBox | None, pad: float | None = None) -> np.ndarray:
+        """`pad` overrides the constructor's padding (a motion crop is already padded: 0)."""
         img = cv2.imread(str(image_path))
         if img is None:
             raise ValueError(f"cannot read image {image_path}")
         if roi_bbox is not None:
-            crop = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad)
+            crop = crop_to_bbox(img, roi_bbox, self._lores_size, self._pad if pad is None else pad)
             if crop.size == 0:
                 # A bad ROI must not turn every capture into an error, so fall back to the
                 # full frame. Warn once per distinct bbox: the ROI is live-tunable.
@@ -144,14 +147,19 @@ class ImageNetBirdClassifier:
         """P(bird) for an already-decoded RGB image."""
         return bird_probability(self._probs(img_rgb), self._bird_indices)
 
-    def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction:
+    def classify(
+        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None
+    ) -> Prediction:
         """`threshold` overrides the constructor default so it can be tuned live."""
         t = self._threshold if threshold is None else threshold
-        conf = self.predict(self._crops.load(image_path, roi_bbox))
+        conf = self.predict(self._crops.load(image_path, roi_bbox, pad))
         return Prediction(is_bird=conf >= t, confidence=conf)
 
     def top_k(self, image_path: Path, roi_bbox: BBox | None, k: int = 5) -> list[tuple[str, float]]:
-        probs = self._probs(self._crops.load(image_path, roi_bbox))
+        return self.top_k_image(self._crops.load(image_path, roi_bbox), k)
+
+    def top_k_image(self, img_rgb: np.ndarray, k: int = 5) -> list[tuple[str, float]]:
+        probs = self._probs(img_rgb)
         order = np.argsort(probs)[::-1][:k]
         return [(self._labels[i] if i < len(self._labels) else str(i), float(probs[i])) for i in order]
 
@@ -211,5 +219,7 @@ class TwoStageClassifier:
         )
         return pred, top
 
-    def classify(self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None) -> Prediction:
-        return self.classify_image(self._crops.load(image_path, roi_bbox), threshold)[0]
+    def classify(
+        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None
+    ) -> Prediction:
+        return self.classify_image(self._crops.load(image_path, roi_bbox, pad), threshold)[0]

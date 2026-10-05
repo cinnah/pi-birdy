@@ -21,10 +21,12 @@ class FakeClassifier:
         self.calls: list[Path] = []
         self.bboxes: list = []
         self.thresholds: list = []
+        self.pads: list = []
 
-    def classify(self, image_path, roi_bbox, threshold=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
         self.calls.append(image_path)
         self.bboxes.append(roi_bbox)
+        self.pads.append(pad)
         self.thresholds.append(threshold)
         if image_path.name in self.fail_on:
             raise RuntimeError("boom")
@@ -183,9 +185,9 @@ def test_store_get_error_in_worker_does_not_kill_thread(store, live, monkeypatch
 
 
 class SlowClassifier(FakeClassifier):
-    def classify(self, image_path, roi_bbox, threshold=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
         time.sleep(0.3)
-        return super().classify(image_path, roi_bbox, threshold)
+        return super().classify(image_path, roi_bbox, threshold, pad)
 
 
 def test_sweep_stops_promptly(store, live):
@@ -237,8 +239,8 @@ class SpeciesFake(FakeClassifier):
         super().__init__(**kwargs)
         self.species, self.conf = species, conf
 
-    def classify(self, image_path, roi_bbox, threshold=None):
-        super().classify(image_path, roi_bbox, threshold)
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+        super().classify(image_path, roi_bbox, threshold, pad)
         return Prediction(is_bird=True, confidence=0.9, species=self.species, species_confidence=self.conf)
 
 
@@ -293,8 +295,8 @@ def test_backlog_limit_per_sweep(store, live):
 
 
 class NotBirdFake(FakeClassifier):
-    def classify(self, image_path, roi_bbox, threshold=None):
-        super().classify(image_path, roi_bbox, threshold)
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+        super().classify(image_path, roi_bbox, threshold, pad)
         return Prediction(is_bird=False, confidence=0.2)
 
 

@@ -4,7 +4,14 @@ import cv2
 import numpy as np
 import pytest
 
-from birdy.classifier import ImageNetBirdClassifier, Prediction, bird_probability, crop_to_bbox, load_bird_indices
+from birdy.classifier import (
+    CropLoader,
+    ImageNetBirdClassifier,
+    Prediction,
+    bird_probability,
+    crop_to_bbox,
+    load_bird_indices,
+)
 from birdy.motion import BBox
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -143,3 +150,12 @@ class TestRealModel:
     def test_predict_on_decoded_image(self, clf):
         img = cv2.cvtColor(cv2.imread(str(FIXTURES / "bird.jpg")), cv2.COLOR_BGR2RGB)
         assert clf.predict(img) > 0.5
+
+
+def test_crop_loader_pad_override(tmp_path):
+    p = tmp_path / "img.jpg"
+    cv2.imwrite(str(p), np.zeros((480, 640, 3), np.uint8))
+    loader = CropLoader((320, 240))            # main is 2x lores
+    box = BBox(10, 20, 40, 40)
+    assert loader.load(p, box).shape[:2] == (96, 96)          # default pad 0.1: (40 + 2*4) * 2
+    assert loader.load(p, box, pad=0.0).shape[:2] == (80, 80)  # exact box
