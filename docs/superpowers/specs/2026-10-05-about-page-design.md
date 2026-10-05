@@ -7,7 +7,7 @@ One public page at `https://birdy.akibeo.com/about.html` that tells a visitor wh
 Decisions taken with the user on 2026-10-05:
 
 - The GitHub repo (`github.com/cinnah/pi-birdy`) stays **private** for now. The page says the code is in a private repository while the project settles and that collaborators get access with their folder; the URL is not printed.
-- No contact details, no personal names and no repo URL on the page (user's instruction, 2026-10-05, replacing the earlier email decision): collaborators are told to ask the owner directly.
+- No personal names, no visible email address and no repo URL on the page (user's instructions, 2026-10-05). The one contact is a text link "contact me" whose `mailto:` carries the address.
 - **Less tutorial**: no step-by-step install. The page explains the parts and the pipeline, and points to the repo (via the email) for the install.
 - A **photo of the rig** will be supplied by the user later. Until then a placeholder plate (ruled 4:3 frame in the paper tint, typed "Photo of the rig to follow", with the real caption) holds the slot so the layout can be judged now (user's request, 2026-10-05).
 
@@ -36,7 +36,7 @@ Static HTML, no `app.js`, no JavaScript at all. `<main>` is a single `<article>`
    5. Photo, thumbnail and a row (time, species, confidence) go to SQLite on the Pi. A LAN page lets the household review, tune, and delete.
    6. The best photos per species per day are shrunk to 1600 px and rsynced to a static folder on a web server. The gallery pages read that folder's `manifest.json` in the browser; the server runs no code.
 3. **The rig** (`#rig`) — the rig photo (placeholder plate until supplied) as a `<figure>` with a typed caption, then a parts list as a `<dl>` with typed values: Raspberry Pi 4 · Camera Module v2.1 (8 MP, fixed focus ~1 m to infinity) · official USB-C power supply · microSD card (16 GB or more) · a shower basket with suction cups, which holds the Pi and camera against the window glass · a feeder about a metre outside the window. One sentence each on placement (lens flush against the glass, indoors, daylight only) and rough cost (about €100 all in). Values marked as the user's own setup, not a shopping list.
-4. **Join the record** (`#join`) — what a collaborator needs (a Pi 4 with a camera, a window with a feeder, a home network); what they get (a column on the daily record, their own monthly sheet, a species card entry); how it works technically in two sentences (their Pi pushes its own folder to the shared server over an SSH key restricted to that folder; nothing else is shared); "if you know me, ask" with no address.
+4. **Join the record** (`#join`) — what a collaborator needs (a Pi 4 with a camera, a window with a feeder, a home network); what they get (a column on the daily record, their own monthly sheet, a species card entry); how it works technically in two sentences (their Pi pushes its own folder to the shared server over an SSH key restricted to that folder; nothing else is shared); a "contact me" text link (`mailto:`, address not printed).
 5. **Code** (`#code`) — the code is in a private repository while the project settles; collaborators get access with their folder. No URL. One typed line listing the stack: Python 3.13, picamera2, OpenCV, LiteRT (TFLite), SQLite, FastAPI, rsync; gallery pages are vanilla HTML/CSS/JS.
 6. **References and credits** (`#refs`) — a `<dl>` or list of typed entries with licences:
    - thjkral/BirdDetection — the project that inspired this one (link).
