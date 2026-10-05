@@ -126,3 +126,59 @@ class MotionDetector:
         if triggered:
             self._last_trigger = now
         return MotionResult(score=score, triggered=triggered, bbox=bbox)
+
+
+MIN_CROP_SIDE = 40         # lores px (~410 px of a 3280-wide still)
+MAX_MOTION_FRACTION = 0.5  # motion bigger than this share of the ROI box = lighting/feeder, not a bird
+ROI_PAD = 0.1              # the ROI fallback crop's padding (today's behaviour)
+
+NormBox = tuple[float, float, float, float]  # x, y, w, h as fractions of the lores frame
+
+
+@dataclass(frozen=True)
+class CropBox:
+    bbox: BBox   # lores px
+    pad: float   # fraction added on each side by `crop_to_bbox`
+    kind: str    # 'motion' | 'roi'
+
+
+def normalise_bbox(bbox: BBox, frame_size: tuple[int, int]) -> NormBox:
+    fw, fh = frame_size
+    return (bbox.x / fw, bbox.y / fh, bbox.w / fw, bbox.h / fh)
+
+
+def denormalise_bbox(box: NormBox, frame_size: tuple[int, int]) -> BBox:
+    fw, fh = frame_size
+    x, y, w, h = box
+    return BBox(x=round(x * fw), y=round(y * fh), w=round(w * fw), h=round(h * fh))
+
+
+def motion_crop(bbox: BBox | None, roi: Sequence[Point], frame_size: tuple[int, int]) -> BBox | None:
+    """Square crop around the motion box, or None to fall back to the ROI crop.
+
+    Side = 2x the box's longer side (the still is taken a few hundred ms after the trigger
+    frame, so the bird may have moved), at least MIN_CROP_SIDE, at most the frame's short
+    side; shifted, never shrunk, to stay inside the frame. Square so the model's 224x224
+    resize doesn't distort the bird.
+    """
+    if bbox is None:
+        return None
+    rb = roi_bbox(roi)
+    if bbox.w * bbox.h > MAX_MOTION_FRACTION * rb.w * rb.h:
+        return None
+    fw, fh = frame_size
+    side = min(max(2 * max(bbox.w, bbox.h), MIN_CROP_SIDE), fw, fh)
+    x = round(bbox.x + bbox.w / 2 - side / 2)
+    y = round(bbox.y + bbox.h / 2 - side / 2)
+    x = min(max(x, 0), fw - side)
+    y = min(max(y, 0), fh - side)
+    return BBox(x=x, y=y, w=side, h=side)
+
+
+def crop_box(motion_box: NormBox | None, roi: Sequence[Point], frame_size: tuple[int, int]) -> CropBox:
+    """The crop to classify for a capture: around its stored motion box, else today's ROI crop."""
+    bbox = None if motion_box is None else denormalise_bbox(motion_box, frame_size)
+    square = motion_crop(bbox, roi, frame_size)
+    if square is not None:
+        return CropBox(bbox=square, pad=0.0, kind="motion")
+    return CropBox(bbox=roi_bbox(roi), pad=ROI_PAD, kind="roi")

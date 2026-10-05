@@ -1,9 +1,20 @@
 import numpy as np
 
-from birdy.motion import BBox, MotionDetector, blob_bbox, roi_bbox
+from birdy.motion import (
+    BBox,
+    CropBox,
+    MotionDetector,
+    blob_bbox,
+    crop_box,
+    denormalise_bbox,
+    motion_crop,
+    normalise_bbox,
+    roi_bbox,
+)
 
 W, H = 320, 240
 ROI = ((40, 60), (280, 60), (280, 220), (40, 220))
+FRAME = (W, H)
 
 
 class FakeClock:
@@ -168,3 +179,50 @@ def test_blob_bbox_none_for_specks_only():
     changed[50, 50] = 1
     changed[200, 300] = 1
     assert blob_bbox(changed) is None
+
+
+def test_motion_crop_is_square_twice_the_bird():
+    b = motion_crop(BBox(100, 100, 30, 20), ROI, FRAME)
+    assert b == BBox(85, 80, 60, 60)  # side 2*30, centred on (115, 110)
+
+
+def test_motion_crop_has_minimum_side():
+    b = motion_crop(BBox(150, 150, 6, 4), ROI, FRAME)
+    assert b.w == b.h == 40
+    assert b == BBox(133, 132, 40, 40)  # centred on (153, 152)
+
+
+def test_motion_crop_is_shifted_inside_the_frame():
+    b = motion_crop(BBox(300, 225, 10, 10), ((200, 150), (319, 150), (319, 239), (200, 239)), FRAME)
+    assert b == BBox(280, 200, 40, 40)
+    b = motion_crop(BBox(0, 0, 8, 8), ((0, 0), (100, 0), (100, 100), (0, 100)), FRAME)
+    assert b == BBox(0, 0, 40, 40)
+
+
+def test_motion_crop_capped_at_frame_short_side():
+    roi = ((0, 0), (319, 0), (319, 239), (0, 239))
+    b = motion_crop(BBox(100, 50, 150, 100), roi, FRAME)  # 15000 px < half of 319*239
+    assert b.w == b.h == 240
+    assert 0 <= b.x <= W - 240 and b.y == 0
+
+
+def test_motion_crop_falls_back_for_whole_roi_motion():
+    rb = roi_bbox(ROI)  # 240 x 160
+    assert motion_crop(BBox(rb.x, rb.y, rb.w, rb.h // 2 + 2), ROI, FRAME) is None
+    assert motion_crop(None, ROI, FRAME) is None
+
+
+def test_normalise_round_trip():
+    b = BBox(100, 50, 30, 20)
+    n = normalise_bbox(b, FRAME)
+    assert n == (100 / 320, 50 / 240, 30 / 320, 20 / 240)
+    assert denormalise_bbox(n, FRAME) == b
+    # a box stored at 320x240 read back at 640x480 scales with the frame
+    assert denormalise_bbox(n, (640, 480)) == BBox(200, 100, 60, 40)
+
+
+def test_crop_box_motion_and_fallback():
+    m = crop_box(normalise_bbox(BBox(100, 100, 30, 20), FRAME), ROI, FRAME)
+    assert m == CropBox(bbox=BBox(85, 80, 60, 60), pad=0.0, kind="motion")
+    r = crop_box(None, ROI, FRAME)
+    assert r == CropBox(bbox=roi_bbox(ROI), pad=0.1, kind="roi")
