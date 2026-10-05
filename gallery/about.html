@@ -29,7 +29,7 @@
 <section id="why">
 <h3 class="label">Why</h3>
 <p>There is a feeder outside my window in Sintra and I wanted to know who comes to it. Not roughly, not "the blue tits are back", but which species, how often, at what hour, with a photo for every visit.</p>
-<p>The first part is that this is a weekend's build. A Raspberry Pi 4, the standard camera module, a shower basket with suction cups to hang it on the glass, and a feeder a metre away. The code watches a low-resolution stream for movement, takes a still, asks two small models running on the Pi whether it is a bird and which one, and files the answer. Nothing leaves the house except the photos I choose to publish.</p>
+<p>The first part is that this is a weekend's build. A Raspberry Pi, the standard camera module, a shower basket with suction cups to hang it on the glass, and a feeder a metre away. The code watches a low-resolution stream for movement, takes a still, asks two small models running on the Pi whether it is a bird and which one, and files the answer. Nothing leaves the house except the photos I choose to publish.</p>
 <p>The second part is the one I care about most. A record of one window is a diary; a record of several windows is a dataset. Every feeder that joins gets a column on the daily sheet, so the same species can be compared across gardens on the same day: who had the goldfinches, when the robin starts, what arrives first after rain. It is a collaboration between friends who happen to have windows.</p>
 <p>The third part is honesty. The species model is three megabytes and it is wrong sometimes. The record keeps the confidence of every guess, the review page lets us hide or delete, and nothing is averaged away. A sheet with a visible mistake is worth more than a chart that hides one.</p>
 <p>If you have a window, a feeder and a free weekend, <a href="#join">there is a column waiting</a>.</p>
@@ -71,12 +71,12 @@
 <dt>Outside</dt><dd>A feeder about a metre from the window</dd>
 <dt>Cost</dt><dd>About €100 all in, less if a Pi is already in a drawer</dd>
 </dl>
-<p>The lens sits flush against the glass, indoors, so there is no weatherproofing to do. The camera only runs between sunrise and sunset; at night the camera rests. This is one working setup, not the only one: anything that holds a Pi camera still at a window will do.</p>
+<p>The lens sits flush against the glass, indoors, so there is no weatherproofing to do. The camera only runs between sunrise and sunset; at night the camera rests. This is one working setup, not the only one. Any 64-bit Raspberry Pi (a 3, 4, 5 or Zero 2 W; the small ones are slower) with an official camera module or another libcamera-supported sensor will do; the v3 and HQ modules focus better on a feeder farther from the glass. USB webcams are not supported.</p>
 </section>
 
 <section id="join">
 <h3 class="label">Join the record</h3>
-<p>You need a Raspberry Pi 4 with a camera module, a window with a feeder outside it, and a home network. You get a column on the daily record next to the other feeders, your own monthly sheet, and your birds on the species cards.</p>
+<p>You need a 64-bit Raspberry Pi with a camera module, a window with a feeder outside it, and a home network. You get a column on the daily record next to the other feeders, your own monthly sheet, and your birds on the species cards.</p>
 <p>Your Pi keeps its own photos and database. Within a quarter of an hour it copies its published photos and a manifest to its own folder on the shared server over an SSH key that can reach only that folder. Nothing else is shared, and you choose what is published from your review page.</p>
 <p>If you want in, <a href="mailto:yassine@e-xperience.pt">contact me</a> and I will set up your folder on the server and send you the install notes.</p>
 </section>
