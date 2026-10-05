@@ -295,3 +295,9 @@ def test_camera_streams_must_share_aspect_ratio(tmp_path):
 def test_default_camera_streams_share_aspect_ratio(tmp_path):
     ok = MINIMAL + "\n[camera]\nmain_size = [1640, 1232]\nlores_size = [320, 240]\n"
     assert load_config(write(tmp_path, ok)).camera.main_size == (1640, 1232)
+
+
+def test_camera_size_must_be_positive(tmp_path):
+    bad = MINIMAL + "\n[camera]\nmain_size = [0, 2464]\n"
+    with pytest.raises(ConfigError, match="must be positive"):
+        load_config(write(tmp_path, bad))

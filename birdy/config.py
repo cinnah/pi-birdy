@@ -117,6 +117,8 @@ class Config:
 def _size(v: Any, name: str) -> tuple[int, int]:
     if not (isinstance(v, list) and len(v) == 2 and all(isinstance(i, int) and not isinstance(i, bool) for i in v)):
         raise ConfigError(f"{name} must be [width, height]")
+    if v[0] <= 0 or v[1] <= 0:
+        raise ConfigError(f"{name} must be positive")
     return (v[0], v[1])
 
 
