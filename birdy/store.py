@@ -67,6 +67,12 @@ class Capture:
     web_path: str | None = None    # relative path of the web-sized copy under data/publish/photos
     # Motion box at the trigger frame as fractions (x, y, w, h) of the lores frame; None = unknown.
     motion_box: tuple[float, float, float, float] | None = None
+    # The user's correction (None = none) and, once corrected, what the model had said.
+    manual_is_bird: bool | None = None
+    manual_at: datetime | None = None
+    model_is_bird: bool | None = None
+    model_species: str | None = None
+    model_species_confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +111,11 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         published=row["published"],
         web_path=row["web_path"],
         motion_box=None if row["motion_x"] is None else (row["motion_x"], row["motion_y"], row["motion_w"], row["motion_h"]),
+        manual_is_bird=None if row["manual_is_bird"] is None else bool(row["manual_is_bird"]),
+        manual_at=None if row["manual_at"] is None else _from_db_time(row["manual_at"]),
+        model_is_bird=None if row["model_is_bird"] is None else bool(row["model_is_bird"]),
+        model_species=row["model_species"],
+        model_species_confidence=row["model_species_confidence"],
     )
 
 
@@ -131,6 +142,15 @@ class Store:
                 ("motion_y", "REAL"),
                 ("motion_w", "REAL"),
                 ("motion_h", "REAL"),
+                # The model's verdict, kept here once a person corrects the row (the final
+                # is_bird/species columns then hold the correction).
+                ("model_is_bird", "INTEGER"),
+                ("model_confidence", "REAL"),
+                ("model_species", "TEXT"),
+                ("model_species_confidence", "REAL"),
+                ("manual_is_bird", "INTEGER"),
+                ("manual_species", "TEXT"),
+                ("manual_at", "TEXT"),
             ):
                 if name not in cols:
                     try:
@@ -206,6 +226,42 @@ class Store:
                 (int(is_bird), confidence, species, species_confidence, capture_id),
             )
 
+    def mark_not_bird(self, capture_id: int) -> Capture | None:
+        """A person says there is no bird: the row becomes a non-bird and leaves the gallery.
+
+        The model's verdict is copied to `model_*` on the first correction only, so "back to model"
+        can restore it. Returns the row as it was before, or None for an unknown id.
+        """
+        now = _to_db_time(datetime.now(timezone.utc))
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT * FROM captures WHERE id = ?", (capture_id,)).fetchone()
+            if row is None:
+                return None
+            if row["manual_at"] is None:
+                self._conn.execute(
+                    "UPDATE captures SET model_is_bird = is_bird, model_confidence = confidence,"
+                    " model_species = species, model_species_confidence = species_confidence WHERE id = ?",
+                    (capture_id,),
+                )
+            self._conn.execute(
+                "UPDATE captures SET manual_is_bird = 0, manual_species = NULL, manual_at = ?,"
+                " is_bird = 0, species = NULL, species_confidence = NULL, published = NULL WHERE id = ?",
+                (now, capture_id),
+            )
+        return _row_to_capture(row)
+
+    def clear_correction(self, capture_id: int) -> Capture | None:
+        """Back to the model's verdict (from `model_*`); returns the restored row, or None if unknown."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET is_bird = model_is_bird, confidence = model_confidence,"
+                " species = model_species, species_confidence = model_species_confidence,"
+                " manual_is_bird = NULL, manual_species = NULL, manual_at = NULL"
+                " WHERE id = ? AND manual_at IS NOT NULL",
+                (capture_id,),
+            )
+        return self.get(capture_id)
+
     def mark_error(self, capture_id: int) -> None:
         with self._lock, self._conn:
             self._conn.execute("UPDATE captures SET status = 'error' WHERE id = ?", (capture_id,))
@@ -256,15 +312,16 @@ class Store:
         with self._lock:
             return int(
                 self._conn.execute(
-                    "SELECT COUNT(*) FROM captures WHERE status = 'done' AND species_checked = 0"
+                    "SELECT COUNT(*) FROM captures WHERE status = 'done' AND species_checked = 0 AND manual_at IS NULL"
                 ).fetchone()[0]
             )
 
     def species_backlog(self, limit: int = 50) -> list[Capture]:
-        """Classified rows that predate species recognition, newest first."""
+        """Classified rows that predate species recognition, newest first (corrected rows never:
+        re-running the model must not undo a person's correction)."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM captures WHERE status = 'done' AND species_checked = 0"
+                "SELECT * FROM captures WHERE status = 'done' AND species_checked = 0 AND manual_at IS NULL"
                 " ORDER BY captured_at DESC, id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -418,14 +475,15 @@ class Store:
         """Delete non-bird and errored captures older than the cutoff (rows + files).
 
         `pending` rows are kept (the sweep will classify them); birds are never purged, and neither
-        is a row with any `published` state (forced, hidden or auto: someone cares about it).
+        is a row with any `published` state (forced, hidden or auto: someone cares about it) or a
+        row a person corrected (a labelled example, kept for training).
         """
         now = now or datetime.now(timezone.utc)
         cutoff = _to_db_time(now - timedelta(days=older_than_days))
         with self._lock:
             rows = self._conn.execute(
                 "SELECT id, path, thumb_path FROM captures"
-                " WHERE (is_bird = 0 OR status = 'error') AND published IS NULL AND captured_at < ?",
+                " WHERE (is_bird = 0 OR status = 'error') AND published IS NULL AND manual_at IS NULL AND captured_at < ?",
                 (cutoff,),
             ).fetchall()
         for row in rows:

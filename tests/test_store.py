@@ -498,3 +498,46 @@ def test_old_database_gets_motion_columns(tmp_path):
     conn.close()
     s = Store(data)
     assert s.get(1).motion_box is None
+
+
+def _classified_bird(store, when, species="Robin"):
+    cid = add(store, when)
+    store.update_classification(cid, True, 0.9, species, 0.8)
+    return cid
+
+
+def test_mark_not_bird_keeps_the_model_verdict(store):
+    cid = _classified_bird(store, T0)
+    store.set_published(cid, "auto")
+    before = store.mark_not_bird(cid)
+    assert before.is_bird and before.species == "Robin" and before.published == "auto"
+    c = store.get(cid)
+    assert c.is_bird is False and c.species is None and c.species_confidence is None and c.published is None
+    assert c.manual_is_bird is False and c.manual_at is not None
+    assert c.model_is_bird is True and c.model_species == "Robin" and c.model_species_confidence == 0.8
+    assert store.count("birds", species="Robin") == 0
+
+
+def test_clear_correction_restores_the_model_verdict(store):
+    cid = _classified_bird(store, T0)
+    store.mark_not_bird(cid)
+    store.mark_not_bird(cid)  # twice: model_* still holds the model's verdict, not the correction
+    c = store.clear_correction(cid)
+    assert c.is_bird is True and c.species == "Robin" and c.species_confidence == 0.8 and c.confidence == 0.9
+    assert c.manual_is_bird is None and c.manual_at is None
+
+
+def test_correction_unknown_capture(store):
+    assert store.mark_not_bird(999) is None
+    assert store.clear_correction(999) is None
+
+
+def test_corrected_photos_are_kept_by_retention_and_skipped_by_backfill(store):
+    old = T0 - timedelta(days=30)
+    cid = _classified_bird(store, old)
+    store.mark_not_bird(cid)
+    with store._lock, store._conn:
+        store._conn.execute("UPDATE captures SET species_checked = 0 WHERE id = ?", (cid,))
+    assert store.purge_non_birds(older_than_days=7, now=T0) == 0
+    assert store.get(cid) is not None
+    assert store.species_backlog() == [] and store.count_species_backlog() == 0

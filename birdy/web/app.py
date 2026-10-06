@@ -396,6 +396,33 @@ def create_app(
         log.info("deleted capture %d (%s) from the web page", deleted.id, deleted.path)
         return RedirectResponse(_grid_next(form), status_code=303)
 
+    @app.post("/captures/{capture_id}/label")
+    async def capture_label(capture_id: int, request: Request):
+        """A person's correction: `label=not_bird` (no bird in the photo) or `clear` (back to the model)."""
+        form = await request.form()
+        label = str(form.get("label", ""))
+        if label not in ("not_bird", "clear"):
+            raise HTTPException(status_code=400, detail="label must be not_bird or clear")
+        c = await run_in_threadpool(store.get, capture_id)
+        if c is None:
+            raise HTTPException(status_code=404, detail="unknown capture")
+        if c.status != "done":
+            raise HTTPException(status_code=409, detail="capture is not classified yet")
+        if label == "not_bird":
+            before = await run_in_threadpool(store.mark_not_bird, capture_id)
+            # Its species/day loses the photo: re-rank (the next-best takes the slot), sync soon.
+            await run_in_threadpool(_forget, [before])
+            log.info("capture %d marked not a bird from the web page (model said %s)", capture_id, c.species or "bird")
+        else:
+            restored = await run_in_threadpool(store.clear_correction, capture_id)
+            if publisher is not None:
+                try:
+                    await run_in_threadpool(publisher.evaluate, restored)
+                except Exception:  # the label is restored either way; the next full rank catches up
+                    log.exception("publish: evaluate failed for capture %d", capture_id)
+            log.info("capture %d back to the model's verdict from the web page", capture_id)
+        return RedirectResponse(_grid_next(form), status_code=303)
+
     @app.post("/captures/delete-non-birds")
     async def captures_delete_non_birds(request: Request):
         """Bulk delete from the non-birds view: only non-bird and error rows among `ids` are deleted."""

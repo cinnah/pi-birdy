@@ -551,9 +551,13 @@ class FakePublisher:
     def __init__(self):
         self.calls = []
         self.forgotten = []
+        self.evaluated = []
 
     def forget(self, capture):
         self.forgotten.append(capture.id)
+
+    def evaluate(self, capture):
+        self.evaluated.append(capture.id)
 
     def set_manual(self, capture_id, state):
         self.calls.append((capture_id, state))
@@ -742,3 +746,37 @@ def test_crop_jpg_missing_photo(client, store):
     cid = _add_photo(store)
     (store.photos_dir / store.get(cid).path).unlink()
     assert client.get(f"/captures/{cid}/crop.jpg").status_code == 404
+
+
+def test_not_a_bird_button_on_bird_tiles_only(client, store):
+    bird = add(store, 0, True)
+    junk = add(store, 1, False)
+    html = client.get("/?filter=all").text
+    assert f'action="/captures/{bird.id}/label"' in html
+    assert f'action="/captures/{junk.id}/label"' not in html
+
+
+def test_mark_not_bird_and_back(pclient, store, publisher):
+    a = add(store, 0, True)
+    store.set_published(a.id, "auto")
+    r = pclient.post(f"/captures/{a.id}/label", data={"label": "not_bird", "next": "/?filter=birds"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=birds"
+    c = store.get(a.id)
+    assert c.is_bird is False and c.species is None and c.published is None
+    assert publisher.forgotten == [a.id]            # its species/day is re-ranked, the gallery syncs
+    html = pclient.get("/?filter=non-birds").text
+    assert "you: no bird" in html and "Back to model" in html and "model: Robin" in html
+    r = pclient.post(f"/captures/{a.id}/label", data={"label": "clear"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    c = store.get(a.id)
+    assert c.is_bird is True and c.species == "Robin"
+    assert publisher.evaluated == [a.id]
+
+
+def test_label_rejects_bad_input(client, store):
+    a = add(store, 0, True)
+    assert client.post(f"/captures/{a.id}/label", data={"label": "robin"}).status_code == 400
+    assert client.post("/captures/999/label", data={"label": "not_bird"}).status_code == 404
+    abs_path, rel = store.photo_path_for(T0)
+    pending = store.add_capture(T0, rel, 100)
+    assert client.post(f"/captures/{pending}/label", data={"label": "not_bird"}).status_code == 409

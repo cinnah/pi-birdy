@@ -125,7 +125,7 @@ Best photo = highest p for the winner (ties: lower id). `consider` takes `first_
 
 **Migration** (Plan B; on `Store` open, guarded by `PRAGMA user_version`):
 - back up first with `sqlite3.Connection.backup` to `data/birdy.db.bak`;
-- `BEGIN IMMEDIATE`, re-check `user_version` inside (the service, `birdy purge` and `birdy publish` all open the Store), add columns, copy `is_bird/confidence/species/species_confidence` into `model_*`, build visits over all history in `captured_at` order (all `closed = 1`, `alert = 'skipped'`), resolve every visit, bump `user_version`, commit;
+- `BEGIN IMMEDIATE`, re-check `user_version` inside (the service, `birdy purge` and `birdy publish` all open the Store), add columns, copy `is_bird/confidence/species/species_confidence` into `model_*` **only where `manual_at IS NULL`** (rows corrected with the interim Not-a-bird button, shipped 2026-10-06, already hold the model's verdict in `model_*` and their correction in `manual_*`), build visits over all history in `captured_at` order (all `closed = 1`, `alert = 'skipped'`), resolve every visit, bump `user_version`, commit;
 - set `store.migrated_visits = True`; `cmd_run` then calls `publisher.evaluate_all()` when publishing is enabled.
 
 Old rows have `model_top10` NULL and vote with `model_species` only. Idempotent: a second open does nothing.

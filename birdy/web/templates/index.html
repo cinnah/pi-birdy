@@ -67,6 +67,7 @@
   .tile .stamp + .stamp { padding-top: 0; }
   .tile .sp { color: var(--osd); overflow: hidden; text-overflow: ellipsis; }
   .tile.junk img { filter: grayscale(0.6) brightness(0.8); }
+  .tile .sp.model { color: #a3aaa5; }
   .tile.junk:hover img { filter: none; }
 
   .empty { padding: 48px 0; max-width: 52ch; }
@@ -136,12 +137,14 @@
       <div class="stamp">
         <span>{{ t[5:] }}</span>
         {% if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
+        {% elif c.manual_is_bird == false %}<span class="tag no">you: no bird</span>
         {% elif c.is_bird %}<span class="tag bird">bird {{ (c.confidence * 100) | round(0) | int }}%</span>
         {% else %}<span class="tag no">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}
       </div>
       <div class="stamp">
         <span class="mot">mot {{ c.motion_score }}</span>
-        {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
+        {% if c.species %}<span class="sp">{{ c.species }}</span>
+        {% elif c.manual_at and c.model_species %}<span class="sp model">model: {{ c.model_species }}</span>{% endif %}
       </div>
     </a>
     {% set here = request.url.path + ('?' + request.url.query if request.url.query else '') %}
@@ -158,6 +161,13 @@
     </form>
     {% endif %}
     <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
+    {% if c.manual_at or (c.is_bird and c.status == 'done') %}
+    <form method="post" action="/captures/{{ c.id }}/label">
+      <input type="hidden" name="next" value="{{ here }}">
+      {% if c.manual_at %}<button class="pb" name="label" value="clear">Back to model</button>
+      {% else %}<button class="pb" name="label" value="not_bird">Not a bird</button>{% endif %}
+    </form>
+    {% endif %}
     <form method="post" action="/captures/{{ c.id }}/delete" data-confirm="Sure?">
       <input type="hidden" name="next" value="{{ here }}">
       <button class="pb del" type="submit" aria-label="Delete this photo">Delete</button>
