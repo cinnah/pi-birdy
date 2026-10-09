@@ -76,7 +76,42 @@
   .pager { display: flex; align-items: center; gap: 12px; margin-top: 24px; font: 600 12px/1 var(--mono); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: 0.08em; }
   .pager .at { color: var(--dim); }
 
+  /* lightbox: the photo on the OSD-black frame, stamps burned underneath (fixed OSD colours in both lights) */
+  .lb {
+    width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+    background: var(--osd-bar); color: var(--osd);
+  }
+  .lb::backdrop { background: var(--osd-bar); }
+  .lb[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .lb .bar {
+    display: flex; align-items: center; gap: 12px; padding: 0 0 0 var(--gutter); height: var(--strip-h);
+    border-bottom: 1px solid #2b2f2c;
+    font: 500 12px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .lb .bar .at { color: #a3aaa5; }
+  .lb .bar a { margin-left: auto; color: #a3aaa5; }
+  .lb .bar a:hover { color: var(--osd); }
+  .lb button {
+    border: 0; border-radius: 0; background: transparent; color: var(--osd); cursor: pointer;
+    font: 700 12px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .lb .close { height: 100%; padding: 0 var(--gutter); border-left: 1px solid #2b2f2c; }
+  .lb .close:hover, .lb .nav:hover { background: var(--osd); color: var(--osd-bar); }
+  .lb .view { position: relative; min-height: 0; overflow: hidden; }
+  .lb .view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .lb .nav { position: absolute; top: 0; bottom: 0; width: 64px; font-size: 32px; font-weight: 400; }
+  .lb .nav.prev { left: 0; }
+  .lb .nav.next { right: 0; }
+  .lb .nav:disabled { visibility: hidden; }
+  .lb .stamps { border-top: 1px solid #2b2f2c; }
+  .lb .stamps .stamp { justify-content: center; gap: 24px; font-size: 12px; }
+  .lb .stamps .stamp + .stamp { padding-top: 0; }
+  .lb .sp.model { color: #a3aaa5; }
+  .lb :focus-visible { outline-color: var(--osd-amber); outline-offset: -2px; }
+
   @media (max-width: 640px) {
+    .lb .nav { width: 44px; }
+    .lb .stamps .stamp { justify-content: space-between; font-size: 11px; }
     .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .stamp { font-size: 11px; padding: 4px 6px; font-stretch: 75%; letter-spacing: 0; }
     .filters { gap: 10px; }
@@ -132,7 +167,7 @@
     {% for c in captures %}
     {% set t = c.captured_at | local_time %}
     <div class="tile{{ ' junk' if c.is_bird == false else '' }}">
-    <a class="photo" href="/photos/{{ c.path }}">
+    <a class="photo" href="/photos/{{ c.path }}"{% if c.thumb_path %} data-thumb="/thumbs/{{ c.thumb_path }}"{% endif %}>
       {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="{{ c.species or ('bird' if c.is_bird else 'capture') }} at {{ t }}" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
       <div class="stamp">
         <span>{{ t[5:] }}</span>
@@ -183,6 +218,20 @@
   </div>
   {% endif %}
 
+  <dialog class="lb" id="lb" aria-label="Photo">
+    <div class="bar">
+      <span class="at" id="lb-at"></span>
+      <a id="lb-orig" href="" target="_blank" rel="noopener">original</a>
+      <button class="close" type="button" id="lb-close" aria-label="Close" autofocus>close ×</button>
+    </div>
+    <div class="view">
+      <img id="lb-img" alt="">
+      <button class="nav prev" type="button" id="lb-prev" aria-label="Newer photo">‹</button>
+      <button class="nav next" type="button" id="lb-next" aria-label="Older photo">›</button>
+    </div>
+    <div class="stamps" id="lb-stamps"></div>
+  </dialog>
+
   <div class="pager">
     {% if page > 1 %}<a class="btn" href="/?filter={{ filter }}&page={{ page - 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">newer</a>{% endif %}
     <span class="at">page {{ page }} / {{ pages }}</span>
@@ -202,5 +251,59 @@ document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener(
   b.dataset.armed = '1'; b.textContent = f.dataset.confirm; b.classList.add('armed');
   setTimeout(() => { delete b.dataset.armed; b.textContent = label; b.classList.remove('armed'); }, 4000);
 }));
+
+// Lightbox: a tile's photo opens over the grid; arrows/keys/swipe step through this page's photos.
+// The links still work as plain links without JS, and a modified click still opens a new tab.
+(function () {
+  const lb = document.getElementById('lb'), img = document.getElementById('lb-img');
+  const at = document.getElementById('lb-at'), orig = document.getElementById('lb-orig');
+  const stamps = document.getElementById('lb-stamps');
+  const prev = document.getElementById('lb-prev'), next = document.getElementById('lb-next');
+  const links = [...document.querySelectorAll('.tile a.photo')];
+  if (!lb || !links.length || !lb.showModal) return;
+  let i = 0;
+
+  function show(n) {
+    i = n;
+    const a = links[i];
+    img.alt = a.querySelector('img')?.alt || '';
+    // the cached thumb shows at once; the full photo replaces it when it has loaded
+    if (a.dataset.thumb) img.src = a.dataset.thumb;
+    const full = new Image();
+    full.onload = () => { if (links[i] === a) img.src = a.href; };
+    full.src = a.href;
+    orig.href = a.href;
+    at.textContent = `${i + 1} / ${links.length}`;
+    stamps.replaceChildren(...[...a.querySelectorAll('.stamp')].map(s => s.cloneNode(true)));
+    prev.disabled = i === 0;
+    next.disabled = i === links.length - 1;
+  }
+  const step = d => { const n = i + d; if (n >= 0 && n < links.length) show(n); };
+
+  links.forEach((a, n) => a.addEventListener('click', e => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    show(n);
+    lb.showModal();
+  }));
+  prev.addEventListener('click', () => step(-1));
+  next.addEventListener('click', () => step(1));
+  document.getElementById('lb-close').addEventListener('click', () => lb.close());
+  lb.addEventListener('close', () => { img.removeAttribute('src'); links[i].focus(); });
+  // a click on the photo or the black around it closes it
+  lb.querySelector('.view').addEventListener('click', e => { if (!e.target.closest('button')) lb.close(); });
+  lb.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+  });
+  let x0 = null;
+  lb.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, {passive: true});
+  lb.addEventListener('touchend', e => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+    x0 = null;
+  });
+})();
 </script>
 {% endblock %}
