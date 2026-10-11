@@ -26,6 +26,8 @@ class RuntimeState:
         self.override: str | None = None
         self.override_until: datetime | None = None
         self.override_version = 0  # bumped on every set, so the capture loop wakes promptly
+        # "Take a photo" from the web page: the capture loop takes it on its next frame.
+        self.capture_requested = False
 
     def update(self, **fields) -> None:
         with self._lock:
@@ -41,6 +43,17 @@ class RuntimeState:
             self.override = mode
             self.override_until = None if mode is None else until
             self.override_version += 1
+
+    def request_capture(self) -> None:
+        with self._lock:
+            self.capture_requested = True
+
+    def take_capture_request(self) -> bool:
+        """Consume a pending "Take a photo" request (True at most once per press)."""
+        with self._lock:
+            pending = self.capture_requested
+            self.capture_requested = False
+        return pending
 
     def camera_wanted(self, gate: DaylightGate, now: datetime) -> bool:
         """Whether the camera should run now: an unexpired override wins, else the daylight gate.

@@ -70,7 +70,9 @@ def grab_lores_frame(config: Config):
         return lores_grey(picam2, config.camera.lores_size)
 
 
-def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int, motion_box: NormBox | None = None) -> None:
+def _capture_still(
+    picam2, store: Store, pipeline: Pipeline, score: int, motion_box: NormBox | None = None, manual: bool = False
+) -> None:
     global _low_disk_warned
     free = store.disk_free_bytes()
     if free < MIN_FREE_BYTES:
@@ -83,7 +85,7 @@ def _capture_still(picam2, store: Store, pipeline: Pipeline, score: int, motion_
     picam2.capture_file(str(abs_path))
     capture_id = store.add_capture(now, rel_path, score, motion_box=motion_box)
     pipeline.submit(MotionEvent(capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score))
-    log.info("captured %s (motion %d)", rel_path, score)
+    log.info("captured %s (%s)", rel_path, "by hand" if manual else f"motion {score}")
 
 
 def _tunable_key(cfg: Config) -> tuple:
@@ -182,6 +184,7 @@ def run_capture(
             with camera_session(config) as picam2:
                 state.update(state="capturing")
                 _low_disk_warned = False
+                state.take_capture_request()  # a press while the camera was off is stale, not a photo now
                 last_gate_check = time.monotonic()
                 override_version = state.override_version
                 consecutive_errors = 0
@@ -204,6 +207,9 @@ def run_capture(
                         if result.triggered:
                             box = None if result.bbox is None else normalise_bbox(result.bbox, config.camera.lores_size)
                             _capture_still(picam2, store, pipeline, result.score, box)
+                        elif state.take_capture_request():
+                            # "Take a photo" from the web page: no motion box, so the classifier uses the ROI crop.
+                            _capture_still(picam2, store, pipeline, result.score, manual=True)
                         consecutive_errors = 0
                     except Exception:
                         consecutive_errors += 1

@@ -353,6 +353,19 @@ def create_app(
             state.set_override(mode, gate.next_change(datetime.now().astimezone()))
         return RedirectResponse(nxt, status_code=303)
 
+    @app.post("/camera/capture")
+    async def camera_capture(request: Request):
+        """Take a photo now: the capture loop shoots on its next frame (~0.1 s) and the
+        pipeline classifies it like a motion capture. 409 while the camera is off."""
+        form = await request.form()
+        nxt = str(form.get("next", "/"))
+        if not (nxt in ("/", "/settings") or nxt.startswith("/?")):
+            nxt = "/"
+        if state.state != "capturing":
+            raise HTTPException(status_code=409, detail="the camera is off; turn it on first")
+        state.request_capture()
+        return RedirectResponse(nxt, status_code=303)
+
     @app.post("/captures/{capture_id}/publish")
     async def capture_publish(capture_id: int, request: Request):
         if publisher is None:

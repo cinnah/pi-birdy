@@ -780,3 +780,22 @@ def test_label_rejects_bad_input(client, store):
     abs_path, rel = store.photo_path_for(T0)
     pending = store.add_capture(T0, rel, 100)
     assert client.post(f"/captures/{pending}/label", data={"label": "not_bird"}).status_code == 409
+
+
+def test_take_photo_button_asks_the_capture_loop(client, state):
+    page = client.get("/").text
+    assert 'formaction="/camera/capture"' in page
+    r = client.post("/camera/capture", data={"next": "/?filter=all"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=all"
+    assert state.take_capture_request() is True
+    assert state.take_capture_request() is False
+    r = client.post("/camera/capture", data={"next": "//evil"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+
+
+def test_take_photo_refused_while_camera_is_off(client, state):
+    state.update(state="daylight_paused")
+    assert 'formaction="/camera/capture"' not in client.get("/").text
+    r = client.post("/camera/capture", data={"next": "/"})
+    assert r.status_code == 409
+    assert state.take_capture_request() is False

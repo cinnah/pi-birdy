@@ -201,3 +201,35 @@ def test_capture_still_stores_motion_box(tmp_path):
     c = store.get(sink.events[0].capture_id)
     assert c.motion_score == 321
     assert c.motion_box == (0.25, 0.5, 0.125, 0.0625)
+
+
+def test_manual_capture_request_takes_a_still_on_the_next_frame(live, monkeypatch, tmp_path):
+    @contextmanager
+    def fake_session(cfg):
+        yield _StillCamera()
+
+    monkeypatch.setattr(capture, "camera_session", fake_session)
+    monkeypatch.setattr(capture, "lores_grey", lambda picam2, lores_size: np.zeros((240, 320), np.uint8))
+    monkeypatch.setattr(capture, "FRAME_INTERVAL", 0.02)
+    store = Store(tmp_path / "data")
+    sink = _Sink()
+    state = RuntimeState()
+    state.request_capture()  # pressed before the session: discarded, not taken at session start
+    stop = threading.Event()
+    t = threading.Thread(target=run_capture, args=(live, store, sink, state, stop), daemon=True)
+    t.start()
+    try:
+        assert _wait(lambda: state.state == "capturing")
+        time.sleep(0.1)
+        assert sink.events == []  # a still frame never triggers the detector
+        state.request_capture()
+        assert _wait(lambda: len(sink.events) == 1)
+        time.sleep(0.1)
+        assert len(sink.events) == 1  # one press, one photo
+    finally:
+        stop.set()
+        t.join(timeout=3.0)
+    assert not t.is_alive()
+    row = store.get(sink.events[0].capture_id)
+    assert row.status == "pending" and row.motion_score == 0 and row.motion_box is None
+    assert (store.photos_dir / row.path).exists()
