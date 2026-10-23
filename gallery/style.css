@@ -57,6 +57,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoratio
 .head h2 .sub { font-size: 17px; letter-spacing: 0; display: block; margin-top: 4px; color: var(--ink); }
 .head .meta { grid-column: 2; grid-row: 1; align-self: end; text-align: right; font: 15px/1.5 var(--type); }
 .head .meta .label { margin-bottom: 2px; }
+.pager { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 24px; margin-top: 10px; font-size: 15px; }
 .note { margin: 0; padding: 9px 0; border-bottom: 1px solid var(--rule); font: italic 15px/1.5 var(--type); color: var(--rule-ink); }
 
 /* ruled rows: a species column, then one column per feeder */
@@ -185,6 +186,7 @@ dialog .close:hover { color: var(--red); }
   .sheet { padding: 0 16px 32px; }
   .head { grid-template-columns: 1fr; }
   .head .meta { grid-column: 1; grid-row: 3; text-align: left; margin-top: 6px; }
+  .head .pager { grid-row: 4; }
   .head .meta .label { margin-bottom: 2px; }
   .daily .heads { display: flex; flex-wrap: wrap; gap: 8px 20px; }
   .daily .heads .label { display: none; }

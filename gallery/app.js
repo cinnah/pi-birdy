@@ -159,11 +159,24 @@ const BIRDY = (() => {
     let sheetDay = todays[0] || localToday(), note = "";
     // Red is for today only: a feeder's own today. The fallback sheet (last day with entries) is never red.
     const isToday = (d) => (todays.length ? todays : [localToday()]).includes(d);
-    if (!live.some((s, i) => s.manifest.photos.some((p) => day(p.captured_at) === todays[i]))) {
+    // Every local day that has entries at some feeder, oldest first: the sheets the pager steps through.
+    const entryDays = [...new Set(live.flatMap((s) => s.manifest.photos.map((p) => day(p.captured_at))))].sort();
+    const asked = q("day");
+    if (asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && !isToday(asked)) sheetDay = asked;
+    else if (!live.some((s, i) => s.manifest.photos.some((p) => day(p.captured_at) === todays[i]))) {
       // Nothing anywhere today: the sheet shows the last day that has entries, and says so.
-      const last = live.flatMap((s) => s.manifest.photos.map((p) => day(p.captured_at))).sort().at(-1);
+      const last = entryDays.at(-1);
       if (last) { sheetDay = last; note = "No entries yet today. This is the last sheet with entries."; }
     }
+    // Previous/next sheet with entries; past the last one, the way forward is today's sheet (the page without ?day).
+    const prevDay = entryDays.filter((d) => d < sheetDay).at(-1);
+    const nextDay = entryDays.find((d) => d > sheetDay && !isToday(d));
+    const onToday = !q("day") || isToday(sheetDay);
+    const sheetHref = (d) => "index.html?day=" + encodeURIComponent(d);
+    const prevLink = prevDay ? `<a class="hit" href="${sheetHref(prevDay)}" rel="prev"><span aria-hidden="true">← </span>${esc(dayShort(prevDay))}</a>` : "";
+    const nextLink = nextDay ? `<a class="hit" href="${sheetHref(nextDay)}" rel="next">${esc(dayShort(nextDay))}<span aria-hidden="true"> →</span></a>`
+      : onToday ? "" : `<a class="hit" href="index.html">Today<span aria-hidden="true"> →</span></a>`;
+    const pager = prevLink || nextLink ? `<nav class="pager typed" aria-label="Other sheets"><span>${prevLink}</span><span>${nextLink}</span></nav>` : "";
     const groups = sites.map((s) => (s.manifest ? groupByDay(s.manifest, sheetDay) : null));
     const rows = new Map();
     groups.forEach((g, i) => {
@@ -177,7 +190,7 @@ const BIRDY = (() => {
     const ordered = [...rows.values()].sort((a, b) => b.total - a.total || a.species.localeCompare(b.species));
     const latest = Math.max(0, ...ordered.map((r) => r.latest));
     const since = live.map((s) => s.manifest.site.since).filter(Boolean).sort()[0];
-    const sheetNo = since ? dayDiff(since, sheetDay) + 1 : null;
+    const sheetNo = since && sheetDay >= since ? dayDiff(since, sheetDay) + 1 : null;   // photos ranked from before "since" have no sheet number
     const multi = sites.length > 1;
     document.title = `birdy — daily record, ${dayLong(sheetDay)}`;
 
@@ -210,6 +223,7 @@ const BIRDY = (() => {
         <header class="head">
           <h2 class="${isToday(sheetDay) ? "today" : ""}">${esc(dayFull(sheetDay))}</h2>
           <div class="meta">${sheetNo ? `<p class="label">Sheet</p>${esc(sheetNo)}` : ""}</div>
+          ${pager}
         </header>
         ${note ? `<p class="note">${esc(note)}</p>` : ""}
         <div class="row heads"><p class="label">Species</p>${heads}</div>
