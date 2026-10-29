@@ -337,7 +337,25 @@ def test_index_species_dropdown_and_filter(client, store):
     assert '<select name="species"' in r.text and "Robin (1)" in r.text
     r2 = client.get("/?species=Robin")
     assert robin.thumb_path in r2.text and junk.thumb_path not in r2.text
-    assert client.get("/?species=Dodo").status_code == 400
+    r3 = client.get("/?species=Dodo")
+    assert r3.status_code == 200 and "No Dodo photos" in r3.text
+    assert '<option value="Dodo" selected>Dodo (0)</option>' in r3.text
+
+
+def test_alert_link_after_not_a_bird_renders_empty_grid(client, store):
+    # A Telegram alert links to /?species=Robin; the photo is corrected afterwards.
+    robin = add(store, 0, True)
+    client.post(f"/captures/{robin.id}/label", data={"label": "not_bird"})
+    r = client.get("/?species=Robin")
+    assert r.status_code == 200 and "No Robin photos" in r.text
+    assert robin.thumb_path not in r.text and "marked <i>Not a bird</i> or deleted" in r.text
+
+
+def test_species_with_birds_empty_in_other_view(client, store):
+    add(store, 0, True)
+    r = client.get("/?filter=non-birds&species=Robin")
+    assert "No Robin photos" in r.text and "None in this view" in r.text
+    assert "or deleted" not in r.text and "Robin (0)" not in r.text
 
 
 def test_index_links_to_species_page(client):
@@ -439,7 +457,7 @@ def test_species_labelled_non_bird_is_hidden(client, store):
     index = client.get("/").text
     assert 'value="Sparrow"' not in index and "Sparrow (1)" not in index  # tile shows the label, dropdown doesn't
     assert "Sparrow" not in client.get("/species").text
-    assert client.get("/?species=Sparrow").status_code == 400  # unknown: only bird rows count
+    assert "No Sparrow photos" in client.get("/?species=Sparrow").text  # only bird rows count
     assert client.get("/status").json()["last_species"] is None
 
 

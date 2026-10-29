@@ -109,8 +109,6 @@ def create_app(
         summary = store.species_summary()
         if species == "":
             species = None
-        if species is not None and species not in {r.species for r in summary}:
-            raise HTTPException(status_code=400, detail="unknown species")
         total = store.count(filter, species=species)
         pages = max(1, -(-total // PAGE_SIZE))
         page = min(max(1, page), pages)

@@ -142,11 +142,15 @@
         <a href="/?filter={{ f }}{% if species %}&species={{ species | urlencode }}{% endif %}" class="{{ 'active' if f == filter else '' }}">{{ label }}</a>
       {% endfor %}
     </div>
+    {% set stale_species = species and species not in species_rows | map(attribute='species') | list %}
     <select name="species" aria-label="Species" onchange="location.href='/?filter={{ filter }}&species=' + encodeURIComponent(this.value)">
       <option value="" {{ 'selected' if not species else '' }}>All species</option>
       {% for r in species_rows %}
       <option value="{{ r.species }}" {{ 'selected' if r.species == species else '' }}>{{ r.species }} ({{ r.count }})</option>
       {% endfor %}
+      {% if stale_species %}
+      <option value="{{ species }}" selected>{{ species }} (0)</option>
+      {% endif %}
     </select>
     <span class="count"><b>{{ total }}</b> photos</span>
   </nav>
@@ -213,8 +217,17 @@
   </div>
   {% else %}
   <div class="empty">
+    {% if species %}
+    <h2 class="head">No {{ species }} photos.</h2>
+    {% if stale_species %}
+    <p>None are stored any more: the photo was marked <i>Not a bird</i> or deleted. <a href="/">All birds</a>.</p>
+    {% else %}
+    <p>None in this view. <a href="/?species={{ species | urlencode }}">All {{ species }} photos</a>.</p>
+    {% endif %}
+    {% else %}
     <h2 class="head">No captures yet.</h2>
     <p>The camera saves a photo whenever something moves inside the watch area. Check the frame and the walk test in <a href="/settings">setup</a>.</p>
+    {% endif %}
   </div>
   {% endif %}
 
