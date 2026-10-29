@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import signal
+import socket
 import sys
 import threading
 import time
@@ -67,6 +68,25 @@ def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
     return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size)
 
 
+def _listen_socket(host: str, port: int) -> socket.socket | None:
+    """A dual-stack socket for host "::", else None (uvicorn binds the host itself).
+
+    birdy.local resolves to the Pi's IPv6 address too, and asyncio makes "::" IPv6-only,
+    so a browser that tries IPv6 first would hang. Clearing IPV6_V6ONLY accepts both.
+    """
+    if host != "::":
+        return None
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind((host, port))
+    except OSError:
+        sock.close()
+        raise
+    return sock
+
+
 def cmd_run(config: Config, config_path: Path) -> int:
     import uvicorn
 
@@ -76,6 +96,13 @@ def cmd_run(config: Config, config_path: Path) -> int:
     from birdy.state import RuntimeState
     from birdy.watcher import ConfigWatcher
     from birdy.web.app import create_app
+
+    # Bound before any thread starts, so a taken port exits cleanly for systemd to retry.
+    try:
+        sock = _listen_socket(config.web.host, config.web.port)
+    except OSError as e:
+        log.error("web server failed to start on %s:%d: %s", config.web.host, config.web.port, e)
+        return 1
 
     live = LiveConfig(config)
     store = Store(config.storage.data_dir)
@@ -106,7 +133,9 @@ def cmd_run(config: Config, config_path: Path) -> int:
         queue_depth=pipeline.queue_depth, classifier=clf, notifier=notifier, publisher=publisher,
     )
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
-    web_thread = threading.Thread(target=server.run, name="web", daemon=True)
+    web_thread = threading.Thread(
+        target=server.run, kwargs={"sockets": [sock] if sock else None}, name="web", daemon=True,
+    )
     web_thread.start()
 
     stop = threading.Event()

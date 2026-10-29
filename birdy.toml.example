@@ -49,7 +49,7 @@ non_bird_days = 7          # non-bird photos older than this are deleted hourly
 data_dir = "data"          # photos/, thumbs/, birdy.db live here
 
 [web]
-host = "0.0.0.0"
+host = "0.0.0.0"          # restart-only; "::" = IPv4 + IPv6 (birdy.local also resolves to IPv6)
 port = 8000
 
 [telegram]

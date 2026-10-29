@@ -484,3 +484,24 @@ def test_classify_capture_uses_stored_crop(tmp_path):
 
     proc = _run_cli("--config", str(cfg), "classify", "--capture", "999")
     assert proc.returncode == 1
+
+
+def test_listen_socket_dual_stack_accepts_ipv4_and_ipv6():
+    from birdy.cli import _listen_socket
+
+    sock = _listen_socket("::", 0)
+    try:
+        sock.listen()
+        port = sock.getsockname()[1]
+        for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+            with socket.socket(family, socket.SOCK_STREAM) as c:
+                c.settimeout(2)
+                c.connect((addr, port))
+    finally:
+        sock.close()
+
+
+def test_listen_socket_none_for_plain_hosts():
+    from birdy.cli import _listen_socket
+
+    assert _listen_socket("0.0.0.0", 0) is None
