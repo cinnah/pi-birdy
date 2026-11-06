@@ -35,8 +35,10 @@ BLUE_TIT = SpeciesLabel("Cyanistes caeruleus", "Eurasian Blue Tit")
 
 
 class FakeBank:
+    reported_names = frozenset({"black redstart", "eurasian hoopoe"})   # common names; latin is not what a capture says
+
     def resolve(self, name):
-        return {"black redstart": 1, "eurasian hoopoe": 2}.get(name.strip().casefold())
+        return {"black redstart": 1, "phoenicurus ochruros": 1, "eurasian hoopoe": 2}.get(name.strip().casefold())
 
 
 class FakeSpeciesModel:
@@ -51,7 +53,9 @@ class FakeSpeciesList:
         from birdy.species_list import LocalList
         return LocalList(datetime.now(timezone.utc), 38.8, -9.39, 50, [{"id": 1, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 3}])
 
-    def unknown_names(self, names):
+    def unknown_names(self, names, reported_only=False):
+        if reported_only:
+            return [n for n in names if n.strip().casefold() not in FakeBank.reported_names]
         return [n for n in names if FakeBank().resolve(n) is None]
 
 
@@ -876,6 +880,10 @@ def test_settings_rejects_unknown_species_names(client):
     assert r.status_code == 422 and "species.exclude" in r.text
     r = client.post("/settings", data={**_base_form(), "watchlist": "Black Redstart\nUnicorn"}, follow_redirects=False)
     assert r.status_code == 422 and "telegram.watchlist" in r.text and "Unicorn" in r.text
+    r = client.post("/settings", data={**_base_form(), "watchlist": "Phoenicurus ochruros"}, follow_redirects=False)
+    assert r.status_code == 422 and "telegram.watchlist" in r.text and "use the English name shown on /species" in r.text
+    r = client.post("/settings", data={**_base_form(), "species_include": "Phoenicurus ochruros"}, follow_redirects=False)
+    assert r.status_code == 303                                 # include/exclude take latin names
     r = client.post("/settings", data={**_base_form(), "species_include": "eurasian hoopoe", "watchlist": "black redstart"}, follow_redirects=False)
     assert r.status_code == 303
 

@@ -165,6 +165,18 @@ def test_species_unknown_key_ignored(tmp_path):
     assert cfg.species.include == ()
 
 
+def test_species_legacy_tflite_model_uses_default(tmp_path, caplog):
+    with caplog.at_level("WARNING", logger="birdy.config"):
+        cfg = load_config(write(tmp_path, MINIMAL + '\n[species]\nmodel = "models/old.tflite"\n'))
+    assert cfg.species.model == tmp_path / "models" / "bioclip2-vision-int8.onnx"
+    assert "old TFLite model" in caplog.text
+
+
+def test_species_onnx_model_kept(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[species]\nmodel = "models/other.onnx"\n'))
+    assert cfg.species.model == tmp_path / "models" / "other.onnx"
+
+
 @pytest.mark.parametrize("text", ["region_radius_km = 0", "region_radius_km = 501", 'region_radius_km = "x"'])
 def test_species_radius_range(tmp_path, text):
     with pytest.raises(ConfigError, match="species.region_radius_km"):

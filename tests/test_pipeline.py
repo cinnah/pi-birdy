@@ -26,7 +26,7 @@ class FakeClassifier:
         self.thresholds: list = []
         self.pads: list = []
 
-    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
         self.calls.append(image_path)
         self.bboxes.append(roi_bbox)
         self.pads.append(pad)
@@ -188,7 +188,7 @@ def test_store_get_error_in_worker_does_not_kill_thread(store, live, monkeypatch
 
 
 class SlowClassifier(FakeClassifier):
-    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
         time.sleep(0.3)
         return super().classify(image_path, roi_bbox, threshold, pad)
 
@@ -242,7 +242,7 @@ class SpeciesFake(FakeClassifier):
         super().__init__(**kwargs)
         self.species, self.conf = species, conf
 
-    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
         super().classify(image_path, roi_bbox, threshold, pad)
         return Prediction(is_bird=True, confidence=0.9, species=self.species, species_confidence=self.conf)
 
@@ -298,7 +298,7 @@ def test_backlog_limit_per_sweep(store, live):
 
 
 class NotBirdFake(FakeClassifier):
-    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
         super().classify(image_path, roi_bbox, threshold, pad)
         return Prediction(is_bird=False, confidence=0.2)
 
@@ -533,7 +533,7 @@ def test_corrupt_stored_box_marks_error(store, live):
 class DetectorFake(FakeClassifier):
     """What the real classifier returns for a bird the gate missed but the detector found."""
 
-    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
         super().classify(image_path, roi_bbox, threshold, pad)
         return Prediction(is_bird=True, confidence=0.55, detector_confidence=0.55, detector_box=(0.1, 0.2, 0.3, 0.4))
 
@@ -589,7 +589,7 @@ class ReturnsFake(FakeClassifier):
         super().__init__(**kw)
         self.pred = pred
 
-    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
         super().classify(image_path, roi_bbox, threshold, pad)
         return self.pred
 
@@ -628,6 +628,27 @@ def test_backfill_writes_species_for_unseen_rows(store, live):
     assert c.species == "Robin" and c.species_confidence == 0.8
     assert [x.id for x in pub.evaluated] == [ev.capture_id]
     assert store.classification_backlog() == []
+
+
+def test_backfill_renames_a_known_bird_the_gate_now_rejects(store, live):
+    class KnownBirdFake(ReturnsFake):
+        def __init__(self, pred):
+            super().__init__(pred)
+            self.known = []
+
+        def classify(self, image_path, roi_bbox, threshold=None, pad=None, known_bird=None):
+            self.known.append(known_bird)
+            return super().classify(image_path, roi_bbox, threshold, pad)
+
+    bird, other = add(store, 0), add(store, 1)
+    store.update_classification(bird.capture_id, True, 0.9, "Black Phoebe", 0.7)
+    store.update_classification(other.capture_id, False, 0.1, None, None)
+    unchecked(store, [bird.capture_id, other.capture_id])
+    clf = KnownBirdFake(Prediction(is_bird=False, confidence=0.1, species="Black Redstart", species_confidence=0.9))
+    Pipeline(store, clf, live).sweep()
+    c = store.get(bird.capture_id)
+    assert c.is_bird is True and c.species == "Black Redstart" and c.species_confidence == 0.9
+    assert sorted(clf.known) == [False, True]          # only the stored bird is shown as known
 
 
 def test_backfill_promotion_with_species_evaluates_publisher_and_never_notifies(store, live):

@@ -213,6 +213,13 @@ def test_species_runs_for_detector_birds(live):
     assert pred.is_bird and pred.species == "Eurasian Blue Tit" and clf.species.calls == 1
 
 
+def test_known_bird_gets_a_species_but_keeps_the_fresh_verdict(live):
+    clf = two_stage(live, 0.1, 0.9, p_det=0.1)
+    pred, top = clf.classify_image(IMG, known_bird=True)
+    assert pred.is_bird is False and pred.species == "Eurasian Blue Tit" and pred.species_confidence == 0.9
+    assert clf.species.calls == 1 and top[0][0] == BLUE_TIT
+
+
 class FakeList:
     def __init__(self, ids):
         self.ids, self.version = ids, 1
@@ -237,6 +244,15 @@ def test_candidates_follow_the_list_and_species_config(live, config):
     live.replace(dataclasses.replace(live.get(), motion=dataclasses.replace(config.motion, min_area=99)))
     clf.classify_image(IMG)
     assert len(clf.species.candidate_sets) == 3          # an unrelated change does not
+
+
+def test_apply_candidates_applies_the_list_now(live):
+    lst = FakeList(frozenset({11}))
+    clf = TwoStageClassifier(FakeGate(0.1), FakeSpecies(0.8), live, lores_size=(320, 240), detector=FakeDetector(0.0), species_list=lst)
+    clf.apply_candidates()
+    assert clf.species.candidate_sets == [[11]] and clf.species.calls == 0
+    clf.apply_candidates()
+    assert len(clf.species.candidate_sets) == 1          # unchanged -> not recomputed
 
 
 def test_candidates_not_refreshed_for_non_birds(live):

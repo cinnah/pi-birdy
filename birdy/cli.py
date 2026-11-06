@@ -68,7 +68,7 @@ def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
         )
         species = BioClipSpecies(config.species.model, config.species.bank)
         detector = BirdDetector(config.detector.model, config.detector.labels)
-    except (ValueError, OSError, RuntimeError) as e:  # LiteRT raises RuntimeError on corrupt models
+    except (ValueError, OSError, RuntimeError, ImportError) as e:  # LiteRT raises RuntimeError on corrupt models; ImportError: no onnxruntime
         raise ModelLoadError(str(e)) from e
     species_list = SpeciesList(config.storage.data_dir, species.bank)
     return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size, detector=detector, species_list=species_list)
@@ -127,6 +127,21 @@ def cmd_run(config: Config, config_path: Path) -> int:
     species_list = getattr(clf, "species_list", None)
     if species_list is not None:
         species_list.start_refresh(config.site.lat, config.site.lon, config.species.region_radius_km)
+        if config.site.lat is not None and species_list.current() is None:
+            # No stored list: wait for the first fetch so the history rename uses the local list.
+            log.info("species list: waiting for the first fetch")
+            species_list.stop(timeout=60)
+            cur = species_list.current()
+            if cur is not None:
+                log.info("species list: %d species within %d km", len(cur.species), cur.radius_km)
+            else:
+                log.warning("species list: not fetched yet; using the whole bank for now")
+        apply_candidates = getattr(clf, "apply_candidates", None)
+        if apply_candidates is not None:
+            try:
+                apply_candidates()   # so /species shows the right candidate count before the first bird
+            except Exception:
+                log.exception("applying the species candidates failed; retried on the next bird")
     notifier = None
     if config.telegram.enabled:
         notifier = TelegramNotifier(live, store, HttpTelegramTransport(config.telegram.bot_token))

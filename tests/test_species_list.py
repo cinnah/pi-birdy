@@ -35,14 +35,14 @@ def many(n, start=1000):
 
 def test_fetch_pages_until_short_page():
     http = FakeHttp({50: [many(500), many(20, 2000)]})
-    rows = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
-    assert len(rows) == 520 and [c[3] for c in http.calls] == [1, 2]
+    rows, used = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
+    assert used == 50 and len(rows) == 520 and [c[3] for c in http.calls] == [1, 2]
 
 
 def test_fetch_retries_once_at_four_times_radius_when_too_few():
     http = FakeHttp({50: [many(5)], 200: [many(30)]})
-    rows = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
-    assert len(rows) == 30 and [c[2] for c in http.calls] == [50, 200]
+    rows, used = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
+    assert used == 200 and len(rows) == 30 and [c[2] for c in http.calls] == [50, 200]
 
 
 def test_local_list_roundtrip_atomic(tmp_path):
@@ -99,6 +99,13 @@ def test_candidates_from_list_plus_include_minus_exclude(tmp_path, caplog):
     assert sl.unknown_names(("Dodo", "European Robin")) == ["Dodo"]
 
 
+def test_unknown_names_reported_only_wants_the_stored_name(tmp_path):
+    sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
+    assert sl.unknown_names(["Phoenicurus ochruros"]) == []
+    assert sl.unknown_names(["Phoenicurus ochruros"], reported_only=True) == ["Phoenicurus ochruros"]
+    assert sl.unknown_names(["Black Redstart", " black redstart "], reported_only=True) == []
+
+
 def test_candidates_without_list_but_with_exclude_uses_whole_bank(tmp_path):
     sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
     assert sl.candidates(Cfg(exclude=("Eurasian Hoopoe",))) == frozenset({13094, 12942})
@@ -106,7 +113,7 @@ def test_candidates_without_list_but_with_exclude_uses_whole_bank(tmp_path):
 
 def test_refresh_fetches_saves_and_bumps_version(tmp_path, monkeypatch):
     sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
-    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([many(25)]))
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: (parse_species_counts([many(25)]), r))
     v0 = sl.version
     assert sl.refresh_if_needed(38.8, -9.39, 50) is True
     assert sl.version == v0 + 1 and sl.current().radius_km == 50 and (tmp_path / "data" / "species" / "local.json").exists()
@@ -149,7 +156,7 @@ def test_fetch_stops_paging_at_the_cap(caplog):
 
     http = Endless()
     with caplog.at_level("WARNING"):
-        rows = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
+        rows, _ = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
     assert http.calls == 20 and len(rows) == 20 * 500 and "20 pages" in caplog.text
 
 
@@ -164,12 +171,22 @@ def test_load_treats_naive_timestamp_as_utc(tmp_path):
 
 def test_refresh_with_too_few_species_keeps_current(tmp_path, monkeypatch, caplog):
     sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
-    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([many(3)]))
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: (parse_species_counts([many(3)]), r * 4))
     v0 = sl.version
     with caplog.at_level("WARNING"):
         assert sl.refresh_if_needed(38.8, -9.39, 50) is False
     assert not (tmp_path / "data" / "species" / "local.json").exists()
-    assert sl.current() is None and sl.version == v0 and "only 3 species" in caplog.text
+    assert sl.current() is None and sl.version == v0 and "only 3 species within 200 km" in caplog.text
+
+
+def test_refresh_stores_the_radius_used_and_the_configured_one(tmp_path, monkeypatch):
+    sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: (parse_species_counts([many(25)]), r * 4))
+    assert sl.refresh_if_needed(38.8, -9.39, 50) is True
+    cur = LocalList.load(tmp_path / "data" / "species" / "local.json")
+    assert cur.radius_km == 200 and cur.configured_radius_km == 50
+    assert sl.refresh_if_needed(38.8, -9.39, 50) is False     # a retry at 4x doesn't refetch at every start
+    assert needs_refresh(cur, 38.8, -9.39, 200, datetime.now(timezone.utc)) is True
 
 
 def test_refresh_save_failure_keeps_current(tmp_path, monkeypatch, caplog):
@@ -177,7 +194,7 @@ def test_refresh_save_failure_keeps_current(tmp_path, monkeypatch, caplog):
     old = LocalList(fetched_at=datetime.now(timezone.utc) - timedelta(days=100), lat=38.8, lon=-9.39, radius_km=50, species=[])
     old.save(tmp_path / "data" / "species" / "local.json")
     sl.reload()
-    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([many(25)]))
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: (parse_species_counts([many(25)]), r))
 
     def no_disk(self, path):
         raise OSError("disk full")

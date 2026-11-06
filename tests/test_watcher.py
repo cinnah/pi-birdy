@@ -111,11 +111,11 @@ def test_restart_only_change_warns(config_path, live, caplog):
 
 def test_species_model_change_warns(config_path, live, caplog):
     w = ConfigWatcher(config_path, live)
-    config_path.write_text(config_path.read_text() + '\n[species]\nmodel = "models/other.tflite"\n')
+    config_path.write_text(config_path.read_text() + '\n[species]\nmodel = "models/other.onnx"\n')
     bump_mtime(config_path)
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
-    assert live.get().species.model.name == "other.tflite"
+    assert live.get().species.model.name == "other.onnx"
     assert "restart birdy to apply them" in caplog.text
 
 

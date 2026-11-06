@@ -37,7 +37,8 @@ class Prediction:
 
 class Classifier(Protocol):
     def classify(
-        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None
+        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None,
+        known_bird: bool = False,
     ) -> Prediction: ...
 
 
@@ -175,8 +176,10 @@ class TwoStageClassifier:
     Rules (thresholds from `live`): the gate's P(bird) at or above `classifier.threshold`
     makes the photo a bird. A COCO `bird` detection at or above `detector.threshold` makes
     the photo a bird too. A frame both gate and detector rejected is not a bird, and the
-    species model is not run on it at all (it has no "nothing here" answer). For a bird, a
-    species is reported when its probability meets `species.threshold`.
+    species model is not run on it at all (it has no "nothing here" answer) - unless the
+    caller says it is a `known_bird` (a stored bird being re-checked), which always gets a
+    species run; `is_bird` is still the fresh verdict. A species is reported when its
+    probability meets `species.threshold`.
     With a `species_list`, the species model's candidate set is re-applied (before a species
     run, under the lock) whenever the `[species]` config or the list's version changed.
     A failing detector, species model or candidate refresh is logged once per distinct error
@@ -206,7 +209,7 @@ class TwoStageClassifier:
         self._lock = threading.Lock()
 
     def classify_image(
-        self, img_rgb: np.ndarray, threshold: float | None = None
+        self, img_rgb: np.ndarray, threshold: float | None = None, known_bird: bool = False
     ) -> tuple[Prediction, list[tuple[SpeciesLabel, float]]]:
         cfg = self._live.get()
         t_gate = cfg.classifier.threshold if threshold is None else threshold
@@ -227,9 +230,9 @@ class TwoStageClassifier:
             p_det = det.score if det is not None else 0.0
             is_bird = p_bird >= t_gate or p_det >= t_det
             top = []
-            if is_bird:
+            if is_bird or known_bird:
                 # The species model has no "nothing here" answer (14 % of empty frames get a confident
-                # name), so it only ever sees photos the gate or detector already called a bird.
+                # name), so it only ever sees photos the gate or detector (or an earlier verdict) called a bird.
                 try:
                     self._refresh_candidates(cfg)
                     top = self.species.top(img_rgb, k=5)
@@ -263,7 +266,13 @@ class TwoStageClassifier:
         log.info("species candidates: %d", n)
         self._cand_key = key
 
+    def apply_candidates(self) -> None:
+        """Apply the species list's candidates now (e.g. right after the first fetch at start-up)."""
+        with self._lock:
+            self._refresh_candidates(self._live.get())
+
     def classify(
-        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None
+        self, image_path: Path, roi_bbox: BBox | None, threshold: float | None = None, pad: float | None = None,
+        known_bird: bool = False,
     ) -> Prediction:
-        return self.classify_image(self._crops.load(image_path, roi_bbox, pad), threshold)[0]
+        return self.classify_image(self._crops.load(image_path, roi_bbox, pad), threshold, known_bird=known_bird)[0]

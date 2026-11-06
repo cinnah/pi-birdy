@@ -209,8 +209,12 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     from birdy.live import LiveConfig
 
     port = _free_port()
-    config = dataclasses.replace(config, web=WebConfig(host="127.0.0.1", port=port))
+    config = dataclasses.replace(
+        config, web=WebConfig(host="127.0.0.1", port=port),
+        site=dataclasses.replace(config.site, lat=38.8, lon=-9.39),
+    )
     seen: dict[str, object] = {}
+    order: list[str] = []
 
     def record(name, init, live_index):
         def wrapper(self, *a, **kw):
@@ -232,12 +236,19 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
         def start_refresh(self, lat, lon, radius):
             self.started.append((lat, lon, radius))
 
+        def current(self):
+            return None              # no stored list: cmd_run waits for the first fetch
+
         def stop(self, timeout=5.0):
+            order.append("list-stop")
             self.stopped = True
 
     class Clf:
         species = FakeSpeciesModel()
         species_list = FakeList()
+
+        def apply_candidates(self):
+            order.append("apply-candidates")
 
     clf = Clf()
     monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
@@ -252,6 +263,13 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
         return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher, lores_size=lores_size)
 
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
+    real_start = pipeline.Pipeline.start
+
+    def pipeline_start(self):
+        order.append("pipeline-start")
+        return real_start(self)
+
+    monkeypatch.setattr(pipeline.Pipeline, "start", pipeline_start)
 
     from birdy.web import app as web_app
     real_create_app = web_app.create_app
@@ -281,6 +299,8 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     assert rc == 0
     assert clf.species_list.started == [(config.site.lat, config.site.lon, config.species.region_radius_km)]
     assert clf.species_list.stopped is True
+    # The first list fetch is joined (and the candidates applied) before the first sweep.
+    assert order[:3] == ["list-stop", "apply-candidates", "pipeline-start"], order
     assert calls == ["test/1"]
     assert seen["status_http"] == 200
     assert b"motion_score" in seen["status_body"]
@@ -626,7 +646,7 @@ def test_cmd_species_list_prints_list_and_refreshes(capsys, config, monkeypatch,
 
     def fake_fetch(lat, lon, r, **kw):
         called["r"] = r
-        return [{"id": 13094, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 5}] * 25
+        return [{"id": 13094, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 5}] * 25, r
     monkeypatch.setattr("birdy.species_list.fetch_species_counts", fake_fetch)
     assert cli.cmd_species_list(config, refresh=True) == 0
     assert called["r"] == 50

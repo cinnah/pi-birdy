@@ -150,7 +150,10 @@ class Pipeline:
         path = self._store.photos_dir / c.path
         try:
             crop = crop_box(c.motion_box, cfg.motion.roi, self._lores_size)
-            pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
+            # known_bird: a stored bird always gets a species run, so a stricter gate can't strip its name.
+            pred = self._classifier.classify(
+                path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad, known_bird=bool(c.is_bird)
+            )
             # Bird/non-bird: never demote; promote when the new verdict says bird (gate
             # or detector). Confidence comes from the new verdict when it says bird, else
             # the old one is kept. det_* always records the latest detector run.

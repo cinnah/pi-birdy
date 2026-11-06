@@ -33,6 +33,7 @@ class Bank:
     model: str             # "bioclip-2/int8/<12 hex>": must match the image tower
     prompt: str
     index: dict[str, int] = field(default_factory=dict, repr=False, compare=False)  # casefolded name -> id
+    reported_names: frozenset[str] = field(default_factory=frozenset, repr=False, compare=False)  # casefolded `common or latin`: what a capture's species says
 
     def resolve(self, name: str) -> int | None:
         """iNat id for a latin or common name, case-insensitive; None if unknown."""
@@ -63,6 +64,7 @@ def load_bank(path: Path) -> Bank:
             model=str(z["model"]),
             prompt=str(z["prompt"]),
             index=_name_index(ids, latin, common),
+            reported_names=frozenset((com or lat).casefold() for lat, com in zip(latin, common)),
         )
     except (OSError, ValueError, KeyError) as e:
         raise ValueError(f"{path}: cannot read species bank: {e}") from e
@@ -101,6 +103,7 @@ class BioClipSpecies:
             raise ValueError(f"{bank_path}: bank built for {self.bank.model}, model is {self.model_id}; rebuild both")
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = threads
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
         self._sess = ort.InferenceSession(str(model_path), opts, providers=["CPUExecutionProvider"])
         self._input = self._sess.get_inputs()[0].name
         d, bank_d = self._sess.get_outputs()[0].shape[-1], self.bank.emb.shape[1]

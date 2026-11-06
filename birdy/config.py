@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 Point = tuple[int, int]
 
@@ -201,6 +204,19 @@ def _path(base: Path, section: dict[str, Any], name: str, key: str, default: str
     return p if p.is_absolute() else base / p
 
 
+SPECIES_MODEL_DEFAULT = "models/bioclip2-vision-int8.onnx"
+
+
+def _species_model(base: Path, sp: dict[str, Any]) -> Path:
+    """species.model; an old TFLite path (from before BioCLIP) falls back to the default with a warning."""
+    p = _path(base, sp, "species", "model", SPECIES_MODEL_DEFAULT)
+    if p.suffix.lower() == ".tflite":
+        default = base / SPECIES_MODEL_DEFAULT
+        log.warning("species.model %s is the old TFLite model; using %s (edit birdy.toml or save the settings page)", p, default)
+        return default
+    return p
+
+
 def load_config(path: Path) -> Config:
     path = Path(path)
     base = path.parent.resolve()
@@ -328,7 +344,7 @@ def load_config(path: Path) -> Config:
             threshold=threshold,
         ),
         species=SpeciesConfig(
-            model=_path(base, sp, "species", "model", "models/bioclip2-vision-int8.onnx"),
+            model=_species_model(base, sp),
             bank=_path(base, sp, "species", "bank", "models/bioclip2-birds.npz"),
             threshold=species_threshold,
             region_radius_km=region_radius_km,

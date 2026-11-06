@@ -52,7 +52,7 @@ class BioClipSpecies:
 ```
 
 - `SpeciesLabel(latin, common)` stays (the CLI, the upload box and the tests use it). `parse_label` and the iNat label file go.
-- Preprocess: short side to 224 (bicubic), centre crop, CLIP mean/std, NCHW float32 — what was measured; implemented with OpenCV on the RGB array the `CropLoader` already produced.
+- Preprocess: short side to 224 (`INTER_AREA` when shrinking, `INTER_CUBIC` when enlarging; agrees with the PIL run on 106/117 crops), centre crop, CLIP mean/std, NCHW float32 — what was measured; implemented with OpenCV on the RGB array the `CropLoader` already produced.
 - `top`: one `onnxruntime` run (`intra_op_num_threads = 3`, leaving a core for the capture loop; measured 3.5 s at 4 — the plan re-measures at 3), L2-normalise, `logits = logit_scale · E_candidates · e`, softmax over the **candidates only**, best `k`. Thread safety as for the other models: called under `TwoStageClassifier._lock`.
 - `TwoStageClassifier.classify_image`: species runs **only when `is_bird`** (gate or detector); otherwise `top = []`, `species = None`. The rescue rule, `species.rescue_threshold`, its settings row, `FIELD_KEYS` entry, config validation and tests are removed. `confidence` = `max(p_gate, p_det)` always. A species-model failure still degrades to "bird, no species", logged once per distinct error.
 - Reported species = top-1 `common` when `p ≥ species.threshold` (0.5 unchanged; names 100 of 117 birds).

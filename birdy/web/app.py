@@ -333,11 +333,14 @@ def create_app(
                 for key, names in (
                     ("species.include", patch.species_include),
                     ("species.exclude", patch.species_exclude),
-                    ("telegram.watchlist", patch.watchlist),
                 ):
                     unknown = sl.unknown_names(names)
                     if unknown:
                         raise ConfigError(f"{key}: unknown species {', '.join(unknown)} (not in the name bank)")
+                # alerts match the stored species name (common, or latin when there is none), so only that works here
+                unknown = sl.unknown_names(patch.watchlist, reported_only=True)
+                if unknown:
+                    raise ConfigError(f"telegram.watchlist: unknown species {', '.join(unknown)} (use the English name shown on /species)")
             new = save_settings(config_path, live.get(), patch)
         except ConfigError as e:
             msg = str(e)

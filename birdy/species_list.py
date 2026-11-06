@@ -33,8 +33,9 @@ class LocalList:
     fetched_at: datetime
     lat: float
     lon: float
-    radius_km: int
+    radius_km: int         # the radius the list was fetched at (4x the configured one after a retry)
     species: list[dict]    # {id, latin, common, count}
+    configured_radius_km: int | None = None   # species.region_radius_km at fetch time; None (older file) = radius_km
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +51,9 @@ class LocalList:
             fetched_at = datetime.fromisoformat(d["fetched_at"])
             if fetched_at.tzinfo is None:
                 fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-            return cls(fetched_at, float(d["lat"]), float(d["lon"]), int(d["radius_km"]), list(d["species"]))
+            conf = d.get("configured_radius_km")
+            return cls(fetched_at, float(d["lat"]), float(d["lon"]), int(d["radius_km"]), list(d["species"]),
+                       None if conf is None else int(conf))
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
@@ -77,8 +80,9 @@ def parse_species_counts(pages: Iterable[dict]) -> list[dict]:
     return out
 
 
-def fetch_species_counts(lat: float, lon: float, radius_km: int, http: Callable = _http_get, sleep: Callable = time.sleep) -> list[dict]:
-    """All pages for the radius (<= 1 request/s); retried once at 4x radius when fewer than MIN_SPECIES come back."""
+def fetch_species_counts(lat: float, lon: float, radius_km: int, http: Callable = _http_get, sleep: Callable = time.sleep) -> tuple[list[dict], int]:
+    """All pages for the radius (<= 1 request/s); retried once at 4x radius when fewer than MIN_SPECIES come back.
+    Returns (rows, the radius those rows came from)."""
     def pages(radius):
         got, page = [], 1
         while True:
@@ -94,14 +98,15 @@ def fetch_species_counts(lat: float, lon: float, radius_km: int, http: Callable 
     rows = parse_species_counts(pages(radius_km))
     if len(rows) < MIN_SPECIES:
         sleep(1.0)
-        rows = parse_species_counts(pages(radius_km * 4))
-    return rows
+        return parse_species_counts(pages(radius_km * 4)), radius_km * 4
+    return rows, radius_km
 
 
 def needs_refresh(current: LocalList | None, lat: float, lon: float, radius_km: int, now: datetime) -> bool:
     if current is None:
         return True
-    moved = abs(current.lat - lat) > 1e-6 or abs(current.lon - lon) > 1e-6 or current.radius_km != radius_km
+    configured = current.configured_radius_km if current.configured_radius_km is not None else current.radius_km
+    moved = abs(current.lat - lat) > 1e-6 or abs(current.lon - lon) > 1e-6 or configured != radius_km
     return moved or now - current.fetched_at > MAX_AGE
 
 
@@ -128,7 +133,11 @@ class SpeciesList:
         with self._lock:
             return self._current
 
-    def unknown_names(self, names: Iterable[str]) -> list[str]:
+    def unknown_names(self, names: Iterable[str], reported_only: bool = False) -> list[str]:
+        """Names the bank doesn't know. `reported_only`: known only as the name a capture's species is
+        stored under (common, or latin when there is none) - what the watchlist is matched against."""
+        if reported_only:
+            return [n for n in names if n.strip().casefold() not in self.bank.reported_names]
         return [n for n in names if self.bank.resolve(n) is None]
 
     def candidates(self, species_cfg) -> frozenset[int] | None:
@@ -163,16 +172,16 @@ class SpeciesList:
         try:
             if not force and not needs_refresh(self.current(), lat, lon, radius_km, datetime.now(timezone.utc)):
                 return False
-            rows = fetch_species_counts(lat, lon, radius_km)
+            rows, used_km = fetch_species_counts(lat, lon, radius_km)
             if len(rows) < MIN_SPECIES:
-                log.warning("species list: only %d species within %d km; keeping the current list", len(rows), radius_km)
+                log.warning("species list: only %d species within %d km; keeping the current list", len(rows), used_km)
                 return False
-            LocalList(datetime.now(timezone.utc), lat, lon, radius_km, rows).save(self.path)
+            LocalList(datetime.now(timezone.utc), lat, lon, used_km, rows, configured_radius_km=radius_km).save(self.path)
             self.reload()
         except Exception as e:
             log.warning("species list refresh failed (%s); keeping the current list", e)
             return False
-        log.info("species list: %d species within %d km", len(rows), radius_km)
+        log.info("species list: %d species within %d km", len(rows), used_km)
         return True
 
     def start_refresh(self, lat: float | None, lon: float | None, radius_km: int) -> None:
