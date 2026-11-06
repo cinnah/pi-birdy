@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS site (
   lat REAL,
   lon REAL
 );
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS captures (
   id INTEGER PRIMARY KEY,
   captured_at TEXT NOT NULL,
@@ -191,6 +195,37 @@ class Store:
         with self._lock:
             row = self._conn.execute("SELECT name, lat, lon FROM site WHERE id = 1").fetchone()
         return None if row is None else {"name": row["name"], "lat": row["lat"], "lon": row["lon"]}
+
+    # --- meta -------------------------------------------------------------
+
+    def get_meta(self, key: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return None if row is None else row["value"]
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+    def reset_species_for_model(self, model_id: str) -> int:
+        """A new species model: every uncorrected, classified bird gets its species re-run by the
+        backfill (species_checked = 0). Returns how many rows were marked; 0 when the model is
+        unchanged. One transaction, so a concurrent opener sees either the old or the new state."""
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT value FROM meta WHERE key = 'species_model'").fetchone()
+            if row is not None and row["value"] == model_id:
+                return 0
+            n = self._conn.execute(
+                "UPDATE captures SET species_checked = 0 WHERE status = 'done' AND is_bird = 1 AND manual_at IS NULL"
+            ).rowcount
+            self._conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('species_model', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (model_id,),
+            )
+        return int(n)
 
     # --- captures ---------------------------------------------------------
 

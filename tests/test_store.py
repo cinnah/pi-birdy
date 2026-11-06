@@ -583,3 +583,36 @@ def test_migration_adds_detector_columns_to_old_db(tmp_path):
     assert [x.id for x in s.classification_backlog()] == [1]   # detector_checked defaults to 0
     s.close()
     Store(data).close()
+
+
+def test_meta_roundtrip(store):
+    assert store.get_meta("species_model") is None
+    store.set_meta("species_model", "bioclip-2/int8/abc")
+    assert store.get_meta("species_model") == "bioclip-2/int8/abc"
+    store.set_meta("species_model", "x")
+    assert store.get_meta("species_model") == "x"
+
+
+def test_reset_species_for_model_marks_uncorrected_done_birds(store):
+    bird = add_species(store, T0, "Black Phoebe", 0.8)
+    nonbird = add(store, T0 + timedelta(minutes=1))
+    store.update_classification(nonbird, False, 0.1, None, None)
+    corrected = add_species(store, T0 + timedelta(minutes=2), "Robin", 0.9)
+    store.mark_not_bird(corrected)
+    pending = add(store, T0 + timedelta(minutes=3))
+    assert store.reset_species_for_model("bioclip-2/int8/abc") == 1
+    assert store.get(bird).species_checked is False and store.get(bird).species == "Black Phoebe"
+    assert store.get(nonbird).species_checked is True and store.get(corrected).species_checked is True
+    assert store.get(pending).status == "pending"
+    assert store.get_meta("species_model") == "bioclip-2/int8/abc"
+    assert store.reset_species_for_model("bioclip-2/int8/abc") == 0        # same model: idempotent
+    store.update_classification(bird, True, 0.8, "Black Redstart", 0.9)
+    assert store.reset_species_for_model("bioclip-2/int8/def") == 1        # new model: again
+    assert store.get_meta("species_model") == "bioclip-2/int8/def"
+
+
+def test_reset_species_counts_birds_in_the_backlog(store):
+    bird = add_species(store, T0, "Black Phoebe", 0.8)
+    store.reset_species_for_model("m1")
+    assert [c.id for c in store.classification_backlog()] == [bird]
+    assert store.count_classification_backlog() == 1
