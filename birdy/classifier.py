@@ -18,6 +18,7 @@ from birdy.species import InatBirdClassifier, SpeciesLabel
 from birdy.tflite import load_interpreter
 
 if TYPE_CHECKING:
+    from birdy.config import Config
     from birdy.species_list import SpeciesList
 
 log = logging.getLogger(__name__)
@@ -177,8 +178,9 @@ class TwoStageClassifier:
     species model is not run on it at all (it has no "nothing here" answer). For a bird, a
     species is reported when its probability meets `species.threshold`.
     With a `species_list`, the species model's candidate set is re-applied (before a species
-    run, under the lock) whenever the live config version or the list's version changed.
-    A failing detector or species model is logged once per distinct error and skipped.
+    run, under the lock) whenever the `[species]` config or the list's version changed.
+    A failing detector, species model or candidate refresh is logged once per distinct error
+    and skipped (a bird then has no species; a failed refresh is retried on the next bird).
     """
 
     def __init__(
@@ -189,7 +191,7 @@ class TwoStageClassifier:
         lores_size: tuple[int, int],
         pad: float = 0.1,
         detector: BirdDetector | None = None,
-        species_list: "SpeciesList | None" = None,
+        species_list: SpeciesList | None = None,
     ) -> None:
         self.gate = gate
         self.species = species
@@ -228,8 +230,8 @@ class TwoStageClassifier:
             if is_bird:
                 # The species model has no "nothing here" answer (14 % of empty frames get a confident
                 # name), so it only ever sees photos the gate or detector already called a bird.
-                self._refresh_candidates(cfg)
                 try:
+                    self._refresh_candidates(cfg)
                     top = self.species.top(img_rgb, k=5)
                 except Exception as e:
                     key = f"{type(e).__name__}: {e}"
@@ -249,11 +251,11 @@ class TwoStageClassifier:
         )
         return pred, top
 
-    def _refresh_candidates(self, cfg) -> None:
-        """Re-apply the candidate set when the live config or the local list changed. Caller holds the lock."""
+    def _refresh_candidates(self, cfg: Config) -> None:
+        """Re-apply the candidate set when the `[species]` config or the local list changed. Caller holds the lock."""
         if self.species_list is None:
             return
-        key = (self._live.version, self.species_list.version)
+        key = (self.species_list.version, cfg.species)
         if key == self._cand_key:
             return
         n = self.species.set_candidates(self.species_list.candidates(cfg.species))

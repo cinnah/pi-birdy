@@ -221,7 +221,7 @@ class FakeList:
         return self.ids
 
 
-def test_candidates_follow_the_list_and_live_config(live, config):
+def test_candidates_follow_the_list_and_species_config(live, config):
     lst = FakeList(frozenset({11, 22}))
     clf = TwoStageClassifier(FakeGate(0.9), FakeSpecies(0.8), live, lores_size=(320, 240), detector=FakeDetector(0.0), species_list=lst)
     clf.classify_image(IMG)
@@ -233,7 +233,10 @@ def test_candidates_follow_the_list_and_live_config(live, config):
     assert clf.species.candidate_sets[-1] == [33]
     live.replace(dataclasses.replace(config, species=dataclasses.replace(config.species, exclude=("x",))))
     clf.classify_image(IMG)
-    assert len(clf.species.candidate_sets) == 3          # live version bump recomputes too
+    assert len(clf.species.candidate_sets) == 3          # a [species] change recomputes too
+    live.replace(dataclasses.replace(live.get(), motion=dataclasses.replace(config.motion, min_area=99)))
+    clf.classify_image(IMG)
+    assert len(clf.species.candidate_sets) == 3          # an unrelated change does not
 
 
 def test_candidates_not_refreshed_for_non_birds(live):
@@ -248,3 +251,20 @@ def test_no_list_means_species_untouched(live):
     clf.classify_image(IMG)
     assert clf.species.candidate_sets == []               # no species_list given: never touched
     assert clf.species_list is None
+
+
+def test_candidate_refresh_failure_means_no_species(live, caplog):
+    class BrokenList(FakeList):
+        def candidates(self, species_cfg):
+            raise RuntimeError("boom")
+
+    lst = BrokenList(frozenset({11}))
+    clf = TwoStageClassifier(FakeGate(0.9), FakeSpecies(0.8), live, lores_size=(320, 240), detector=FakeDetector(0.0), species_list=lst)
+    with caplog.at_level(logging.ERROR):
+        pred, top = clf.classify_image(IMG)
+        clf.classify_image(IMG)
+    assert pred.is_bird is True and pred.species is None and top == []
+    assert caplog.text.count("species model failed") == 1
+    lst.candidates = lambda species_cfg: frozenset({11})   # fixed: retried, since the key was never cached
+    pred, _ = clf.classify_image(IMG)
+    assert pred.species == "Eurasian Blue Tit" and clf.species.candidate_sets == [[11]]
