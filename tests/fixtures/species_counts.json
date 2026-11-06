@@ -1,0 +1,6 @@
+{"total_results": 4, "page": 1, "per_page": 500, "results": [
+ {"count": 120, "taxon": {"id": 13094, "name": "Phoenicurus ochruros", "rank": "species", "preferred_common_name": "Black Redstart"}},
+ {"count": 2,   "taxon": {"id": 13095, "name": "Phoenicurus phoenicurus", "rank": "species", "preferred_common_name": "Common Redstart"}},
+ {"count": 40,  "taxon": {"id": 559248, "name": "Anas platyrhynchos × Cairina moschata", "rank": "hybrid", "preferred_common_name": "Mallard × Muscovy Duck"}},
+ {"count": 9,   "taxon": {"id": 12942, "name": "Erithacus rubecula", "rank": "species"}}
+]}
