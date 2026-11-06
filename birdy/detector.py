@@ -3,7 +3,6 @@ bird/not-bird signal. The model's own post-processing gives boxes, classes, scor
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,8 +10,6 @@ import cv2
 import numpy as np
 
 from birdy.tflite import load_interpreter
-
-log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,7 +32,15 @@ class BirdDetector:
         self._interp.allocate_tensors()
         self._input = self._interp.get_input_details()[0]
         _, self._in_h, self._in_w, _ = self._input["shape"]
-        self._outputs = self._interp.get_output_details()
+        outputs = self._interp.get_output_details()
+        shapes = [tuple(int(n) for n in d["shape"]) for d in outputs]
+        by_ndim = {k: [d["index"] for d in outputs if len(d["shape"]) == k] for k in (1, 2, 3)}
+        if len(outputs) != 4 or len(by_ndim[3]) != 1 or len(by_ndim[1]) != 1 or len(by_ndim[2]) != 2:
+            raise ValueError(f"{model_path}: unexpected detector outputs {shapes}")
+        # Matched by shape, not position: Coral's SSD and EfficientDet order them differently.
+        self._boxes_idx = by_ndim[3][0]
+        self._count_idx = by_ndim[1][0]
+        self._vec_idx = tuple(by_ndim[2])
 
     def detect(self, img_rgb: np.ndarray) -> list[Detection]:
         """Every detection the model returned, best first."""
@@ -46,17 +51,15 @@ class BirdDetector:
             tensor = (img[np.newaxis].astype(np.float32) / 255.0)
         self._interp.set_tensor(self._input["index"], tensor)
         self._interp.invoke()
-        tensors = [np.asarray(self._interp.get_tensor(d["index"])) for d in self._outputs]
-        # Match outputs by shape, not position: Coral's SSD and EfficientDet order them differently.
-        boxes = next(t[0] for t in tensors if t.ndim == 3)
-        count = int(next(t for t in tensors if t.ndim == 1)[0])
-        vecs = [t[0] for t in tensors if t.ndim == 2]
-        a, b = vecs[0], vecs[1]
+        boxes = np.asarray(self._interp.get_tensor(self._boxes_idx))[0]
+        count = int(np.asarray(self._interp.get_tensor(self._count_idx))[0])
+        a, b = (np.asarray(self._interp.get_tensor(i))[0] for i in self._vec_idx)
         if _integral(a) and not _integral(b):
             classes, scores = a, b
         elif _integral(b) and not _integral(a):
             classes, scores = b, a
         else:  # both integral (all zeros) or neither: scores are the ones within [0, 1]
+            # (both integral with max <= 1 only happens with count = 0, where the loop below is empty)
             classes, scores = (a, b) if float(a.max(initial=0)) > 1.0 else (b, a)
         out = []
         for i in range(min(count, len(scores), len(classes), len(boxes))):

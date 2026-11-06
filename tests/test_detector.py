@@ -34,7 +34,7 @@ class FakeInterpreter:
         return [{"index": 0, "shape": np.array([1, 320, 320, 3]), "dtype": self.dtype, "quantization": (0.0078125, 127)}]
 
     def get_output_details(self):
-        return [{"index": i + 1, "name": n} for i, n in enumerate(self.order)]
+        return [{"index": i + 1, "name": n, "shape": np.array(self.tensors[n].shape)} for i, n in enumerate(self.order)]
 
     def set_tensor(self, index, value):
         self.fed = value
@@ -95,12 +95,39 @@ def test_missing_bird_label_raises(monkeypatch, tmp_path):
         fake_detector(monkeypatch, tmp_path, ["boxes", "classes", "scores", "count"], labels="person\ncat\n")
 
 
+def test_zero_count_returns_nothing(monkeypatch, tmp_path):
+    d, interp = fake_detector(monkeypatch, tmp_path, ["boxes", "classes", "scores", "count"])
+    interp.tensors["count"] = np.array([0.0], np.float32)   # scores stay non-zero
+    assert d.detect(IMG) == []
+
+
+def test_class_id_beyond_labels_uses_the_id(monkeypatch, tmp_path):
+    d, interp = fake_detector(monkeypatch, tmp_path, ["boxes", "classes", "scores", "count"])
+    interp.tensors["classes"] = np.array([[99.0, 15.0, 0.0]], np.float32)
+    assert d.detect(IMG)[0].label == "99"
+
+
+def test_wrong_output_layout_raises(monkeypatch, tmp_path):
+    import birdy.detector as det
+
+    interp = FakeInterpreter(["boxes", "classes", "scores", "count"])
+    interp.tensors["boxes"] = np.array([[0.1, 0.2, 0.5]], np.float32)   # 2-D: three 2-D outputs, one 1-D
+    monkeypatch.setattr(det, "load_interpreter", lambda path: interp)
+    lab = tmp_path / "labels.txt"
+    lab.write_text("person\nbird\n")
+    with pytest.raises(ValueError, match="outputs"):
+        BirdDetector(tmp_path / "model.tflite", lab)
+
+
 @pytest.fixture(scope="module")
 def det():
     return BirdDetector(MODEL, LABELS)
 
 
-@pytest.mark.skipif(not MODEL.exists() or not (FIXTURES / "bird.jpg").exists(), reason="model or fixture missing")
+@pytest.mark.skipif(
+    not MODEL.exists() or not (FIXTURES / "bird.jpg").exists() or not (FIXTURES / "cat.jpg").exists(),
+    reason="model or fixture missing",
+)
 class TestRealModel:
     def test_bird_fixture_has_a_bird(self, det):
         img = cv2.cvtColor(cv2.imread(str(FIXTURES / "bird.jpg")), cv2.COLOR_BGR2RGB)
