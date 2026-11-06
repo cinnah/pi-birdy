@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from birdy.classifier import CropLoader, TwoStageClassifier
+from birdy.detector import Detection
 from birdy.species import SpeciesLabel
 
 BLUE_TIT = SpeciesLabel("Cyanistes caeruleus", "Eurasian Blue Tit")
@@ -32,8 +33,23 @@ class FakeSpecies:
         return [(BLUE_TIT, self.p), (SpeciesLabel("Parus major", "Great Tit"), self.p / 2)][:k]
 
 
-def two_stage(live, p_bird, p_sp, raise_exc=None):
-    return TwoStageClassifier(FakeGate(p_bird), FakeSpecies(p_sp, raise_exc), live, lores_size=(320, 240))
+class FakeDetector:
+    def __init__(self, score=0.0, raise_exc=None):
+        self.score, self.raise_exc = score, raise_exc
+
+    def best_bird(self, img):
+        if self.raise_exc:
+            raise self.raise_exc
+        if self.score <= 0:
+            return None
+        return Detection("bird", self.score, (0.1, 0.2, 0.3, 0.4))
+
+
+def two_stage(live, p_bird, p_sp, raise_exc=None, p_det=0.0, det_exc=None):
+    return TwoStageClassifier(
+        FakeGate(p_bird), FakeSpecies(p_sp, raise_exc), live, lores_size=(320, 240),
+        detector=FakeDetector(p_det, det_exc),
+    )
 
 
 def test_bird_with_species(live):
@@ -132,10 +148,60 @@ def test_classify_image_is_serialised_across_threads(live):
             return super().top(img, k, skip_background)
 
     species = BusySpecies()
-    clf = TwoStageClassifier(FakeGate(0.9), species, live, lores_size=(320, 240))
+    clf = TwoStageClassifier(FakeGate(0.9), species, live, lores_size=(320, 240), detector=FakeDetector(0.0))
     threads = [threading.Thread(target=lambda: [clf.classify_image(IMG) for _ in range(50)]) for _ in range(4)]
     for t in threads:
         t.start()
     for t in threads:
         t.join(10)
     assert species.calls == 200 and species.overlaps == 0
+
+
+def test_detector_alone_makes_a_bird(live):
+    pred, _ = two_stage(live, 0.1, 0.2, p_det=0.6).classify_image(IMG)
+    assert pred.is_bird is True and pred.confidence == 0.6
+    assert pred.detector_confidence == 0.6 and pred.detector_box == (0.1, 0.2, 0.3, 0.4)
+
+
+def test_gate_alone_keeps_working(live):
+    pred, _ = two_stage(live, 0.9, 0.2, p_det=0.1).classify_image(IMG)
+    assert pred.is_bird is True and pred.confidence == 0.9
+    assert pred.detector_confidence == 0.1
+
+
+def test_both_below_is_not_a_bird(live):
+    pred, _ = two_stage(live, 0.1, 0.2, p_det=0.15).classify_image(IMG)
+    assert pred.is_bird is False and pred.confidence == 0.15
+    assert pred.detector_box is not None   # stored even for non-birds (debugging)
+
+
+def test_no_detection_gives_zero_and_no_box(live):
+    pred, _ = two_stage(live, 0.1, 0.2).classify_image(IMG)
+    assert pred.detector_confidence == 0.0 and pred.detector_box is None
+
+
+def test_rescue_still_works_with_detector_below(live):
+    pred, _ = two_stage(live, 0.2, 0.75, p_det=0.1).classify_image(IMG)
+    assert pred.is_bird is True and pred.confidence == 0.75
+
+
+def test_detector_threshold_follows_live_config(live, config):
+    clf = two_stage(live, 0.1, 0.2, p_det=0.25)
+    assert clf.classify_image(IMG)[0].is_bird is True
+    live.replace(dataclasses.replace(config, detector=dataclasses.replace(config.detector, threshold=0.3)))
+    assert clf.classify_image(IMG)[0].is_bird is False
+
+
+def test_detector_failure_keeps_gate_result(live, caplog):
+    clf = two_stage(live, 0.9, 0.0, det_exc=RuntimeError("boom"))
+    with caplog.at_level(logging.ERROR):
+        pred, _ = clf.classify_image(IMG)
+        clf.classify_image(IMG)
+    assert pred.is_bird and pred.detector_confidence == 0.0
+    assert caplog.text.count("detector failed") == 1
+
+
+def test_without_detector_behaves_as_before(live):
+    clf = TwoStageClassifier(FakeGate(0.9), FakeSpecies(0.8), live, lores_size=(320, 240))
+    pred, _ = clf.classify_image(IMG)
+    assert pred.is_bird and pred.confidence == 0.9 and pred.detector_confidence == 0.0 and pred.detector_box is None
