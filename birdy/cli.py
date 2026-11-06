@@ -14,6 +14,7 @@ from pathlib import Path
 
 from birdy.classifier import CropLoader, ImageNetBirdClassifier, TwoStageClassifier
 from birdy.config import Config, ConfigError, load_config
+from birdy.detector import BirdDetector
 from birdy.live import LiveConfig
 from birdy.motion import crop_box
 from birdy.notify import HttpTelegramTransport, TelegramError, TelegramNotifier, fetch_chat_ids
@@ -63,9 +64,10 @@ def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
             lores_size=config.camera.lores_size,
         )
         species = InatBirdClassifier(config.species.model, config.species.labels)
+        detector = BirdDetector(config.detector.model, config.detector.labels)
     except (ValueError, OSError, RuntimeError) as e:  # LiteRT raises RuntimeError on corrupt models
         raise ModelLoadError(str(e)) from e
-    return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size)
+    return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size, detector=detector)
 
 
 def _listen_socket(host: str, port: int) -> socket.socket | None:
@@ -201,8 +203,8 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
     """Classify one image and print both models' views.
 
     With `--capture`, the stored photo is cropped exactly as the pipeline crops it (motion
-    crop, else the ROI crop). `clf.gate.predict` / `top_k_image` bypass the classifier's lock:
-    fine for this one-shot CLI, never do that in the service.
+    crop, else the ROI crop). `clf.gate.predict` / `top_k_image` / `clf.detector.detect` bypass
+    the classifier's lock: fine for this one-shot CLI, never do that in the service.
     """
     if (image is None) == (capture_id is None):
         print("classify: give an image file or --capture <id>", file=sys.stderr)
@@ -231,14 +233,23 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
     p_gate = clf.gate.predict(img)
     pred, top = clf.classify_image(img)
     threshold = config.classifier.threshold
-    rescued = ", rescued by species" if pred.is_bird and p_gate < threshold else ""
+    rescued = ", rescued by species" if pred.is_bird and p_gate < threshold and pred.detector_confidence < config.detector.threshold else ""
     print(
-        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}{rescued}) "
+        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}, detector {pred.detector_confidence:.3f}{rescued}) "
         f"species={pred.species or '-'}"
     )
     print("gate (ImageNet):")
     for label, prob in clf.gate.top_k_image(img, k=5):
         print(f"  {prob:.3f}  {label}")
+    dets = clf.detector.detect(img) if clf.detector is not None else []
+    bird = next((d for d in dets if d.label == clf.detector.bird_label), None) if dets else None
+    if bird is not None:
+        x, y, w, h = bird.box
+        print(f"detector (COCO): bird {bird.score:.2f} box x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f}")
+    elif dets:
+        print(f"detector (COCO): no bird (best: {dets[0].label} {dets[0].score:.2f})")
+    else:
+        print("detector (COCO): no detections")
     print("species (iNat):")
     for label, prob in top:
         print(f"  {prob:.3f}  {label.common} ({label.latin})")

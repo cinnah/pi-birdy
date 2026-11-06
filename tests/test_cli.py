@@ -52,12 +52,16 @@ def test_classify_command_prints_prediction(tmp_path):
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
         f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
+        f'labels = "{ROOT}/models/coco_labels.txt"\n'
     )
     proc = _run_cli("--config", str(cfg), "classify", str(bird))
     assert proc.returncode == 0, proc.stderr
     assert "bird=True" in proc.stdout
     assert "gate (ImageNet):" in proc.stdout
     assert "species (iNat):" in proc.stdout
+    assert "detector (COCO):" in proc.stdout
+    assert "(gate " in proc.stdout and ", detector " in proc.stdout
 
 
 
@@ -69,6 +73,8 @@ def _classify_config(tmp_path, species_model: str) -> Path:
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{species_model}"\n'
         f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
+        f'labels = "{ROOT}/models/coco_labels.txt"\n'
     )
     return cfg
 
@@ -153,6 +159,8 @@ def test_run_wires_live_config_and_exits_without_camera(tmp_path):
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
         f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
+        f'labels = "{ROOT}/models/coco_labels.txt"\n'
     )
     proc = subprocess.run(
         [sys.executable, "-m", "birdy.cli", "--config", str(cfg), "run"],
@@ -505,3 +513,10 @@ def test_listen_socket_none_for_plain_hosts():
     from birdy.cli import _listen_socket
 
     assert _listen_socket("0.0.0.0", 0) is None
+
+
+def test_missing_detector_model_exits_2(tmp_path):
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    cfg.write_text(cfg.read_text().replace("efficientdet_lite0_320_ptq.tflite", "nope.tflite"))
+    proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
+    assert proc.returncode == 2 and "model error" in proc.stderr
