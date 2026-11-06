@@ -236,6 +236,7 @@ def create_app(
                 "classifier_threshold": cfg.classifier.threshold,
                 "species_threshold": cfg.species.threshold,
                 "species_rescue_threshold": cfg.species.rescue_threshold,
+                "detector_threshold": cfg.detector.threshold,
                 "lat": "" if cfg.site.lat is None else cfg.site.lat,
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
                 "margin_minutes": cfg.daylight.margin_minutes,

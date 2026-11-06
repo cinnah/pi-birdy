@@ -184,6 +184,7 @@ def _base_form():
         "classifier_threshold": "0.5",
         "species_threshold": "0.5",
         "species_rescue_threshold": "0.7",
+        "detector_threshold": "0.2",
         "lat": "",
         "lon": "",
         "margin_minutes": "30",
@@ -817,3 +818,8 @@ def test_take_photo_refused_while_camera_is_off(client, state):
     r = client.post("/camera/capture", data={"next": "/"})
     assert r.status_code == 409
     assert state.take_capture_request() is False
+
+
+def test_settings_page_has_detector_threshold(client):
+    r = client.get("/settings").text
+    assert 'name="detector_threshold"' in r and 'value="0.2"' in r

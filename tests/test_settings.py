@@ -17,6 +17,7 @@ def default_patch(config, **overrides) -> SettingsPatch:
         classifier_threshold=config.classifier.threshold,
         species_threshold=config.species.threshold,
         species_rescue_threshold=config.species.rescue_threshold,
+        detector_threshold=config.detector.threshold,
         lat=config.site.lat,
         lon=config.site.lon,
         margin_minutes=config.daylight.margin_minutes,
@@ -97,6 +98,7 @@ FORM = {
     "classifier_threshold": "0.5",
     "species_threshold": "0.5",
     "species_rescue_threshold": "0.7",
+    "detector_threshold": "0.2",
     "lat": "",
     "lon": "",
     "margin_minutes": "30",
@@ -368,3 +370,13 @@ def test_save_applies_publish_fields_and_keeps_restart_only(config_path):
     new = save_settings(config_path, cfg, patch)
     assert new.publish.min_confidence == 0.8 and new.publish.per_species_per_day == 4
     assert new.publish.host == "h" and new.publish.site_id == "abc"
+
+
+def test_detector_threshold_roundtrip(config_path, config):
+    new = save_settings(config_path, config, default_patch(config, detector_threshold=0.35))
+    assert new.detector.threshold == 0.35
+    assert load_config(config_path).detector.threshold == 0.35
+
+
+def test_parse_form_detector_threshold():
+    assert parse_settings_form(FORM).detector_threshold == 0.2
