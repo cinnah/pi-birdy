@@ -49,6 +49,10 @@ FILTERS = {
     "published": "published IN ('auto', 'forced')",
 }
 
+_BACKLOG_WHERE = "status = 'done' AND (species_checked = 0 OR detector_checked = 0) AND manual_at IS NULL"
+_BACKLOG_COUNT = f"SELECT COUNT(*) FROM captures WHERE {_BACKLOG_WHERE}"
+_BACKLOG_SELECT = f"SELECT * FROM captures WHERE {_BACKLOG_WHERE} ORDER BY captured_at DESC, id DESC LIMIT ?"
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -73,6 +77,10 @@ class Capture:
     model_is_bird: bool | None = None
     model_species: str | None = None
     model_species_confidence: float | None = None
+    # Best COCO "bird" detection at classification time: score (0 = none, None = not run yet)
+    # and its box as fractions (x, y, w, h) of the classified crop.
+    det_confidence: float | None = None
+    det_box: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +124,8 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         model_is_bird=None if row["model_is_bird"] is None else bool(row["model_is_bird"]),
         model_species=row["model_species"],
         model_species_confidence=row["model_species_confidence"],
+        det_confidence=row["det_confidence"],
+        det_box=None if row["det_x"] is None else (row["det_x"], row["det_y"], row["det_w"], row["det_h"]),
     )
 
 
@@ -151,6 +161,12 @@ class Store:
                 ("manual_is_bird", "INTEGER"),
                 ("manual_species", "TEXT"),
                 ("manual_at", "TEXT"),
+                ("det_confidence", "REAL"),
+                ("det_x", "REAL"),
+                ("det_y", "REAL"),
+                ("det_w", "REAL"),
+                ("det_h", "REAL"),
+                ("detector_checked", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 if name not in cols:
                     try:
@@ -218,12 +234,22 @@ class Store:
             return int(cur.lastrowid)
 
     def update_classification(
-        self, capture_id: int, is_bird: bool, confidence: float, species: str | None, species_confidence: float | None
+        self,
+        capture_id: int,
+        is_bird: bool,
+        confidence: float,
+        species: str | None,
+        species_confidence: float | None,
+        det_confidence: float = 0.0,
+        det_box: tuple[float, float, float, float] | None = None,
     ) -> None:
+        bx = (None, None, None, None) if det_box is None else det_box
         with self._lock, self._conn:
             self._conn.execute(
-                "UPDATE captures SET is_bird = ?, confidence = ?, species = ?, species_confidence = ?, species_checked = 1, status = 'done' WHERE id = ?",
-                (int(is_bird), confidence, species, species_confidence, capture_id),
+                "UPDATE captures SET is_bird = ?, confidence = ?, species = ?, species_confidence = ?,"
+                " det_confidence = ?, det_x = ?, det_y = ?, det_w = ?, det_h = ?,"
+                " species_checked = 1, detector_checked = 1, status = 'done' WHERE id = ?",
+                (int(is_bird), confidence, species, species_confidence, det_confidence, *bx, capture_id),
             )
 
     def mark_not_bird(self, capture_id: int) -> Capture | None:
@@ -308,28 +334,20 @@ class Store:
             row = self._conn.execute("SELECT MAX(captured_at) AS t FROM captures").fetchone()
         return None if row["t"] is None else _from_db_time(row["t"])
 
-    def count_species_backlog(self) -> int:
+    def count_classification_backlog(self) -> int:
         with self._lock:
-            return int(
-                self._conn.execute(
-                    "SELECT COUNT(*) FROM captures WHERE status = 'done' AND species_checked = 0 AND manual_at IS NULL"
-                ).fetchone()[0]
-            )
+            return int(self._conn.execute(_BACKLOG_COUNT).fetchone()[0])
 
-    def species_backlog(self, limit: int = 50) -> list[Capture]:
-        """Classified rows that predate species recognition, newest first (corrected rows never:
-        re-running the model must not undo a person's correction)."""
+    def classification_backlog(self, limit: int = 50) -> list[Capture]:
+        """Classified rows a newer model hasn't seen (species or detector), newest first.
+        Corrected rows never: re-running the models must not undo a person's correction."""
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM captures WHERE status = 'done' AND species_checked = 0 AND manual_at IS NULL"
-                " ORDER BY captured_at DESC, id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            rows = self._conn.execute(_BACKLOG_SELECT, (limit,)).fetchall()
         return [_row_to_capture(r) for r in rows]
 
-    def mark_species_checked(self, capture_id: int) -> None:
+    def mark_checked(self, capture_id: int) -> None:
         with self._lock, self._conn:
-            self._conn.execute("UPDATE captures SET species_checked = 1 WHERE id = ?", (capture_id,))
+            self._conn.execute("UPDATE captures SET species_checked = 1, detector_checked = 1 WHERE id = ?", (capture_id,))
 
     def species_summary(self) -> list[SpeciesRow]:
         with self._lock:

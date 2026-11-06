@@ -182,7 +182,7 @@ def test_migration_adds_species_checked_to_old_db(tmp_path):
     conn.commit()
     conn.close()
     s = Store(data)
-    assert [c.id for c in s.species_backlog()] == [1]
+    assert [c.id for c in s.classification_backlog()] == [1]
     assert s.get(1).species_checked is False
     s.close()
     Store(data).close()  # second open: migration is a no-op
@@ -193,24 +193,24 @@ def test_update_classification_marks_species_checked(store):
     assert store.get(cid).species_checked is False
     store.update_classification(cid, True, 0.9, None, None)
     assert store.get(cid).species_checked is True
-    assert store.species_backlog() == []
+    assert store.classification_backlog() == []
 
 
-def test_species_backlog_newest_first_and_limit(store):
+def test_classification_backlog_newest_first_and_limit(store):
     ids = [add_species(store, T0 + timedelta(minutes=i), None, None) for i in range(3)]
     with store._lock, store._conn:
         store._conn.execute("UPDATE captures SET species_checked = 0")
-    assert [c.id for c in store.species_backlog()] == ids[::-1]
-    assert [c.id for c in store.species_backlog(limit=1)] == [ids[2]]
+    assert [c.id for c in store.classification_backlog()] == ids[::-1]
+    assert [c.id for c in store.classification_backlog(limit=1)] == [ids[2]]
 
 
-def test_mark_species_checked(store):
+def test_mark_checked(store):
     cid = add(store, T0)
     store.update_classification(cid, True, 0.9, None, None)
     with store._lock, store._conn:
         store._conn.execute("UPDATE captures SET species_checked = 0")
-    store.mark_species_checked(cid)
-    assert store.species_backlog() == []
+    store.mark_checked(cid)
+    assert store.classification_backlog() == []
     assert store.get(cid).status == "done"
 
 
@@ -280,13 +280,13 @@ def test_species_filter_excludes_non_bird_rows(store):
     assert store.count("all", species="Robin") == 1
 
 
-def test_count_species_backlog(store):
+def test_count_classification_backlog(store):
     for i in range(2):
         add_species(store, T0 + timedelta(minutes=i), None, None)
-    assert store.count_species_backlog() == 0
+    assert store.count_classification_backlog() == 0
     with store._lock, store._conn:
         store._conn.execute("UPDATE captures SET species_checked = 0")
-    assert store.count_species_backlog() == 2
+    assert store.count_classification_backlog() == 2
 
 
 def _bird(store, when, species, conf, is_bird=True):
@@ -540,4 +540,46 @@ def test_corrected_photos_are_kept_by_retention_and_skipped_by_backfill(store):
         store._conn.execute("UPDATE captures SET species_checked = 0 WHERE id = ?", (cid,))
     assert store.purge_non_birds(older_than_days=7, now=T0) == 0
     assert store.get(cid) is not None
-    assert store.species_backlog() == [] and store.count_species_backlog() == 0
+    assert store.classification_backlog() == [] and store.count_classification_backlog() == 0
+
+
+def test_update_classification_stores_detector_fields(store):
+    cid = add(store, T0)
+    store.update_classification(cid, True, 0.6, None, None, det_confidence=0.6, det_box=(0.1, 0.2, 0.3, 0.4))
+    c = store.get(cid)
+    assert c.det_confidence == 0.6 and c.det_box == (0.1, 0.2, 0.3, 0.4)
+    assert c.species_checked is True and store.classification_backlog() == []
+    store.update_classification(cid, False, 0.0, None, None)
+    c = store.get(cid)
+    assert c.det_confidence == 0.0 and c.det_box is None
+
+
+def test_backlog_includes_rows_not_yet_through_the_detector(store):
+    cid = add(store, T0)
+    store.update_classification(cid, False, 0.1, None, None)
+    with store._lock, store._conn:
+        store._conn.execute("UPDATE captures SET detector_checked = 0")
+    assert [c.id for c in store.classification_backlog()] == [cid]
+    assert store.count_classification_backlog() == 1
+    store.mark_checked(cid)
+    assert store.classification_backlog() == []
+
+
+def test_migration_adds_detector_columns_to_old_db(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    conn = sqlite3.connect(data / "birdy.db")
+    conn.executescript(
+        "CREATE TABLE captures (id INTEGER PRIMARY KEY, captured_at TEXT NOT NULL, path TEXT NOT NULL,"
+        " thumb_path TEXT, motion_score INTEGER NOT NULL, is_bird INTEGER, confidence REAL, species TEXT,"
+        " species_confidence REAL, status TEXT NOT NULL DEFAULT 'pending', species_checked INTEGER NOT NULL DEFAULT 1);"
+        "INSERT INTO captures (captured_at, path, motion_score, is_bird, status) VALUES ('2026-10-03T09:00:00.000+00:00', 'a.jpg', 1, 0, 'done');"
+    )
+    conn.commit()
+    conn.close()
+    s = Store(data)
+    c = s.get(1)
+    assert c.det_confidence is None and c.det_box is None
+    assert [x.id for x in s.classification_backlog()] == [1]   # detector_checked defaults to 0
+    s.close()
+    Store(data).close()

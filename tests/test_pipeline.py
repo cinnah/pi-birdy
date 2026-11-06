@@ -245,14 +245,14 @@ class SpeciesFake(FakeClassifier):
         return Prediction(is_bird=True, confidence=0.9, species=self.species, species_confidence=self.conf)
 
 
-def test_sweep_drains_species_backlog(store, live):
+def test_sweep_drains_classification_backlog(store, live):
     evs = [add(store, i) for i in range(3)]
     for ev in evs:
         store.update_classification(ev.capture_id, True, 0.9, None, None)
     unchecked(store, [ev.capture_id for ev in evs])
     p = Pipeline(store, SpeciesFake(), live)
     p.sweep()
-    assert store.species_backlog() == []
+    assert store.classification_backlog() == []
     assert all(store.get(ev.capture_id).species == "Robin" for ev in evs)
     assert all(store.get(ev.capture_id).status == "done" for ev in evs)
 
@@ -275,7 +275,7 @@ def test_backlog_respects_stop(store, live):
     p = Pipeline(store, SpeciesFake(), live)
     p._stop.set()
     p.sweep()
-    assert len(store.species_backlog()) == 2
+    assert len(store.classification_backlog()) == 2
 
 
 def classified_unchecked(store, n, is_bird=True):
@@ -291,7 +291,7 @@ def test_backlog_limit_per_sweep(store, live):
 
     evs = classified_unchecked(store, SPECIES_BACKLOG_PER_SWEEP + 10)
     Pipeline(store, SpeciesFake(), live).sweep()
-    left = store.species_backlog(limit=1000)
+    left = store.classification_backlog(limit=1000)
     assert sorted(c.id for c in left) == sorted(ev.capture_id for ev in evs[:10])
 
 
@@ -322,7 +322,7 @@ def test_backlog_yields_to_queue(store, live):
     assert p.submit(live_ev)
     p.sweep()  # the pending loop handles live_ev's row; the queue still holds its event
     assert store.get(live_ev.capture_id).status == "done"
-    assert len(store.species_backlog()) == 5
+    assert len(store.classification_backlog()) == 5
 
 
 class FakeNotifier:
@@ -426,7 +426,7 @@ def test_backfill_without_species_does_not_call_publisher(store, live):
     unchecked(store, [ev.capture_id])
     p.sweep()
     assert pub.evaluated == []
-    assert store.species_backlog() == []
+    assert store.classification_backlog() == []
 
 
 def test_process_skips_publisher_without_species(store, live):
@@ -449,7 +449,7 @@ def test_backfill_publisher_error_keeps_row_done_and_checked(store, live, caplog
     assert "publish decision failed" in caplog.text
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.species_checked is True and c.species == "Robin"
-    assert store.species_backlog() == []
+    assert store.classification_backlog() == []
 
 
 def test_failed_backfill_does_not_call_publisher(store, live):
@@ -462,7 +462,7 @@ def test_failed_backfill_does_not_call_publisher(store, live):
     assert pub.evaluated == []
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.species_checked is True
-    assert store.species_backlog() == []
+    assert store.classification_backlog() == []
 
 
 def add_with_box(store, i, box):
