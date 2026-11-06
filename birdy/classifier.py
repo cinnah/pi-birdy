@@ -14,7 +14,7 @@ import numpy as np
 from birdy.detector import BirdDetector
 from birdy.live import LiveConfig
 from birdy.motion import BBox
-from birdy.species import InatBirdClassifier, SpeciesLabel
+from birdy.species import BioClipSpecies, SpeciesLabel
 from birdy.tflite import load_interpreter
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ class TwoStageClassifier:
     def __init__(
         self,
         gate: ImageNetBirdClassifier,
-        species: InatBirdClassifier,
+        species: BioClipSpecies,
         live: LiveConfig,
         lores_size: tuple[int, int],
         pad: float = 0.1,

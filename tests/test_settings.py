@@ -181,7 +181,6 @@ threshold = 0.65
 
 [species]
 model = "models/other_species.tflite"
-labels = "models/other_species_labels.txt"
 threshold = 0.4
 bank = "models/other-birds.npz"
 region_radius_km = 80

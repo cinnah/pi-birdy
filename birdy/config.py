@@ -56,7 +56,6 @@ class ClassifierConfig:
 class SpeciesConfig:
     model: Path                     # restart-only; BioCLIP 2 image tower (int8 ONNX)
     bank: Path                      # restart-only; name embeddings for every iNat bird species
-    labels: Path                    # legacy iNat label file; removed with InatBirdClassifier
     threshold: float                # name a bird at or above this (live)
     region_radius_km: int           # iNaturalist radius for the local species list; refetch at next start
     include: tuple[str, ...]        # names added to the local list, latin or common (live)
@@ -331,7 +330,6 @@ def load_config(path: Path) -> Config:
         species=SpeciesConfig(
             model=_path(base, sp, "species", "model", "models/bioclip2-vision-int8.onnx"),
             bank=_path(base, sp, "species", "bank", "models/bioclip2-birds.npz"),
-            labels=_path(base, sp, "species", "labels", "models/inat_bird_labels.txt"),
             threshold=species_threshold,
             region_radius_km=region_radius_km,
             include=sp_include,

@@ -4,9 +4,10 @@ import socket
 import subprocess
 import sys
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from birdy.cli import build_parser, cmd_run
@@ -33,6 +34,10 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _bioclip_available():
+    return (ROOT / "models" / "bioclip2-vision-int8.onnx").exists() and (ROOT / "models" / "bioclip2-birds.npz").exists()
+
+
 def test_parser_subcommands():
     p = build_parser()
     assert p.parse_args(["run"]).command == "run"
@@ -46,6 +51,8 @@ def test_default_config_path():
 
 
 def test_classify_command_prints_prediction(tmp_path):
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
     bird = FIXTURES / "bird.jpg"
     if not bird.exists() or not (ROOT / "models" / "mobilenet_v2_1.0_224_quant.tflite").exists():
         pytest.skip("fixtures/model missing")
@@ -54,20 +61,22 @@ def test_classify_command_prints_prediction(tmp_path):
         '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n'
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
-        f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
-        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'[species]\nmodel = "{ROOT}/models/bioclip2-vision-int8.onnx"\n'
+        f'bank = "{ROOT}/models/bioclip2-birds.npz"\n'
         + DETECTOR_TOML
     )
     proc = _run_cli("--config", str(cfg), "classify", str(bird))
     assert proc.returncode == 0, proc.stderr
     assert "bird=True" in proc.stdout
     assert "gate (ImageNet):" in proc.stdout
-    assert "species (iNat):" in proc.stdout
+    assert "species (BioCLIP 2" in proc.stdout
     assert "detector (COCO):" in proc.stdout
     assert "(gate " in proc.stdout and ", detector " in proc.stdout
 
 
 def test_classify_prints_no_bird_for_cat(tmp_path):
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
     cat = FIXTURES / "cat.jpg"
     if not cat.exists() or not (ROOT / "models" / "mobilenet_v2_1.0_224_quant.tflite").exists():
         pytest.skip("fixtures/model missing")
@@ -76,8 +85,8 @@ def test_classify_prints_no_bird_for_cat(tmp_path):
         '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n'
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
-        f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
-        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'[species]\nmodel = "{ROOT}/models/bioclip2-vision-int8.onnx"\n'
+        f'bank = "{ROOT}/models/bioclip2-birds.npz"\n'
         + DETECTOR_TOML
     )
     proc = _run_cli("--config", str(cfg), "classify", str(cat))
@@ -93,23 +102,23 @@ def _classify_config(tmp_path, species_model: str) -> Path:
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{species_model}"\n'
-        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'bank = "{ROOT}/models/bioclip2-birds.npz"\n'
         + DETECTOR_TOML
     )
     return cfg
 
 
 def test_missing_species_model_exits_2(tmp_path):
-    cfg = _classify_config(tmp_path, str(tmp_path / "nope.tflite"))
+    cfg = _classify_config(tmp_path, str(tmp_path / "nope.onnx"))
     proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
     assert proc.returncode == 2
     assert "model error" in proc.stderr
 
 
 def test_unreadable_image_exits_1(tmp_path):
-    if not (ROOT / "models" / "mobilenet_v2_1.0_224_inat_bird_quant.tflite").exists():
-        pytest.skip("model missing")
-    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/bioclip2-vision-int8.onnx")
     proc = _run_cli("--config", str(cfg), "classify", str(tmp_path / "missing.jpg"))
     assert proc.returncode == 1
     assert "cannot read image" in proc.stderr
@@ -169,6 +178,8 @@ def test_missing_config_exits_2(tmp_path):
 
 def test_run_wires_live_config_and_exits_without_camera(tmp_path):
     """On the Mac picamera2 is missing: `run` must start everything, then exit 1 cleanly."""
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
     if not (ROOT / "models" / "mobilenet_v2_1.0_224_quant.tflite").exists():
         pytest.skip("model missing")
     cfg = tmp_path / "birdy.toml"
@@ -177,8 +188,8 @@ def test_run_wires_live_config_and_exits_without_camera(tmp_path):
         f'[web]\nport = {_free_port()}\n'
         f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
-        f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
-        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        f'[species]\nmodel = "{ROOT}/models/bioclip2-vision-int8.onnx"\n'
+        f'bank = "{ROOT}/models/bioclip2-birds.npz"\n'
         + DETECTOR_TOML
     )
     proc = subprocess.run(
@@ -210,7 +221,25 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     # Pipeline(store, classifier, live); RetentionJob(store, live); ConfigWatcher(path, live)
     monkeypatch.setattr(retention.RetentionJob, "__init__", record("retention", retention.RetentionJob.__init__, 1))
     monkeypatch.setattr(watcher.ConfigWatcher, "__init__", record("watcher", watcher.ConfigWatcher.__init__, 1))
-    clf = object()
+    class FakeSpeciesModel:
+        model_id = "test/1"
+
+    class FakeList:
+        def __init__(self):
+            self.started = []
+            self.stopped = False
+
+        def start_refresh(self, lat, lon, radius):
+            self.started.append((lat, lon, radius))
+
+        def stop(self, timeout=5.0):
+            self.stopped = True
+
+    class Clf:
+        species = FakeSpeciesModel()
+        species_list = FakeList()
+
+    clf = Clf()
     monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
     real_init = pipeline.Pipeline.__init__
 
@@ -248,6 +277,8 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
             signal.signal(s, h)
 
     assert rc == 0
+    assert clf.species_list.started == [(config.site.lat, config.site.lon, config.species.region_radius_km)]
+    assert clf.species_list.stopped is True
     assert seen["status_http"] == 200
     assert b"motion_score" in seen["status_body"]
     lives = [seen[k] for k in ("pipeline", "retention", "watcher", "capture")]
@@ -484,6 +515,8 @@ def test_classify_needs_image_or_capture(config_path):
 
 
 def test_classify_capture_uses_stored_crop(tmp_path):
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
     import cv2
 
     from birdy.store import Store
@@ -498,7 +531,7 @@ def test_classify_capture_uses_stored_crop(tmp_path):
     cv2.imwrite(str(abs_path), cv2.imread(str(bird)))
     with_box = store.add_capture(when, rel, 100, motion_box=(2 / 320, 2 / 240, 5 / 320, 5 / 240))
     without = store.add_capture(when, rel, 100)
-    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/bioclip2-vision-int8.onnx")
     cfg.write_text(cfg.read_text() + f'[storage]\ndata_dir = "{data}"\n')
 
     proc = _run_cli("--config", str(cfg), "classify", "--capture", str(with_box))
@@ -535,7 +568,9 @@ def test_listen_socket_none_for_plain_hosts():
 
 
 def test_missing_detector_model_exits_2(tmp_path):
-    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/bioclip2-vision-int8.onnx")
     cfg.write_text(cfg.read_text().replace("efficientdet_lite0_320_ptq.tflite", "nope.tflite"))
     assert "nope.tflite" in cfg.read_text()
     proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
@@ -543,10 +578,58 @@ def test_missing_detector_model_exits_2(tmp_path):
 
 
 def test_detector_labels_without_bird_exit_2(tmp_path):
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
     labels = tmp_path / "labels.txt"
     labels.write_text("person\ncat\n")
-    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/bioclip2-vision-int8.onnx")
     cfg.write_text(cfg.read_text().replace(f"{ROOT}/models/coco_labels.txt", str(labels)))
     assert str(labels) in cfg.read_text()
     proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
     assert proc.returncode == 2 and "model error" in proc.stderr
+
+
+def test_classify_cat_skips_species(tmp_path):
+    if not _bioclip_available():
+        pytest.skip("BioCLIP model not built")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/bioclip2-vision-int8.onnx")
+    proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "cat.jpg"))
+    assert proc.returncode == 0 and "species: skipped (not a bird)" in proc.stdout
+
+
+def test_parser_species_list():
+    assert build_parser().parse_args(["species-list"]).refresh is False
+    assert build_parser().parse_args(["species-list", "--refresh"]).refresh is True
+
+
+def _bank(path):
+    np.savez(path, ids=np.array([13094], np.int32), latin=np.array(["Phoenicurus ochruros"]), common=np.array(["Black Redstart"]),
+             emb=np.eye(1, 4, dtype=np.float16), logit_scale=np.float32(100.0), model=np.str_("x"), prompt=np.str_("p"))
+    return path
+
+
+def test_cmd_species_list_prints_list_and_refreshes(capsys, config, monkeypatch, tmp_path):
+    from birdy import cli
+    from birdy.config import SiteConfig, StorageConfig
+    from birdy.species_list import LocalList
+
+    config = dataclasses.replace(config, site=SiteConfig("t", 38.8, -9.39), storage=StorageConfig(tmp_path / "data"))
+    config = dataclasses.replace(config, species=dataclasses.replace(config.species, bank=_bank(tmp_path / "bank.npz")))
+    LocalList(datetime.now(timezone.utc), 38.8, -9.39, 50, [{"id": 13094, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 3}]).save(tmp_path / "data" / "species" / "local.json")
+    assert cli.cmd_species_list(config, refresh=False) == 0
+    out = capsys.readouterr().out
+    assert "1 species within 50 km" in out and "Black Redstart" in out
+    called = {}
+
+    def fake_fetch(lat, lon, r, **kw):
+        called["r"] = r
+        return [{"id": 13094, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 5}] * 25
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", fake_fetch)
+    assert cli.cmd_species_list(config, refresh=True) == 0
+    assert called["r"] == 50
+
+
+def test_cmd_species_list_without_location_exits_1(capsys, config):
+    from birdy import cli
+    assert cli.cmd_species_list(config, refresh=False) == 1
+    assert "site.lat" in capsys.readouterr().err

@@ -1,4 +1,4 @@
-"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id | publish."""
+"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id | publish | species-list."""
 
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ from birdy.live import LiveConfig
 from birdy.motion import crop_box
 from birdy.notify import HttpTelegramTransport, TelegramError, TelegramNotifier, fetch_chat_ids
 from birdy.publish import Publisher
-from birdy.species import InatBirdClassifier
+from birdy.species import BioClipSpecies, load_bank
+from birdy.species_list import SpeciesList
 from birdy.store import Store
 
 log = logging.getLogger("birdy")
@@ -47,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="re-rank every species/day with the current thresholds before pushing"
         " (also runs automatically the first time publishing is enabled)",
     )
+    sl = sub.add_parser("species-list", help="print the local species list from iNaturalist; --refresh fetches it now")
+    sl.add_argument("--refresh", action="store_true")
     return p
 
 
@@ -63,11 +66,12 @@ def _classifier(config: Config, live: LiveConfig) -> TwoStageClassifier:
             threshold=config.classifier.threshold,
             lores_size=config.camera.lores_size,
         )
-        species = InatBirdClassifier(config.species.model, config.species.labels)
+        species = BioClipSpecies(config.species.model, config.species.bank)
         detector = BirdDetector(config.detector.model, config.detector.labels)
     except (ValueError, OSError, RuntimeError) as e:  # LiteRT raises RuntimeError on corrupt models
         raise ModelLoadError(str(e)) from e
-    return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size, detector=detector)
+    species_list = SpeciesList(config.storage.data_dir, species.bank)
+    return TwoStageClassifier(gate, species, live, lores_size=config.camera.lores_size, detector=detector, species_list=species_list)
 
 
 def _listen_socket(host: str, port: int) -> socket.socket | None:
@@ -115,6 +119,14 @@ def cmd_run(config: Config, config_path: Path) -> int:
     # One classifier for the pipeline worker and the web upload box: it serialises inference
     # under its own lock (TFLite interpreters are not thread-safe).
     clf = _classifier(config, live)
+    model_id = getattr(getattr(clf, "species", None), "model_id", None)
+    if model_id is not None:
+        n = store.reset_species_for_model(model_id)
+        if n:
+            log.info("species model %s is new: %d birds will be renamed by the backfill", model_id, n)
+    species_list = getattr(clf, "species_list", None)
+    if species_list is not None:
+        species_list.start_refresh(config.site.lat, config.site.lon, config.species.region_radius_km)
     notifier = None
     if config.telegram.enabled:
         notifier = TelegramNotifier(live, store, HttpTelegramTransport(config.telegram.bot_token))
@@ -173,6 +185,8 @@ def cmd_run(config: Config, config_path: Path) -> int:
         if notifier is not None:
             notifier.stop()
         retention.stop()
+        if species_list is not None:
+            species_list.stop()
         store.close()
 
 
@@ -253,9 +267,12 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
                 print(f"detector (COCO): no bird (best: {dets[0].label} {dets[0].score:.3f})")
             else:
                 print("detector (COCO): no detections")
-    print("species (iNat):")
-    for label, prob in top:
-        print(f"  {prob:.3f}  {label.common} ({label.latin})")
+    if pred.is_bird:
+        print(f"species (BioCLIP 2, {clf.species.candidate_count} candidates):")
+        for label, prob in top:
+            print(f"  {prob:.3f}  {label.common} ({label.latin})")
+    else:
+        print("species: skipped (not a bird)")
     return 0
 
 
@@ -317,6 +334,34 @@ def cmd_publish(config: Config, rerank: bool = False) -> int:
     return 1
 
 
+def cmd_species_list(config: Config, refresh: bool = False) -> int:
+    from datetime import datetime, timezone
+
+    if config.site.lat is None or config.site.lon is None:
+        print("species-list: set site.lat and site.lon in birdy.toml to enable the local species list", file=sys.stderr)
+        return 1
+    try:
+        bank = load_bank(config.species.bank)
+    except ValueError as e:
+        print(f"model error: {e}", file=sys.stderr)
+        return 2
+    sl = SpeciesList(config.storage.data_dir, bank)
+    if refresh or sl.current() is None:
+        fetched = sl.refresh_if_needed(config.site.lat, config.site.lon, config.species.region_radius_km, force=refresh)
+        if not fetched and sl.current() is None:
+            print("species-list: fetch failed and no list is stored", file=sys.stderr)
+            return 1
+    cur = sl.current()
+    age = (datetime.now(timezone.utc) - cur.fetched_at).days
+    print(f"{len(cur.species)} species within {cur.radius_km} km of {cur.lat:.3f},{cur.lon:.3f} (fetched {age} days ago)")
+    for s in sorted(cur.species, key=lambda s: -s["count"]):
+        print(f"  {s['count']:6d}  {s['common']} ({s['latin']})")
+    unknown = sl.unknown_names(config.species.include + config.species.exclude)
+    if unknown:
+        print("unknown names in species.include/exclude: " + ", ".join(unknown))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
@@ -349,6 +394,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_telegram_chat_id(config, args.token)
     if args.command == "publish":
         return cmd_publish(config, args.rerank)
+    if args.command == "species-list":
+        return cmd_species_list(config, args.refresh)
     return 2
 
 

@@ -96,7 +96,6 @@ def config_to_dict(config: Config) -> dict:
         "species": {
             "model": str(config.species.model),
             "bank": str(config.species.bank),
-            "labels": str(config.species.labels),
             "threshold": config.species.threshold,
             "region_radius_km": config.species.region_radius_km,
             "include": list(config.species.include),

@@ -143,7 +143,6 @@ def test_species_defaults(tmp_path):
     cfg = load_config(write(tmp_path, MINIMAL))
     assert cfg.species.model == tmp_path / "models" / "bioclip2-vision-int8.onnx"
     assert cfg.species.bank == tmp_path / "models" / "bioclip2-birds.npz"
-    assert cfg.species.labels == tmp_path / "models" / "inat_bird_labels.txt"   # removed in Task 7
     assert cfg.species.threshold == 0.5
     assert cfg.species.region_radius_km == 50
     assert cfg.species.include == () and cfg.species.exclude == ()

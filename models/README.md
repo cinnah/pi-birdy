@@ -10,10 +10,8 @@ classifier applies softmax itself.
 `imagenet_bird_classes.txt` lists which output indices are birds; the
 classifier sums their probabilities to get P(bird).
 
-`mobilenet_v2_1.0_224_inat_bird_quant.tflite` + `inat_bird_labels.txt` are the
-Coral iNaturalist bird classifier (965 classes incl. `background`, MobileNetV2
-uint8, output already softmax-scaled 1/256) from
-github.com/google-coral/test_data, Apache-2.0. Used for species recognition.
+`bioclip2-vision-int8.onnx` + `bioclip2-birds.npz` (BioCLIP 2 species; gitignored) are
+built by `deploy/build-species-model.sh` — see that script.
 
 `efficientdet_lite0_320_ptq.tflite` + `coco_labels.txt` are the Coral COCO object
 detector (EfficientDet-Lite0, uint8 320×320, outputs post-processed: boxes as
