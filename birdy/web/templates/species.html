@@ -58,7 +58,7 @@
 {% block body %}
 <main class="wrap">
   <section class="group">
-    <header><h2 class="head">Try a photo</h2><p>Runs both models. Nothing is stored.</p></header>
+    <header><h2 class="head">Try a photo</h2><p>Runs gate, detector and species{% if candidates %} ({{ candidates }} candidates){% endif %}. Nothing is stored.</p></header>
     <form class="try" method="post" action="/classify" enctype="multipart/form-data">
       <input type="file" name="image" accept="image/*" required aria-label="Photo to classify">
       <button class="btn primary" type="submit">Classify</button>
@@ -73,9 +73,11 @@
         {% if result.species %}<span class="name">{{ result.species }}</span>{% endif %}
         <span class="det">detector {% if result.detector %}{{ (result.detector * 100) | round(0) | int }}%{% else %}–{% endif %}</span>
       </div>
-      {% if result.top %}
+      {% if not result.is_bird %}
+      <div class="guesses"><span class="key">species: skipped (not a bird)</span></div>
+      {% elif result.top %}
       <div class="guesses">
-        <span class="key">{% if not result.is_bird and not result.species %}species model's guesses (ignored — not a bird){% else %}species guesses{% endif %}</span>
+        <span class="key">species guesses</span>
         {% for common, latin, p in result.top %}
         {% set pct = (p * 100) | round(0) | int %}
         <div class="guess"><span>{{ common }}</span><span class="p">{{ pct }}%</span><span class="bar" style="--p: {{ pct }}%"></span></div>

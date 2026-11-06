@@ -34,9 +34,32 @@ def state():
 BLUE_TIT = SpeciesLabel("Cyanistes caeruleus", "Eurasian Blue Tit")
 
 
+class FakeBank:
+    def resolve(self, name):
+        return {"black redstart": 1, "eurasian hoopoe": 2}.get(name.strip().casefold())
+
+
+class FakeSpeciesModel:
+    bank = FakeBank()
+    candidate_count = 354
+
+
+class FakeSpeciesList:
+    version = 1
+
+    def current(self):
+        from birdy.species_list import LocalList
+        return LocalList(datetime.now(timezone.utc), 38.8, -9.39, 50, [{"id": 1, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 3}])
+
+    def unknown_names(self, names):
+        return [n for n in names if FakeBank().resolve(n) is None]
+
+
 class FakeTwoStage:
     def __init__(self):
         self.images = []
+        self.species = FakeSpeciesModel()
+        self.species_list = FakeSpeciesList()
 
     def classify_image(self, img, threshold=None):
         self.images.append(img.shape)
@@ -500,10 +523,10 @@ def test_settings_alerts_group_renders(client, store, live, config):
 
 
 def test_settings_post_saves_alert_fields(client, live, config_path):
-    r = post_settings(client, watchlist="Hoopoe\nBlue Tit", cooldown_minutes="10")
+    r = post_settings(client, watchlist="Eurasian Hoopoe\nBlack Redstart", cooldown_minutes="10")
     assert r.status_code == 303
     t = live.get().telegram
-    assert t.watchlist == ("Hoopoe", "Blue Tit") and t.cooldown_minutes == 10 and t.alert_new_species is True
+    assert t.watchlist == ("Eurasian Hoopoe", "Black Redstart") and t.cooldown_minutes == 10 and t.alert_new_species is True
     data = _base_form()
     data.pop("alert_new_species")  # an unchecked checkbox is simply absent from the POST
     r2 = client.post("/settings", data=data, follow_redirects=False)
@@ -844,3 +867,37 @@ def test_take_photo_refused_while_camera_is_off(client, state):
 def test_settings_page_has_detector_threshold(client):
     r = client.get("/settings").text
     assert 'name="detector_threshold"' in r and 'value="0.2"' in r
+
+
+def test_settings_rejects_unknown_species_names(client):
+    r = client.post("/settings", data={**_base_form(), "species_include": "Dodo"}, follow_redirects=False)
+    assert r.status_code == 422 and "species.include" in r.text and "Dodo" in r.text
+    r = client.post("/settings", data={**_base_form(), "species_exclude": "Unicorn"}, follow_redirects=False)
+    assert r.status_code == 422 and "species.exclude" in r.text
+    r = client.post("/settings", data={**_base_form(), "watchlist": "Black Redstart\nUnicorn"}, follow_redirects=False)
+    assert r.status_code == 422 and "telegram.watchlist" in r.text and "Unicorn" in r.text
+    r = client.post("/settings", data={**_base_form(), "species_include": "eurasian hoopoe", "watchlist": "black redstart"}, follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_settings_shows_species_list_state(client):
+    assert "1 species within 50 km" in client.get("/settings").text
+
+
+def test_settings_without_classifier_skips_name_validation(store, state, live, config_path):
+    app = create_app(store, state, live, config_path)
+    c = TestClient(app)
+    r = c.post("/settings", data={**_base_form(), "species_include": "Dodo"}, follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_species_page_shows_candidate_count(client):
+    assert "354 candidates" in client.get("/species").text
+
+
+def test_classify_upload_non_bird_shows_species_skipped(store, state, live, config_path):
+    app = create_app(store, state, live, config_path, classifier=FakeNotABird())
+    c = TestClient(app)
+    data = (Path(__file__).parent / "fixtures" / "cat.jpg").read_bytes()
+    r = c.post("/classify", files={"image": ("c.jpg", data, "image/jpeg")})
+    assert r.status_code == 200 and "species: skipped (not a bird)" in r.text and "species guesses" not in r.text

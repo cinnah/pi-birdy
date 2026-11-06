@@ -175,7 +175,13 @@ def create_app(
         return Response(content=jpg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     def species_context(result: dict | None = None, error: str | None = None) -> dict:
-        return {"rows": store.species_summary(), "result": result, "error": error, "status": status_payload()}
+        return {
+            "rows": store.species_summary(),
+            "result": result,
+            "error": error,
+            "status": status_payload(),
+            "candidates": getattr(getattr(classifier, "species", None), "candidate_count", None),
+        }
 
     def _decode_and_classify(data: bytes) -> tuple[Prediction, list] | None:
         """Decode an uploaded image and run both models; None if the bytes aren't an image."""
@@ -223,6 +229,16 @@ def create_app(
             "filename": upload.filename or "photo",
         }
         return templates.TemplateResponse(request, "species.html", species_context(result=result))
+
+    def _species_list_state() -> str:
+        sl = getattr(classifier, "species_list", None)
+        cur = sl.current() if sl is not None else None
+        if cur is None:
+            if live.get().site.lat is None:
+                return "no local list — set a location to enable it"
+            return "no local list yet (fetched at start)"
+        age = (datetime.now(timezone.utc) - cur.fetched_at).days
+        return f"{len(cur.species)} species within {cur.radius_km} km (fetched {age} days ago)"
 
     def settings_context(
         form: dict | None = None,
@@ -292,6 +308,7 @@ def create_app(
                 "publish.site_id": cfg.publish.site_id,
             },
             "species_seen": [r.species for r in store.species_summary()],
+            "species_list": _species_list_state(),
             "alerts_enabled": notifier is not None,
             "test_ok": None if test is None else test[0],
             "test_result": None if test is None else test[1],
@@ -311,6 +328,16 @@ def create_app(
         form = {k: str(v) for k, v in (await request.form()).items()}
         try:
             patch = parse_settings_form(form)
+            sl = getattr(classifier, "species_list", None)
+            if sl is not None:
+                for key, names in (
+                    ("species.include", patch.species_include),
+                    ("species.exclude", patch.species_exclude),
+                    ("telegram.watchlist", patch.watchlist),
+                ):
+                    unknown = sl.unknown_names(names)
+                    if unknown:
+                        raise ConfigError(f"{key}: unknown species {', '.join(unknown)} (not in the name bank)")
             new = save_settings(config_path, live.get(), patch)
         except ConfigError as e:
             msg = str(e)

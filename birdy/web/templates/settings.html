@@ -254,6 +254,7 @@
            "A second bird check that looks for a bird shape. A photo counts as a bird when this or the bird check above passes. Raise it if non-birds slip through.", 0, 1, 0.01) }}
     {{ num("species_threshold", "species.threshold", "Species certainty",
            "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
+    <p class="hint">Local species list: {{ species_list }}</p>
     <div class="row {{ 'error' if error_field == 'species_include' else '' }}">
       <label for="species_include">Add to local list</label>
       <span></span>
