@@ -41,7 +41,7 @@
 <li>The camera streams a small 320×240 picture. Inside a region you draw around the feeder, each frame is compared with a slowly updating background. Enough change there is a trigger; everything outside the region (curtains, branches, reflections) is ignored.</li>
 <li>The camera takes a full-size still.</li>
 <li>A small model on the Pi (MobileNetV2 trained on ImageNet) looks at the crop around the drawn region and gives the probability that it is a bird, summed over every bird class it knows.</li>
-<li>A second model (the iNaturalist bird classifier, 965 species) names the species. A confident species guess can rescue a frame the first model turned down.</li>
+<li>A second model (the iNaturalist bird classifier, 965 species) names the species. A second, shape-based detector catches the birds the first model misses; the species name comes from BioCLIP 2, scored only against the birds seen near the feeder on iNaturalist.</li>
 <li>Photo and thumbnail are filed on the Pi's card, and a row with time, species and both confidences goes into SQLite. A page on the home network shows the day's captures, lets the household tune the region and thresholds live, and delete what is wrong. Optionally a Telegram message goes out for chosen species.</li>
 <li>The best photos of each species, per day, are shrunk to 1600 px and copied with rsync into that feeder's folder on a plain web server. These gallery pages read each folder's manifest in the browser; the server runs no code.</li>
 </ol>
