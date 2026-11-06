@@ -380,12 +380,19 @@ class FakePublisher:
     def __init__(self, raise_exc=None):
         self.raise_exc = raise_exc
         self.evaluated = []
+        self.forgotten: list[int] = []
+        self.order: list[str] = []
 
     def evaluate(self, capture):
         self.evaluated.append(capture)
+        self.order.append("evaluate")
         if self.raise_exc:
             raise self.raise_exc
         return True
+
+    def forget(self, c):
+        self.forgotten.append(c.id)
+        self.order.append("forget")
 
 
 def test_process_calls_publisher_with_stored_capture(store, live):
@@ -634,3 +641,45 @@ def test_backfill_promotion_with_species_evaluates_publisher_and_never_notifies(
     assert [c.id for c in pub.evaluated] == [ev.capture_id]
     assert n.calls == []
     assert store.get(ev.capture_id).is_bird is True
+
+
+def test_backfill_rename_forgets_old_species_then_evaluates_new(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Black Phoebe", 0.8)
+    unchecked(store, [ev.capture_id])                      # species pass pending (new model)
+    pub = FakePublisher()
+    Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Black Redstart", species_confidence=0.95)), live, publisher=pub).sweep()
+    c = store.get(ev.capture_id)
+    assert c.species == "Black Redstart" and c.species_confidence == 0.95
+    assert pub.forgotten == [ev.capture_id] and [x.id for x in pub.evaluated] == [ev.capture_id]
+    assert pub.order == ["forget", "evaluate"]
+
+
+def test_backfill_rename_to_nothing_forgets_old_species(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Black Phoebe", 0.8)
+    unchecked(store, [ev.capture_id])
+    pub = FakePublisher()
+    Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9)), live, publisher=pub).sweep()
+    c = store.get(ev.capture_id)
+    assert c.species is None and c.species_confidence is None
+    assert pub.forgotten == [ev.capture_id] and pub.evaluated == []
+
+
+def test_backfill_same_species_does_not_forget(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Robin", 0.8)
+    unchecked(store, [ev.capture_id])
+    pub = FakePublisher()
+    Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Robin", species_confidence=0.85)), live, publisher=pub).sweep()
+    assert pub.forgotten == [] and [x.id for x in pub.evaluated] == [ev.capture_id]
+    assert store.get(ev.capture_id).species_confidence == 0.85
+
+
+def test_backfill_detector_pass_keeps_species_and_does_not_forget(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Robin", 0.8)
+    detector_unchecked(store, [ev.capture_id])             # species_checked stays 1
+    pub = FakePublisher()
+    Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7)), live, publisher=pub).sweep()
+    assert store.get(ev.capture_id).species == "Robin" and pub.forgotten == [] and pub.evaluated == []

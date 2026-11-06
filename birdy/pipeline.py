@@ -147,10 +147,6 @@ class Pipeline:
         try:
             crop = crop_box(c.motion_box, cfg.motion.roi, self._lores_size)
             pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
-            # Species: written only for rows the species model hasn't seen; a row it has seen
-            # keeps its label (the crop may have changed with the ROI, and rewriting would move
-            # publish slots and re-rank history). A promoted row was never a bird, so it has no
-            # species or publish slot to protect and gets one like a new row.
             # Bird/non-bird: never demote; promote when the new verdict says bird (gate
             # or detector). Confidence comes from the new verdict when it says bird, else
             # the old one is kept. det_* always records the latest detector run.
@@ -158,8 +154,11 @@ class Pipeline:
             is_bird = bool(c.is_bird) or pred.is_bird
             confidence = pred.confidence if pred.is_bird else c.confidence
             species, species_confidence = c.species, c.species_confidence
-            # A bird keeps its species when the re-run finds none.
-            write_species = (not c.species_checked or promoted) and bool(pred.species or not c.is_bird)
+            # Species: a row the species model hasn't seen with the current model (species_checked = 0)
+            # takes the new verdict, even "no species" (its old name came from another model); a seen
+            # row keeps its label (the crop may have changed with the ROI; rewriting would move publish
+            # slots for nothing). A promoted non-bird gets one like a new row.
+            write_species = (not c.species_checked) or promoted
             if write_species:
                 species, species_confidence = pred.species, pred.species_confidence
             self._store.update_classification(
@@ -175,6 +174,14 @@ class Pipeline:
                 log.exception("mark_checked failed for capture %d", c.id)
             return False, False
         # Historical photos may be published too (unlike alerts, which are for live events only).
+        # `c` is the snapshot from before the write: forgetting it re-ranks the old species/day,
+        # where this row (now carrying the new species) is no longer a candidate.
+        renamed = write_species and bool(c.species) and c.species != species
+        if self._publisher is not None and renamed:
+            try:
+                self._publisher.forget(c)          # the old species/day loses this row's slot
+            except Exception:
+                log.exception("publish forget failed for capture %d", c.id)
         got_species = write_species and bool(pred.species)
         if self._publisher is not None and got_species:
             try:
