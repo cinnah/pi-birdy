@@ -5,7 +5,7 @@ HOST="${BIRDY_HOST:-yassine@birdy.local}"
 cd "$(dirname "$0")/.."
 
 rsync -az --delete \
-  --exclude data/ --exclude .venv/ --exclude birdy.toml --exclude .git/ \
+  --exclude data/ --exclude .venv/ --exclude .build-venv/ --exclude birdy.toml --exclude .git/ \
   --exclude '__pycache__/' --exclude .pytest_cache/ --exclude roi.png \
   ./ "$HOST:~/pi-birdy/"
 
