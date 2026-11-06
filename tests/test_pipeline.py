@@ -287,9 +287,9 @@ def classified_unchecked(store, n, is_bird=True):
 
 
 def test_backlog_limit_per_sweep(store, live):
-    from birdy.pipeline import SPECIES_BACKLOG_PER_SWEEP
+    from birdy.pipeline import BACKLOG_PER_SWEEP
 
-    evs = classified_unchecked(store, SPECIES_BACKLOG_PER_SWEEP + 10)
+    evs = classified_unchecked(store, BACKLOG_PER_SWEEP + 10)
     Pipeline(store, SpeciesFake(), live).sweep()
     left = store.classification_backlog(limit=1000)
     assert sorted(c.id for c in left) == sorted(ev.capture_id for ev in evs[:10])
@@ -519,3 +519,54 @@ def test_corrupt_stored_box_marks_error(store, live):
     ev = add_with_box(store, 5, (float("inf"), 0.1, 0.1, 0.1))
     p.process(ev.capture_id, ev.path, ev.captured_at, store.get(ev.capture_id).motion_box)
     assert store.get(ev.capture_id).status == "error"
+
+
+class DetectorFake(FakeClassifier):
+    """What the real classifier returns for a bird the gate missed but the detector found."""
+
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+        super().classify(image_path, roi_bbox, threshold, pad)
+        return Prediction(is_bird=True, confidence=0.55, detector_confidence=0.55, detector_box=(0.1, 0.2, 0.3, 0.4))
+
+
+def test_process_stores_detector_fields(store, live):
+    ev = add(store, 0)
+    Pipeline(store, DetectorFake(), live).process(ev.capture_id, ev.path, ev.captured_at)
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.confidence == 0.55
+    assert c.det_confidence == 0.55 and c.det_box == (0.1, 0.2, 0.3, 0.4)
+
+
+def detector_unchecked(store, ids):
+    with store._lock, store._conn:
+        store._conn.execute(f"UPDATE captures SET detector_checked = 0 WHERE id IN ({','.join('?' * len(ids))})", ids)
+
+
+def test_backfill_promotes_non_bird_the_detector_finds(store, live, caplog):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, False, 0.05, None, None)
+    detector_unchecked(store, [ev.capture_id])
+    with caplog.at_level(logging.INFO):
+        Pipeline(store, DetectorFake(), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.confidence == 0.55 and c.det_box == (0.1, 0.2, 0.3, 0.4)
+    assert store.classification_backlog() == []
+    assert "1 promoted" in caplog.text
+
+
+def test_backfill_never_demotes_on_detector_pass(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    detector_unchecked(store, [ev.capture_id])
+    Pipeline(store, NotBirdFake(), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.confidence == 0.9 and store.classification_backlog() == []
+
+
+def test_backfill_failure_marks_detector_checked(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, False, 0.05, None, None)
+    detector_unchecked(store, [ev.capture_id])
+    Pipeline(store, FakeClassifier(fail_on={ev.path.name}), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.status == "done" and c.is_bird is False and store.classification_backlog() == []

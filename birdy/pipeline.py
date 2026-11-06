@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-SPECIES_BACKLOG_PER_SWEEP = 50
+BACKLOG_PER_SWEEP = 50
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,10 @@ class Pipeline:
                 log.exception("mark_error failed for capture %d; left pending", capture_id)
             return
         try:
-            self._store.update_classification(capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence)
+            self._store.update_classification(
+                capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence,
+                det_confidence=pred.detector_confidence, det_box=pred.detector_box,
+            )
         except Exception:
             log.exception("storing classification failed for capture %d", capture_id)
             try:
@@ -122,23 +125,23 @@ class Pipeline:
             if current is None or current.status != "pending":
                 continue
             self.process(c.id, self._store.photos_dir / c.path, c.captured_at, current.motion_box)
-        # Rows classified before species recognition existed: re-run the (two-stage)
-        # classifier so they get a species. Bounded per sweep to keep the Pi responsive,
-        # and yields to live events (the remainder drains on the next sweep).
-        processed = with_species = rescued = 0
-        for c in self._store.species_backlog(limit=SPECIES_BACKLOG_PER_SWEEP):
+        # Rows classified before species recognition or the detector existed: re-run the
+        # classifier so they get a species and a second look at bird/not-bird. Bounded per
+        # sweep to keep the Pi responsive, and yields to live events.
+        processed = with_species = promoted = 0
+        for c in self._store.classification_backlog(limit=BACKLOG_PER_SWEEP):
             if self._stop.is_set() or self._queue.qsize():
                 break
-            got_species, was_rescued = self._backfill_species(c)
+            got_species, was_promoted = self._backfill(c)
             processed += 1
             with_species += got_species
-            rescued += was_rescued
+            promoted += was_promoted
         if processed:
-            remaining = self._store.count_species_backlog()
-            log.info("backfill: %d rows, %d with species, %d rescued, %d remaining", processed, with_species, rescued, remaining)
+            remaining = self._store.count_classification_backlog()
+            log.info("backfill: %d rows, %d with species, %d promoted, %d remaining", processed, with_species, promoted, remaining)
 
-    def _backfill_species(self, c: Capture) -> tuple[bool, bool]:
-        """Re-classify an already-classified row; returns (got_species, rescued)."""
+    def _backfill(self, c: Capture) -> tuple[bool, bool]:
+        """Re-classify an already-classified row; returns (got_species, promoted)."""
         cfg = self._live.get()
         path = self._store.photos_dir / c.path
         try:
@@ -148,14 +151,17 @@ class Pipeline:
             # is a bird (gate or rescue); the old confidence is kept only when it says non-bird.
             is_bird = bool(c.is_bird) or pred.is_bird
             confidence = pred.confidence if pred.is_bird else c.confidence
-            self._store.update_classification(c.id, is_bird, confidence, pred.species, pred.species_confidence)
+            self._store.update_classification(
+                c.id, is_bird, confidence, pred.species, pred.species_confidence,
+                det_confidence=pred.detector_confidence, det_box=pred.detector_box,
+            )
         except Exception:
             # Unlike live processing, a failure here must not flip a `done` row to `error`.
-            log.exception("species backfill failed for capture %d; marking checked", c.id)
+            log.exception("backfill failed for capture %d; marking checked", c.id)
             try:
-                self._store.mark_species_checked(c.id)
+                self._store.mark_checked(c.id)
             except Exception:
-                log.exception("mark_species_checked failed for capture %d", c.id)
+                log.exception("mark_checked failed for capture %d", c.id)
             return False, False
         # Historical photos may be published too (unlike alerts, which are for live events only).
         if self._publisher is not None and pred.species:
