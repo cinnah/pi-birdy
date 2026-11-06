@@ -251,7 +251,7 @@
     {{ num("classifier_threshold", "classifier.threshold", "Bird certainty",
            "How sure the bird check must be (0–1) before a photo counts as a bird.", 0, 1, 0.01) }}
     {{ num("detector_threshold", "detector.threshold", "Bird detector",
-           "A second bird check that looks for a bird shape. A photo is a bird when either check passes.", 0, 1, 0.01) }}
+           "A second bird check that looks for a bird shape. A photo counts as a bird when this or the bird check above passes. Raise it if non-birds slip through.", 0, 1, 0.01) }}
     {{ num("species_threshold", "species.threshold", "Species certainty",
            "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
     {{ num("species_rescue_threshold", "species.rescue_threshold", "Species rescue",

@@ -89,7 +89,8 @@ def create_app(
         if c.det_box is not None:
             h, w = bgr.shape[:2]
             x, y, bw, bh = c.det_box
-            cv2.rectangle(bgr, (int(x * w), int(y * h)), (int((x + bw) * w), int((y + bh) * h)), (0, 204, 255), 2)
+            # The ROI is live-tunable: for a ROI-fallback crop the box is only exact while the ROI is unchanged since classification (debugging view).
+            cv2.rectangle(bgr, (int(x * w), int(y * h)), (int((x + bw) * w), int((y + bh) * h)), (0, 176, 255), 2)
         ok, jpg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return jpg.tobytes() if ok else None
 

@@ -71,7 +71,7 @@
       <div class="verdict">
         {% if result.is_bird %}<span class="call">bird ({{ (result.confidence * 100) | round(0) | int }}%)</span>{% else %}<span class="call no">not a bird ({{ (result.confidence * 100) | round(0) | int }}% bird)</span>{% endif %}
         {% if result.species %}<span class="name">{{ result.species }}</span>{% endif %}
-        <span class="det">detector {{ (result.detector * 100) | round(0) | int }}%</span>
+        <span class="det">detector {% if result.detector %}{{ (result.detector * 100) | round(0) | int }}%{% else %}–{% endif %}</span>
       </div>
       {% if result.top %}
       <div class="guesses">

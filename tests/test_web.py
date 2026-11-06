@@ -760,7 +760,7 @@ def test_crop_jpg_draws_the_detector_box(client, store):
     store.update_classification(cid, True, 0.6, None, None, det_confidence=0.6, det_box=(0.25, 0.25, 0.5, 0.5))
     boxed = cv2.imdecode(np.frombuffer(client.get(f"/captures/{cid}/crop.jpg").content, np.uint8), cv2.IMREAD_COLOR)
     assert boxed.shape == plain.shape
-    b, g, r = boxed[20, 40]   # top edge of the box, BGR; #ffcc00 = (0, 204, 255) ± JPEG
+    b, g, r = boxed[20, 40]   # top edge of the box, BGR; #ffb000 = (0, 176, 255) ± JPEG
     assert r > 200 and g > 150 and b < 80
     assert not np.array_equal(plain[20, 40], boxed[20, 40])
 
