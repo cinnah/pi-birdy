@@ -232,15 +232,9 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
         return 1
     p_gate = clf.gate.predict(img)
     pred, top = clf.classify_image(img)
-    threshold = config.classifier.threshold
     p_det = pred.detector_confidence
-    rescued = (
-        ", rescued by species"
-        if pred.is_bird and p_gate < threshold and p_det < config.detector.threshold
-        else ""
-    )
     print(
-        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}, detector {p_det:.3f}{rescued}) "
+        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}, detector {p_det:.3f}) "
         f"species={pred.species or '-'}"
     )
     print("gate (ImageNet):")

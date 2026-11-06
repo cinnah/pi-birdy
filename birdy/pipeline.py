@@ -151,8 +151,8 @@ class Pipeline:
             # keeps its label (the crop may have changed with the ROI, and rewriting would move
             # publish slots and re-rank history). A promoted row was never a bird, so it has no
             # species or publish slot to protect and gets one like a new row.
-            # Bird/non-bird: never demote; promote when the new verdict says bird (gate,
-            # detector or rescue). Confidence comes from the new verdict when it says bird, else
+            # Bird/non-bird: never demote; promote when the new verdict says bird (gate
+            # or detector). Confidence comes from the new verdict when it says bird, else
             # the old one is kept. det_* always records the latest detector run.
             promoted = (not c.is_bird) and pred.is_bird
             is_bird = bool(c.is_bird) or pred.is_bird

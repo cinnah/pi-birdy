@@ -19,7 +19,7 @@ def _restart_only(cfg: Config) -> tuple:
     p = cfg.publish
     return (
         cfg.camera, cfg.web, cfg.storage, c.model, c.labels, c.bird_classes,
-        cfg.species.model, cfg.species.labels,
+        cfg.species.model, cfg.species.bank, cfg.species.region_radius_km,
         cfg.detector.model, cfg.detector.labels,
         cfg.telegram.enabled, cfg.telegram.bot_token, cfg.telegram.chat_id, cfg.telegram.base_url,
         p.enabled, p.host, p.user, p.remote_dir, p.site_id, p.ssh_key,

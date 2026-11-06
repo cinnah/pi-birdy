@@ -16,7 +16,8 @@ def default_patch(config, **overrides) -> SettingsPatch:
         cooldown_seconds=config.motion.cooldown_seconds,
         classifier_threshold=config.classifier.threshold,
         species_threshold=config.species.threshold,
-        species_rescue_threshold=config.species.rescue_threshold,
+        species_include=config.species.include,
+        species_exclude=config.species.exclude,
         detector_threshold=config.detector.threshold,
         lat=config.site.lat,
         lon=config.site.lon,
@@ -97,7 +98,8 @@ FORM = {
     "cooldown_seconds": "3",
     "classifier_threshold": "0.5",
     "species_threshold": "0.5",
-    "species_rescue_threshold": "0.7",
+    "species_include": "",
+    "species_exclude": "",
     "detector_threshold": "0.2",
     "lat": "",
     "lon": "",
@@ -181,7 +183,10 @@ threshold = 0.65
 model = "models/other_species.tflite"
 labels = "models/other_species_labels.txt"
 threshold = 0.4
-rescue_threshold = 0.9
+bank = "models/other-birds.npz"
+region_radius_km = 80
+include = ["Hoopoe"]
+exclude = ["Rock Pigeon"]
 
 [detector]
 model = "models/other_detector.tflite"
@@ -306,18 +311,13 @@ def test_parse_form_rejects_inf(config_path, config):
 
 
 def test_species_thresholds_roundtrip(config_path, config):
-    new = save_settings(config_path, config, default_patch(config, species_threshold=0.3, species_rescue_threshold=0.8))
-    assert new.species.threshold == 0.3 and new.species.rescue_threshold == 0.8
-
-
-def test_species_rescue_below_threshold_rejected(config_path, config):
-    with pytest.raises(ConfigError, match="species.rescue_threshold"):
-        save_settings(config_path, config, default_patch(config, species_threshold=0.9, species_rescue_threshold=0.5))
+    new = save_settings(config_path, config, default_patch(config, species_threshold=0.3))
+    assert new.species.threshold == 0.3
 
 
 def test_parse_form_species_fields():
-    p = parse_settings_form({**FORM, "species_threshold": "0.35", "species_rescue_threshold": "0.75"})
-    assert p.species_threshold == 0.35 and p.species_rescue_threshold == 0.75
+    p = parse_settings_form({**FORM, "species_threshold": "0.35"})
+    assert p.species_threshold == 0.35
 
 
 def test_telegram_fields_roundtrip_and_token_preserved(config_path, config):
@@ -380,3 +380,14 @@ def test_detector_threshold_roundtrip(config_path, config):
 
 def test_parse_form_detector_threshold():
     assert parse_settings_form(FORM).detector_threshold == 0.2
+
+
+def test_species_include_exclude_roundtrip(config_path, config):
+    new = save_settings(config_path, config, default_patch(config, species_include=("Hoopoe", "Blue Tit"), species_exclude=("Rock Pigeon",)))
+    assert new.species.include == ("Hoopoe", "Blue Tit") and new.species.exclude == ("Rock Pigeon",)
+    assert load_config(config_path).species.exclude == ("Rock Pigeon",)
+
+
+def test_parse_form_species_lists():
+    p = parse_settings_form({**FORM, "species_include": "Hoopoe\r\n\r\n Blue Tit \n", "species_exclude": "Rock Pigeon"})
+    assert p.species_include == ("Hoopoe", "Blue Tit") and p.species_exclude == ("Rock Pigeon",)

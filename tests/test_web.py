@@ -186,7 +186,8 @@ def _base_form():
         "cooldown_seconds": "3",
         "classifier_threshold": "0.5",
         "species_threshold": "0.5",
-        "species_rescue_threshold": "0.7",
+        "species_include": "",
+        "species_exclude": "",
         "detector_threshold": "0.2",
         "lat": "",
         "lon": "",
@@ -331,7 +332,7 @@ def test_settings_page_has_novalidate_and_saved_roi(client):
 
 def test_settings_page_has_species_rows(client):
     r = client.get("/settings").text
-    assert 'name="species_threshold"' in r and 'name="species_rescue_threshold"' in r
+    assert 'name="species_threshold"' in r and 'name="species_include"' in r and 'species_rescue_threshold' not in r
 
 
 def test_index_species_dropdown_and_filter(client, store):

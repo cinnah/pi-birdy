@@ -64,24 +64,11 @@ def test_bird_with_unknown_species(live):
     assert pred.is_bird and pred.species is None and pred.species_confidence is None
 
 
-def test_rescue_above_rescue_threshold(live):
-    pred, _ = two_stage(live, 0.2, 0.75).classify_image(IMG)
-    assert pred.is_bird is True
-    assert pred.confidence == 0.75  # max(p_bird, p_species) when rescued
-    assert pred.species == "Eurasian Blue Tit"
-
-
-def test_no_rescue_between_thresholds(live):
-    pred, _ = two_stage(live, 0.2, 0.6).classify_image(IMG)
-    assert pred.is_bird is False and pred.confidence == 0.2
-    assert pred.species == "Eurasian Blue Tit"  # label is still worth showing on a non-bird tile
-
-
-def test_thresholds_follow_live_config(live, config):
-    clf = two_stage(live, 0.2, 0.6)
-    assert clf.classify_image(IMG)[0].is_bird is False
-    live.replace(dataclasses.replace(config, species=dataclasses.replace(config.species, threshold=0.5, rescue_threshold=0.55)))
-    assert clf.classify_image(IMG)[0].is_bird is True
+def test_species_threshold_follows_live_config(live, config):
+    clf = two_stage(live, 0.9, 0.6)
+    assert clf.classify_image(IMG)[0].species == "Eurasian Blue Tit"
+    live.replace(dataclasses.replace(config, species=dataclasses.replace(config.species, threshold=0.7)))
+    assert clf.classify_image(IMG)[0].species is None
 
 
 def test_gate_threshold_override(live):
@@ -180,11 +167,6 @@ def test_no_detection_gives_zero_and_no_box(live):
     assert pred.detector_confidence == 0.0 and pred.detector_box is None
 
 
-def test_rescue_still_works_with_detector_below(live):
-    pred, _ = two_stage(live, 0.2, 0.75, p_det=0.1).classify_image(IMG)
-    assert pred.is_bird is True and pred.confidence == 0.75
-
-
 def test_detector_threshold_follows_live_config(live, config):
     clf = two_stage(live, 0.1, 0.2, p_det=0.25)
     assert clf.classify_image(IMG)[0].is_bird is True
@@ -205,3 +187,8 @@ def test_without_detector_behaves_as_before(live):
     clf = TwoStageClassifier(FakeGate(0.9), FakeSpecies(0.8), live, lores_size=(320, 240))
     pred, _ = clf.classify_image(IMG)
     assert pred.is_bird and pred.confidence == 0.9 and pred.detector_confidence == 0.0 and pred.detector_box is None
+
+
+def test_confident_species_never_rescues(live):
+    pred, _ = two_stage(live, 0.2, 0.99, p_det=0.1).classify_image(IMG)
+    assert pred.is_bird is False and pred.confidence == 0.2

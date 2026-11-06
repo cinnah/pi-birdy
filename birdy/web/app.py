@@ -242,7 +242,8 @@ def create_app(
                 "cooldown_seconds": cfg.motion.cooldown_seconds,
                 "classifier_threshold": cfg.classifier.threshold,
                 "species_threshold": cfg.species.threshold,
-                "species_rescue_threshold": cfg.species.rescue_threshold,
+                "species_include": "\n".join(cfg.species.include),
+                "species_exclude": "\n".join(cfg.species.exclude),
                 "detector_threshold": cfg.detector.threshold,
                 "lat": "" if cfg.site.lat is None else cfg.site.lat,
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
@@ -277,6 +278,8 @@ def create_app(
                 "storage.data_dir": str(cfg.storage.data_dir),
                 "classifier.model": str(cfg.classifier.model),
                 "species.model": str(cfg.species.model),
+                "species.bank": str(cfg.species.bank),
+                "species.region_radius_km": cfg.species.region_radius_km,
                 "telegram.enabled": cfg.telegram.enabled,
                 "telegram.chat_id": cfg.telegram.chat_id or "–",
                 # never the token itself

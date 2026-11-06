@@ -1,4 +1,4 @@
-"""Three models on one crop: an ImageNet bird/not-bird gate, a COCO bird detector and an iNat species model. Gate or detector makes a bird; a confident species verdict can rescue a frame both rejected."""
+"""Three models on one crop: an ImageNet bird/not-bird gate, a COCO bird detector and an iNat species model. Gate or detector makes a bird; a frame both rejected is not a bird."""
 
 from __future__ import annotations
 
@@ -23,8 +23,7 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Prediction:
     is_bird: bool
-    # How sure the system is this is a bird: max(gate P(bird), detector score), and the
-    # species probability too when a confident species rescued a rejected frame; 0..1.
+    # How sure the system is this is a bird: max(gate P(bird), detector score); 0..1.
     confidence: float
     species: str | None = None
     species_confidence: float | None = None
@@ -172,8 +171,8 @@ class TwoStageClassifier:
     Rules (thresholds from `live`): the gate's P(bird) at or above `classifier.threshold`
     makes the photo a bird. A COCO `bird` detection at or above `detector.threshold` makes
     the photo a bird too. A species is reported when its probability meets
-    `species.threshold`; a frame both gate and detector rejected is *rescued*
-    (is_bird=True) when the species probability meets the higher `species.rescue_threshold`.
+    `species.threshold`; a frame both gate and detector rejected is not a bird, however
+    sure the species model is.
     A failing detector or species model is logged once per distinct error and skipped.
     """
 
@@ -202,7 +201,7 @@ class TwoStageClassifier:
         cfg = self._live.get()
         t_gate = cfg.classifier.threshold if threshold is None else threshold
         t_det = cfg.detector.threshold
-        t_sp, t_rescue = cfg.species.threshold, cfg.species.rescue_threshold
+        t_sp = cfg.species.threshold
 
         with self._lock:
             p_bird = self.gate.predict(img_rgb)
@@ -227,9 +226,8 @@ class TwoStageClassifier:
         p_det = det.score if det is not None else 0.0
 
         species = label.common if label is not None and p_sp >= t_sp else None
-        rescued = p_bird < t_gate and p_det < t_det and p_sp >= t_rescue
-        is_bird = p_bird >= t_gate or p_det >= t_det or rescued
-        confidence = max(p_bird, p_det, p_sp) if rescued else max(p_bird, p_det)
+        is_bird = p_bird >= t_gate or p_det >= t_det
+        confidence = max(p_bird, p_det)
         pred = Prediction(
             is_bird=is_bird,
             confidence=confidence,

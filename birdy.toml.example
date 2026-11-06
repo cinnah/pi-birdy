@@ -37,10 +37,12 @@ bird_classes = "models/imagenet_bird_classes.txt"
 threshold = 0.5            # P(bird) at or above this = bird
 
 [species]
-model = "models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"
-labels = "models/inat_bird_labels.txt"
-threshold = 0.5            # show a species name at or above this confidence
-rescue_threshold = 0.7     # a frame the gate and detector both rejected becomes a bird if the species model is this sure
+model = "models/bioclip2-vision-int8.onnx"   # BioCLIP 2 image tower; built by deploy/build-species-model.sh; restart-only
+bank = "models/bioclip2-birds.npz"           # name embeddings for every iNaturalist bird species; same script; restart-only
+threshold = 0.5            # name a bird at or above this confidence; applies without a restart
+region_radius_km = 50      # the local species list = birds seen on iNaturalist within this radius of [site] lat/lon; a change refetches at the next start
+include = []               # names to add to the local list (latin or common), e.g. ["Eurasian Hoopoe"]; live
+exclude = []               # names to drop from it; live
 
 [detector]
 model = "models/efficientdet_lite0_320_ptq.tflite"   # COCO object detector; restart-only

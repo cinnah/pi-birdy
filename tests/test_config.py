@@ -141,20 +141,36 @@ def test_size_rejects_booleans(tmp_path):
 
 def test_species_defaults(tmp_path):
     cfg = load_config(write(tmp_path, MINIMAL))
-    assert cfg.species.model == tmp_path / "models" / "mobilenet_v2_1.0_224_inat_bird_quant.tflite"
-    assert cfg.species.labels == tmp_path / "models" / "inat_bird_labels.txt"
-    assert cfg.species.threshold == 0.5 and cfg.species.rescue_threshold == 0.7
+    assert cfg.species.model == tmp_path / "models" / "bioclip2-vision-int8.onnx"
+    assert cfg.species.bank == tmp_path / "models" / "bioclip2-birds.npz"
+    assert cfg.species.labels == tmp_path / "models" / "inat_bird_labels.txt"   # removed in Task 7
+    assert cfg.species.threshold == 0.5
+    assert cfg.species.region_radius_km == 50
+    assert cfg.species.include == () and cfg.species.exclude == ()
+    assert not hasattr(cfg.species, "rescue_threshold")
 
 
-def test_species_rescue_must_not_be_below_threshold(tmp_path):
-    with pytest.raises(ConfigError, match="species.rescue_threshold"):
-        load_config(write(tmp_path, MINIMAL + "\n[species]\nthreshold = 0.8\nrescue_threshold = 0.6\n"))
+def test_species_threshold_range(tmp_path):
+    with pytest.raises(ConfigError, match="species.threshold"):
+        load_config(write(tmp_path, MINIMAL + "\n[species]\nthreshold = 1.5\n"))
 
 
-@pytest.mark.parametrize("key", ["threshold", "rescue_threshold"])
-def test_species_thresholds_range(tmp_path, key):
-    with pytest.raises(ConfigError, match=f"species.{key}"):
-        load_config(write(tmp_path, MINIMAL + f"\n[species]\n{key} = 1.5\n"))
+def test_species_unknown_key_ignored(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + "\n[species]\nrescue_threshold = 1.0\n"))
+    assert cfg.species.threshold == 0.5
+
+
+@pytest.mark.parametrize("text", ["region_radius_km = 0", "region_radius_km = 501", 'region_radius_km = "x"'])
+def test_species_radius_range(tmp_path, text):
+    with pytest.raises(ConfigError, match="species.region_radius_km"):
+        load_config(write(tmp_path, MINIMAL + f"\n[species]\n{text}\n"))
+
+
+def test_species_include_exclude_lists(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[species]\ninclude = [" Hoopoe ", ""]\nexclude = ["Rock Pigeon"]\n'))
+    assert cfg.species.include == ("Hoopoe",) and cfg.species.exclude == ("Rock Pigeon",)
+    with pytest.raises(ConfigError, match="species.include"):
+        load_config(write(tmp_path, MINIMAL + "\n[species]\ninclude = [1]\n"))
 
 
 def test_telegram_defaults(tmp_path):

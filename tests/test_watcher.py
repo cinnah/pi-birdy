@@ -132,7 +132,7 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         cooldown_seconds=cur.motion.cooldown_seconds,
         classifier_threshold=cur.classifier.threshold,
         species_threshold=cur.species.threshold,
-        species_rescue_threshold=cur.species.rescue_threshold,
+        species_include=cur.species.include, species_exclude=cur.species.exclude,
         detector_threshold=cur.detector.threshold,
         lat=cur.site.lat,
         lon=cur.site.lon,
@@ -177,4 +177,13 @@ def test_detector_model_change_warns(config_path, live, caplog):
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
     assert live.get().detector.model.name == "other.tflite"
+    assert "restart birdy to apply them" in caplog.text
+
+
+def test_species_bank_change_warns(config_path, live, caplog):
+    w = ConfigWatcher(config_path, live)
+    config_path.write_text(config_path.read_text() + '\n[species]\nbank = "models/other.npz"\n')
+    bump_mtime(config_path)
+    with caplog.at_level(logging.WARNING):
+        assert w.check_once() is True
     assert "restart birdy to apply them" in caplog.text

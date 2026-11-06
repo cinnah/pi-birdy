@@ -26,7 +26,8 @@ FIELD_KEYS = {
     "cooldown_seconds": "motion.cooldown_seconds",
     "classifier_threshold": "classifier.threshold",
     "species_threshold": "species.threshold",
-    "species_rescue_threshold": "species.rescue_threshold",
+    "species_include": "species.include",
+    "species_exclude": "species.exclude",
     "detector_threshold": "detector.threshold",
     "lat": "site.lat",
     "lon": "site.lon",
@@ -51,7 +52,8 @@ class SettingsPatch:
     cooldown_seconds: float
     classifier_threshold: float
     species_threshold: float
-    species_rescue_threshold: float
+    species_include: tuple[str, ...]
+    species_exclude: tuple[str, ...]
     detector_threshold: float
     lat: float | None
     lon: float | None
@@ -93,9 +95,12 @@ def config_to_dict(config: Config) -> dict:
         },
         "species": {
             "model": str(config.species.model),
+            "bank": str(config.species.bank),
             "labels": str(config.species.labels),
             "threshold": config.species.threshold,
-            "rescue_threshold": config.species.rescue_threshold,
+            "region_radius_km": config.species.region_radius_km,
+            "include": list(config.species.include),
+            "exclude": list(config.species.exclude),
         },
         "detector": {
             "model": str(config.detector.model),
@@ -137,7 +142,8 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
     )
     data["classifier"]["threshold"] = patch.classifier_threshold
     data["species"]["threshold"] = patch.species_threshold
-    data["species"]["rescue_threshold"] = patch.species_rescue_threshold
+    data["species"]["include"] = list(patch.species_include)
+    data["species"]["exclude"] = list(patch.species_exclude)
     data["detector"]["threshold"] = patch.detector_threshold
     data["site"].pop("lat", None)
     data["site"].pop("lon", None)
@@ -219,8 +225,12 @@ def _roi(form: Mapping[str, str]) -> tuple[Point, ...]:
     return tuple(out)
 
 
+def _lines(form: Mapping[str, str], field: str) -> tuple[str, ...]:
+    return tuple(s.strip() for s in form.get(field, "").splitlines() if s.strip())
+
+
 def _watchlist(form: Mapping[str, str]) -> tuple[str, ...]:
-    return tuple(s.strip() for s in form.get("watchlist", "").splitlines() if s.strip())
+    return _lines(form, "watchlist")
 
 
 def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
@@ -233,7 +243,8 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         cooldown_seconds=_num(form, "cooldown_seconds", float),
         classifier_threshold=_num(form, "classifier_threshold", float),
         species_threshold=_num(form, "species_threshold", float),
-        species_rescue_threshold=_num(form, "species_rescue_threshold", float),
+        species_include=_lines(form, "species_include"),
+        species_exclude=_lines(form, "species_exclude"),
         detector_threshold=_num(form, "detector_threshold", float),
         lat=_num(form, "lat", float, optional=True),
         lon=_num(form, "lon", float, optional=True),

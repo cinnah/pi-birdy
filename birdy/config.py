@@ -54,10 +54,13 @@ class ClassifierConfig:
 
 @dataclass(frozen=True)
 class SpeciesConfig:
-    model: Path
-    labels: Path
-    threshold: float          # show a species at or above this
-    rescue_threshold: float   # promote a frame the gate and detector both rejected to "bird" at or above this
+    model: Path                     # restart-only; BioCLIP 2 image tower (int8 ONNX)
+    bank: Path                      # restart-only; name embeddings for every iNat bird species
+    labels: Path                    # legacy iNat label file; removed with InatBirdClassifier
+    threshold: float                # name a bird at or above this (live)
+    region_radius_km: int           # iNaturalist radius for the local species list; refetch at next start
+    include: tuple[str, ...]        # names added to the local list, latin or common (live)
+    exclude: tuple[str, ...]        # names dropped from it (live)
 
 
 @dataclass(frozen=True)
@@ -255,9 +258,10 @@ def load_config(path: Path) -> Config:
     sp = raw.get("species", {})
     species_threshold = _num(sp, "species", "threshold", 0.5, float)
     _check(0.0 <= species_threshold <= 1.0, "species.threshold must be between 0 and 1")
-    rescue_threshold = _num(sp, "species", "rescue_threshold", 0.7, float)
-    _check(0.0 <= rescue_threshold <= 1.0, "species.rescue_threshold must be between 0 and 1")
-    _check(rescue_threshold >= species_threshold, "species.rescue_threshold must be >= species.threshold")
+    region_radius_km = _num(sp, "species", "region_radius_km", 50, int)
+    _check(1 <= region_radius_km <= 500, "species.region_radius_km must be between 1 and 500")
+    sp_include = _str_list(sp, "species", "include")
+    sp_exclude = _str_list(sp, "species", "exclude")
 
     det = raw.get("detector", {})
     detector_threshold = _num(det, "detector", "threshold", 0.2, float)
@@ -325,10 +329,13 @@ def load_config(path: Path) -> Config:
             threshold=threshold,
         ),
         species=SpeciesConfig(
-            model=_path(base, sp, "species", "model", "models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"),
+            model=_path(base, sp, "species", "model", "models/bioclip2-vision-int8.onnx"),
+            bank=_path(base, sp, "species", "bank", "models/bioclip2-birds.npz"),
             labels=_path(base, sp, "species", "labels", "models/inat_bird_labels.txt"),
             threshold=species_threshold,
-            rescue_threshold=rescue_threshold,
+            region_radius_km=region_radius_km,
+            include=sp_include,
+            exclude=sp_exclude,
         ),
         detector=DetectorConfig(
             model=_path(base, det, "detector", "model", "models/efficientdet_lite0_320_ptq.tflite"),
