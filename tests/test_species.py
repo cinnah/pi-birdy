@@ -1,10 +1,21 @@
+import hashlib
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from birdy.species import InatBirdClassifier, SpeciesLabel, parse_label
+from birdy.species import (
+    CLIP_MEAN,
+    CLIP_STD,
+    Bank,
+    BioClipSpecies,
+    InatBirdClassifier,
+    SpeciesLabel,
+    load_bank,
+    model_id_of,
+    parse_label,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "models" / "mobilenet_v2_1.0_224_inat_bird_quant.tflite"
@@ -70,21 +81,14 @@ class TestRealModel:
         assert len(full) == 965
 
 
-import hashlib
-import json
-
-from birdy.species import Bank, BioClipSpecies, load_bank, model_id_of
-
 BIOCLIP = ROOT / "models" / "bioclip2-vision-int8.onnx"
 BANK = ROOT / "models" / "bioclip2-birds.npz"
 D = 8  # embedding size of the stand-in
-CLIP_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], np.float32)
-CLIP_STD = np.array([0.26862954, 0.26130258, 0.27577711], np.float32)
 
 
 def write_standin_onnx(path: Path, d: int = D, seed: int = 0) -> np.ndarray:
     """pixels[1,3,224,224] -> per-channel mean (3) -> MatMul W[3,d] -> embedding[1,d]."""
-    import onnx
+    onnx = pytest.importorskip("onnx")
     from onnx import TensorProto, helper, numpy_helper
 
     rng = np.random.default_rng(seed)
@@ -167,6 +171,22 @@ def test_top_over_whole_bank(standin):
     assert len(top) == 3 and top[0][0] == SpeciesLabel("Phoenicurus ochruros", "Black Redstart")
     assert top[0][1] > 0.9 and abs(sum(p for _, p in top) - 1.0) < 1e-4
     assert sp.candidate_count == 3
+
+
+def test_k1_returns_one_entry(standin):
+    sp = BioClipSpecies(*standin)
+    assert len(sp.top(flat((0, 0, 255)), k=1)) == 1
+
+
+def test_tiny_crop_goes_through(standin):
+    sp = BioClipSpecies(*standin)
+    assert len(sp.top(flat((0, 255, 0), h=8, w=8))) == 3
+
+
+def test_red_is_not_read_as_blue(standin):
+    # Pins RGB order: a BGR mix-up would turn pure red into pure blue (the House Sparrow row).
+    sp = BioClipSpecies(*standin)
+    assert sp.top(flat((255, 0, 0)))[0][0].common != "House Sparrow"
 
 
 def test_candidates_restrict_the_softmax(standin):
