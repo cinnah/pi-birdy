@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import time
 from datetime import datetime
@@ -10,6 +11,7 @@ import pytest
 from birdy.classifier import Prediction
 from birdy.motion import BBox, roi_bbox
 from birdy.pipeline import MotionEvent, Pipeline
+from birdy.publish import Publisher
 from birdy.store import Store
 
 # Local-time aware: the fail_on filename below depends on local HHMMSS.
@@ -558,7 +560,7 @@ def test_backfill_promotes_non_bird_the_detector_finds(store, live, caplog):
     c = store.get(ev.capture_id)
     assert c.is_bird is True and c.confidence == 0.55 and c.det_box == (0.1, 0.2, 0.3, 0.4)
     assert store.classification_backlog() == []
-    assert "1 rows, 0 with species, 1 promoted" in caplog.text
+    assert "1 rows, 0 with species, 1 promoted, 0 renamed" in caplog.text
 
 
 def test_backfill_never_demotes_on_detector_pass(store, live):
@@ -683,3 +685,34 @@ def test_backfill_detector_pass_keeps_species_and_does_not_forget(store, live):
     pub = FakePublisher()
     Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7)), live, publisher=pub).sweep()
     assert store.get(ev.capture_id).species == "Robin" and pub.forgotten == [] and pub.evaluated == []
+
+
+def real_publisher(store, live, **kw):
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, **kw)))
+    return Publisher(live, store, store.data_dir / "publish")      # never started: no rsync
+
+
+def test_backfill_rename_to_nothing_clears_auto_publish_state(store, live):
+    pub = real_publisher(store, live)
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Black Phoebe", 0.8)
+    store.set_published(ev.capture_id, "auto")
+    unchecked(store, [ev.capture_id])
+    Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9)), live, publisher=pub).sweep()
+    c = store.get(ev.capture_id)
+    assert c.published is None and c.species is None
+
+
+def test_backfill_rename_hands_the_old_slot_to_the_next_best_photo(store, live):
+    pub = real_publisher(store, live, per_species_per_day=1)
+    a, b = add(store, 0), add(store, 1)
+    store.update_classification(a.capture_id, True, 0.9, "Black Phoebe", 0.9)
+    store.update_classification(b.capture_id, True, 0.9, "Black Phoebe", 0.6)
+    store.set_published(a.capture_id, "auto")
+    unchecked(store, [a.capture_id])
+    pred = Prediction(is_bird=True, confidence=0.9, species="Black Redstart", species_confidence=0.95)
+    Pipeline(store, ReturnsFake(pred), live, publisher=pub).sweep()
+    ca, cb = store.get(a.capture_id), store.get(b.capture_id)
+    assert cb.species == "Black Phoebe" and cb.published == "auto"
+    assert ca.species == "Black Redstart" and ca.published == "auto"

@@ -128,20 +128,24 @@ class Pipeline:
         # Rows classified before species recognition or the detector existed: re-run the
         # classifier so they get a species and a second look at bird/not-bird. Bounded per
         # sweep to keep the Pi responsive, and yields to live events.
-        processed = with_species = promoted = 0
+        processed = with_species = promoted = renamed = 0
         for c in self._store.classification_backlog(limit=BACKLOG_PER_SWEEP):
             if self._stop.is_set() or self._queue.qsize():
                 break
-            got_species, was_promoted = self._backfill(c)
+            got_species, was_promoted, was_renamed = self._backfill(c)
             processed += 1
             with_species += got_species
             promoted += was_promoted
+            renamed += was_renamed
         if processed:
             remaining = self._store.count_classification_backlog()
-            log.info("backfill: %d rows, %d with species, %d promoted, %d remaining", processed, with_species, promoted, remaining)
+            log.info(
+                "backfill: %d rows, %d with species, %d promoted, %d renamed, %d remaining",
+                processed, with_species, promoted, renamed, remaining,
+            )
 
-    def _backfill(self, c: Capture) -> tuple[bool, bool]:
-        """Re-classify an already-classified row; returns (got_species, promoted)."""
+    def _backfill(self, c: Capture) -> tuple[bool, bool, bool]:
+        """Re-classify an already-classified row; returns (got_species, promoted, renamed)."""
         cfg = self._live.get()
         path = self._store.photos_dir / c.path
         try:
@@ -172,11 +176,19 @@ class Pipeline:
                 self._store.mark_checked(c.id)
             except Exception:
                 log.exception("mark_checked failed for capture %d", c.id)
-            return False, False
+            return False, False, False
         # Historical photos may be published too (unlike alerts, which are for live events only).
         # `c` is the snapshot from before the write: forgetting it re-ranks the old species/day,
         # where this row (now carrying the new species) is no longer a candidate.
         renamed = write_species and bool(c.species) and c.species != species
+        # A renamed row's `auto` slot belonged to its old species: clear it so it never stays
+        # published under the wrong name (or none). `forced`/`hidden` are manual and survive a
+        # rename; `evaluate` re-ranks a forced row under its new species.
+        if renamed and c.published == "auto":
+            try:
+                self._store.set_published(c.id, None)
+            except Exception:
+                log.exception("clearing publish state failed for capture %d", c.id)
         if self._publisher is not None and renamed:
             try:
                 self._publisher.forget(c)          # the old species/day loses this row's slot
@@ -188,7 +200,7 @@ class Pipeline:
                 self._publisher.evaluate(self._store.get(c.id))
             except Exception:
                 log.exception("publish decision failed for capture %d", c.id)
-        return got_species, promoted
+        return got_species, promoted, renamed
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick
