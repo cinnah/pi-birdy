@@ -42,6 +42,11 @@ labels = "models/inat_bird_labels.txt"
 threshold = 0.5            # show a species name at or above this confidence
 rescue_threshold = 0.7     # a frame the gate rejected becomes a bird if the species model is this sure
 
+[detector]
+model = "models/efficientdet_lite0_320_ptq.tflite"   # COCO object detector; restart-only
+labels = "models/coco_labels.txt"                     # one name per line, line index = class id; restart-only
+threshold = 0.2            # a "bird" detection at or above this makes the photo a bird, whatever the gate said
+
 [retention]
 non_bird_days = 7          # non-bird photos older than this are deleted hourly
 

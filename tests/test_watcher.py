@@ -167,3 +167,13 @@ def test_publish_restart_only_keys_warn(config_path, live, caplog):
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
     assert "restart" in caplog.text and live.get().publish.site_id == "other"
+
+
+def test_detector_model_change_warns(config_path, live, caplog):
+    w = ConfigWatcher(config_path, live)
+    config_path.write_text(config_path.read_text() + '\n[detector]\nmodel = "models/other.tflite"\n')
+    bump_mtime(config_path)
+    with caplog.at_level(logging.WARNING):
+        assert w.check_once() is True
+    assert live.get().detector.model.name == "other.tflite"
+    assert "restart birdy to apply them" in caplog.text

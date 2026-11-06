@@ -301,3 +301,15 @@ def test_camera_size_must_be_positive(tmp_path):
     bad = MINIMAL + "\n[camera]\nmain_size = [0, 2464]\n"
     with pytest.raises(ConfigError, match="must be positive"):
         load_config(write(tmp_path, bad))
+
+
+def test_detector_defaults(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL))
+    assert cfg.detector.model == tmp_path / "models" / "efficientdet_lite0_320_ptq.tflite"
+    assert cfg.detector.labels == tmp_path / "models" / "coco_labels.txt"
+    assert cfg.detector.threshold == 0.2
+
+
+def test_detector_threshold_range(tmp_path):
+    with pytest.raises(ConfigError, match="detector.threshold"):
+        load_config(write(tmp_path, MINIMAL + "\n[detector]\nthreshold = 1.5\n"))

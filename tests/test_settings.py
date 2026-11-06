@@ -181,6 +181,11 @@ labels = "models/other_species_labels.txt"
 threshold = 0.4
 rescue_threshold = 0.9
 
+[detector]
+model = "models/other_detector.tflite"
+labels = "models/other_coco_labels.txt"
+threshold = 0.35
+
 [retention]
 non_bird_days = 14
 

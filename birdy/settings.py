@@ -95,6 +95,11 @@ def config_to_dict(config: Config) -> dict:
             "threshold": config.species.threshold,
             "rescue_threshold": config.species.rescue_threshold,
         },
+        "detector": {
+            "model": str(config.detector.model),
+            "labels": str(config.detector.labels),
+            "threshold": config.detector.threshold,
+        },
         "retention": {"non_bird_days": config.retention.non_bird_days},
         "storage": {"data_dir": str(config.storage.data_dir)},
         "web": {"host": config.web.host, "port": config.web.port},

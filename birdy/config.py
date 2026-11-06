@@ -61,6 +61,13 @@ class SpeciesConfig:
 
 
 @dataclass(frozen=True)
+class DetectorConfig:
+    model: Path               # restart-only
+    labels: Path              # restart-only
+    threshold: float          # a COCO "bird" detection at or above this makes the photo a bird (live)
+
+
+@dataclass(frozen=True)
 class RetentionConfig:
     non_bird_days: int
 
@@ -107,6 +114,7 @@ class Config:
     daylight: DaylightConfig
     classifier: ClassifierConfig
     species: SpeciesConfig
+    detector: DetectorConfig
     retention: RetentionConfig
     storage: StorageConfig
     web: WebConfig
@@ -251,6 +259,10 @@ def load_config(path: Path) -> Config:
     _check(0.0 <= rescue_threshold <= 1.0, "species.rescue_threshold must be between 0 and 1")
     _check(rescue_threshold >= species_threshold, "species.rescue_threshold must be >= species.threshold")
 
+    det = raw.get("detector", {})
+    detector_threshold = _num(det, "detector", "threshold", 0.2, float)
+    _check(0.0 <= detector_threshold <= 1.0, "detector.threshold must be between 0 and 1")
+
     ret = raw.get("retention", {})
     non_bird_days = _num(ret, "retention", "non_bird_days", 7, int)
     _check(non_bird_days >= 1, "retention.non_bird_days must be >= 1")
@@ -317,6 +329,11 @@ def load_config(path: Path) -> Config:
             labels=_path(base, sp, "species", "labels", "models/inat_bird_labels.txt"),
             threshold=species_threshold,
             rescue_threshold=rescue_threshold,
+        ),
+        detector=DetectorConfig(
+            model=_path(base, det, "detector", "model", "models/efficientdet_lite0_320_ptq.tflite"),
+            labels=_path(base, det, "detector", "labels", "models/coco_labels.txt"),
+            threshold=detector_threshold,
         ),
         retention=RetentionConfig(non_bird_days=non_bird_days),
         storage=StorageConfig(data_dir=_path(base, sto, "storage", "data_dir", "data")),
