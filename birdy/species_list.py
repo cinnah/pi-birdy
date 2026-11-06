@@ -25,6 +25,7 @@ MIN_OBSERVATIONS = 3
 MIN_SPECIES = 20          # fewer -> retry once at 4x radius
 MAX_AGE = timedelta(days=90)
 PER_PAGE = 500
+MAX_PAGES = 20           # per radius; a safety cap on paging
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,10 @@ class LocalList:
     def load(cls, path: Path) -> LocalList | None:
         try:
             d = json.loads(Path(path).read_text())
-            return cls(datetime.fromisoformat(d["fetched_at"]), float(d["lat"]), float(d["lon"]), int(d["radius_km"]), list(d["species"]))
+            fetched_at = datetime.fromisoformat(d["fetched_at"])
+            if fetched_at.tzinfo is None:
+                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+            return cls(fetched_at, float(d["lat"]), float(d["lon"]), int(d["radius_km"]), list(d["species"]))
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
@@ -81,6 +85,9 @@ def fetch_species_counts(lat: float, lon: float, radius_km: int, http: Callable 
             data = http(lat, lon, radius, page)
             got.append(data)
             if len(data.get("results", [])) < PER_PAGE:
+                return got
+            if page >= MAX_PAGES:
+                log.warning("species list: stopped paging at %d pages within %d km", MAX_PAGES, radius)
                 return got
             page += 1
             sleep(1.0)
@@ -153,15 +160,18 @@ class SpeciesList:
         """Fetch when the file is missing, stale or for another place (or `force`); True if a new list was saved."""
         if lat is None or lon is None:
             return False
-        if not force and not needs_refresh(self.current(), lat, lon, radius_km, datetime.now(timezone.utc)):
-            return False
         try:
+            if not force and not needs_refresh(self.current(), lat, lon, radius_km, datetime.now(timezone.utc)):
+                return False
             rows = fetch_species_counts(lat, lon, radius_km)
+            if len(rows) < MIN_SPECIES:
+                log.warning("species list: only %d species within %d km; keeping the current list", len(rows), radius_km)
+                return False
+            LocalList(datetime.now(timezone.utc), lat, lon, radius_km, rows).save(self.path)
+            self.reload()
         except Exception as e:
-            log.warning("species list fetch failed (%s); keeping the current list", e)
+            log.warning("species list refresh failed (%s); keeping the current list", e)
             return False
-        LocalList(datetime.now(timezone.utc), lat, lon, radius_km, rows).save(self.path)
-        self.reload()
         log.info("species list: %d species within %d km", len(rows), radius_km)
         return True
 

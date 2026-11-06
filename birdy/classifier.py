@@ -255,6 +255,7 @@ class TwoStageClassifier:
         """Re-apply the candidate set when the `[species]` config or the local list changed. Caller holds the lock."""
         if self.species_list is None:
             return
+        # version is read before candidates(): a reload in between gives one redundant recompute, never a stale set.
         key = (self.species_list.version, cfg.species)
         if key == self._cand_key:
             return

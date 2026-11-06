@@ -106,8 +106,7 @@ def test_candidates_without_list_but_with_exclude_uses_whole_bank(tmp_path):
 
 def test_refresh_fetches_saves_and_bumps_version(tmp_path, monkeypatch):
     sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
-    data = json.loads((FIXTURES / "species_counts.json").read_text())
-    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([data]))
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([many(25)]))
     v0 = sl.version
     assert sl.refresh_if_needed(38.8, -9.39, 50) is True
     assert sl.version == v0 + 1 and sl.current().radius_km == 50 and (tmp_path / "data" / "species" / "local.json").exists()
@@ -138,3 +137,52 @@ def test_refresh_thread_runs_once_and_stops(tmp_path, monkeypatch):
     sl.start_refresh(38.8, -9.39, 50)
     assert ran.wait(2)
     sl.stop()
+
+
+def test_fetch_stops_paging_at_the_cap(caplog):
+    class Endless:
+        calls = 0
+
+        def __call__(self, lat, lon, radius_km, page):
+            self.calls += 1
+            return many(500)
+
+    http = Endless()
+    with caplog.at_level("WARNING"):
+        rows = fetch_species_counts(38.8, -9.39, 50, http=http, sleep=lambda s: None)
+    assert http.calls == 20 and len(rows) == 20 * 500 and "20 pages" in caplog.text
+
+
+def test_load_treats_naive_timestamp_as_utc(tmp_path):
+    p = tmp_path / "local.json"
+    p.write_text(json.dumps({"fetched_at": "2026-11-06T10:00:00", "lat": 38.8, "lon": -9.39, "radius_km": 50, "species": []}))
+    lst = LocalList.load(p)
+    assert lst is not None and lst.fetched_at.tzinfo is not None
+    now = datetime(2026, 11, 7, tzinfo=timezone.utc)
+    assert needs_refresh(lst, 38.8, -9.39, 50, now) is False
+
+
+def test_refresh_with_too_few_species_keeps_current(tmp_path, monkeypatch, caplog):
+    sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([many(3)]))
+    v0 = sl.version
+    with caplog.at_level("WARNING"):
+        assert sl.refresh_if_needed(38.8, -9.39, 50) is False
+    assert not (tmp_path / "data" / "species" / "local.json").exists()
+    assert sl.current() is None and sl.version == v0 and "only 3 species" in caplog.text
+
+
+def test_refresh_save_failure_keeps_current(tmp_path, monkeypatch, caplog):
+    sl = SpeciesList(tmp_path / "data", bank_file(tmp_path))
+    old = LocalList(fetched_at=datetime.now(timezone.utc) - timedelta(days=100), lat=38.8, lon=-9.39, radius_km=50, species=[])
+    old.save(tmp_path / "data" / "species" / "local.json")
+    sl.reload()
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", lambda lat, lon, r, **kw: parse_species_counts([many(25)]))
+
+    def no_disk(self, path):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(LocalList, "save", no_disk)
+    with caplog.at_level("WARNING"):
+        assert sl.refresh_if_needed(38.8, -9.39, 50) is False
+    assert "species list refresh failed" in caplog.text and sl.current() == old
