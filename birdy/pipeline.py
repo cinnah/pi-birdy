@@ -148,11 +148,17 @@ class Pipeline:
             crop = crop_box(c.motion_box, cfg.motion.roi, self._lores_size)
             pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
             # Never demote: a bird stays a bird. Confidence comes from the new verdict when it
-            # is a bird (gate or rescue); the old confidence is kept only when it says non-bird.
+            # says bird (gate, detector or species rescue); the old confidence is kept when the
+            # new verdict says non-bird. det_* always records the latest detector run,
+            # independent of the verdict.
             is_bird = bool(c.is_bird) or pred.is_bird
             confidence = pred.confidence if pred.is_bird else c.confidence
+            # A bird keeps its species when the re-run finds none; a new species overwrites it.
+            species, species_confidence = pred.species, pred.species_confidence
+            if c.is_bird and not pred.species:
+                species, species_confidence = c.species, c.species_confidence
             self._store.update_classification(
-                c.id, is_bird, confidence, pred.species, pred.species_confidence,
+                c.id, is_bird, confidence, species, species_confidence,
                 det_confidence=pred.detector_confidence, det_box=pred.detector_box,
             )
         except Exception:

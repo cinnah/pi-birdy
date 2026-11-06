@@ -551,7 +551,7 @@ def test_backfill_promotes_non_bird_the_detector_finds(store, live, caplog):
     c = store.get(ev.capture_id)
     assert c.is_bird is True and c.confidence == 0.55 and c.det_box == (0.1, 0.2, 0.3, 0.4)
     assert store.classification_backlog() == []
-    assert "1 promoted" in caplog.text
+    assert "1 rows, 0 with species, 1 promoted" in caplog.text
 
 
 def test_backfill_never_demotes_on_detector_pass(store, live):
@@ -561,6 +561,7 @@ def test_backfill_never_demotes_on_detector_pass(store, live):
     Pipeline(store, NotBirdFake(), live).sweep()
     c = store.get(ev.capture_id)
     assert c.is_bird is True and c.confidence == 0.9 and store.classification_backlog() == []
+    assert c.det_confidence == 0.0
 
 
 def test_backfill_failure_marks_detector_checked(store, live):
@@ -570,3 +571,51 @@ def test_backfill_failure_marks_detector_checked(store, live):
     Pipeline(store, FakeClassifier(fail_on={ev.path.name}), live).sweep()
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.is_bird is False and store.classification_backlog() == []
+
+
+class ReturnsFake(FakeClassifier):
+    """Returns a fixed prediction."""
+
+    def __init__(self, pred, **kw):
+        super().__init__(**kw)
+        self.pred = pred
+
+    def classify(self, image_path, roi_bbox, threshold=None, pad=None):
+        super().classify(image_path, roi_bbox, threshold, pad)
+        return self.pred
+
+
+def test_backfill_keeps_a_birds_species_when_the_rerun_has_none(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Robin", 0.8)
+    detector_unchecked(store, [ev.capture_id])
+    Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9)), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.species == "Robin" and c.species_confidence == 0.8
+    assert store.classification_backlog() == []
+
+
+def test_backfill_new_species_overwrites_a_birds_species(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, "Robin", 0.8)
+    detector_unchecked(store, [ev.capture_id])
+    pred = Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7)
+    Pipeline(store, ReturnsFake(pred), live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.species == "Blackbird" and c.species_confidence == 0.7
+    assert store.classification_backlog() == []
+
+
+def test_backfill_promotion_with_species_evaluates_publisher_and_never_notifies(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, False, 0.05, None, None)
+    detector_unchecked(store, [ev.capture_id])
+    pred = Prediction(
+        is_bird=True, confidence=0.55, species="Robin", species_confidence=0.8,
+        detector_confidence=0.55, detector_box=(0.1, 0.2, 0.3, 0.4),
+    )
+    n, pub = FakeNotifier(), FakePublisher()
+    Pipeline(store, ReturnsFake(pred), live, notifier=n, publisher=pub).sweep()
+    assert [c.id for c in pub.evaluated] == [ev.capture_id]
+    assert n.calls == []
+    assert store.get(ev.capture_id).is_bird is True
