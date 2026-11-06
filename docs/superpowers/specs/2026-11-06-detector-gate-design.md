@@ -39,7 +39,7 @@ class BirdDetector:
 
 - Loads through `birdy.tflite.load_interpreter` like the other two models. Input: the RGB crop resized to the model's input size with `INTER_AREA`, fed as uint8 (the model is uint8; a float input dtype gets the same `/127.5 − 1` scaling `InatBirdClassifier` uses). Resizing a non-square crop squashes it; the ROI-fallback crop is 1.2:1 and the detector was measured on exactly these crops, so no letterboxing.
 - Outputs are the four post-processed tensors (boxes `[1,N,4]` as `ymin,xmin,ymax,xmax` fractions, classes `[1,N]`, scores `[1,N]`, count `[1]`). They are matched **by shape**, not by index: boxes = the 3-D tensor, count = the 1-D one, and of the two `[1,N]` tensors the one whose values are all integral is `classes` (the other post-processed Coral model, SSD, orders them differently; this keeps the wrapper model-agnostic). Boxes are converted to `(x, y, w, h)` and clamped.
-- Labels: `models/coco_labels.txt`, one name per line, **line index = class id** (`???` placeholders for the COCO ids the model doesn't use; `bird` is line 16, id 15). The constructor fails with `ValueError` if `bird_label` is not in the file.
+- Labels: `models/coco_labels.txt`, one name per line, **line index = class id** (`n/a` placeholders for the COCO ids the model doesn't use; `bird` is line 16, id 15). The constructor fails with `ValueError` if `bird_label` is not in the file.
 - Not thread-safe (TFLite); only ever called under `TwoStageClassifier._lock`.
 
 ## The rule — `birdy/classifier.py`
@@ -93,13 +93,13 @@ Nullable columns added through the existing `ALTER TABLE` loop (same duplicate-c
 
 ## Pipeline
 
-`Pipeline.process` and `_backfill_species` (renamed `_backfill`) pass `pred.detector_confidence` / `pred.detector_box` to `update_classification`. The backfill rules are unchanged and now also apply to the detector: never demote a bird (`is_bird = c.is_bird or pred.is_bird`), confidence from the new verdict when it says bird, a failure marks the row checked instead of flipping it to `error`, bounded to 50 rows per sweep, yields to live events, one summary line per sweep (`backfill: %d rows, %d with species, %d promoted, %d remaining`; "promoted" = was non-bird, now bird). So after the deploy every stored row is re-gated within `ceil(rows / 50)` sweeps (585 non-birds → about an hour) with no new command. Promoted rows get a species as today and go through `publisher.evaluate` when they have one; they never alert (backfill never does).
+`Pipeline.process` and `_backfill_species` (renamed `_backfill`) pass `pred.detector_confidence` / `pred.detector_box` to `update_classification`. The backfill rules are unchanged and now also apply to the detector: never demote a bird (`is_bird = c.is_bird or pred.is_bird`), confidence from the new verdict when it says bird, a failure marks the row checked instead of flipping it to `error`, bounded to 50 rows per sweep, yields to live events, one summary line per sweep (`backfill: %d rows, %d with species, %d promoted, %d remaining`; "promoted" = was non-bird, now bird). So after the deploy every stored row is re-gated within `ceil(rows / 50)` sweeps (585 non-birds → about an hour) with no new command. Promoted rows get a species as today and go through `publisher.evaluate` when they have one; they never alert (backfill never does). A row the species model has already seen keeps its species (a changed ROI could change the crop; rewriting would move publish slots and re-rank history); a promoted non-bird gets a species like a new row.
 
 Per-capture cost on the Pi rises from ~0.15 s to ~0.35 s; the queue (50) and the 3 s cooldown make that invisible. A backfill sweep holds the classifier lock for up to ~20 s in 50 slices; the web upload box waits at most one slice.
 
 ## Web and CLI
 
-- `GET /captures/{id}/crop.jpg` draws the stored `det_box` on the crop as a 2 px rectangle (`#ffcc00`) when present, so **Model view** shows what the detector locked onto. Captures without a box (none found, or rows from before this change until the backfill reaches them) render as today.
+- `GET /captures/{id}/crop.jpg` draws the stored `det_box` on the crop as a 2 px rectangle (`#ffb000`, the design palette's amber) when present, so **Model view** shows what the detector locked onto. Captures without a box (none found, or rows from before this change until the backfill reaches them) render as today.
 - The grid tile badge is unchanged (it shows `confidence`, which now carries the detector's say).
 - `birdy classify <file>` / `--capture <id>` print a third block after the gate's top-5:
   ```

@@ -67,6 +67,24 @@ def test_classify_command_prints_prediction(tmp_path):
     assert "(gate " in proc.stdout and ", detector " in proc.stdout
 
 
+def test_classify_prints_no_bird_for_cat(tmp_path):
+    cat = FIXTURES / "cat.jpg"
+    if not cat.exists() or not (ROOT / "models" / "mobilenet_v2_1.0_224_quant.tflite").exists():
+        pytest.skip("fixtures/model missing")
+    cfg = tmp_path / "birdy.toml"
+    cfg.write_text(
+        '[site]\nname = "t"\n[motion]\nroi = [[0,0],[10,0],[10,10],[0,10]]\n'
+        f'[classifier]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_quant.tflite"\n'
+        f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
+        f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
+        f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
+        + DETECTOR_TOML
+    )
+    proc = _run_cli("--config", str(cfg), "classify", str(cat))
+    assert proc.returncode == 0, proc.stderr
+    assert "bird=False" in proc.stdout
+    assert "detector (COCO): no bird (best:" in proc.stdout
+
 
 def _classify_config(tmp_path, species_model: str) -> Path:
     cfg = tmp_path / "birdy.toml"

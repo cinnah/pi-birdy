@@ -40,7 +40,7 @@ threshold = 0.5            # P(bird) at or above this = bird
 model = "models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"
 labels = "models/inat_bird_labels.txt"
 threshold = 0.5            # show a species name at or above this confidence
-rescue_threshold = 0.7     # a frame the gate rejected becomes a bird if the species model is this sure
+rescue_threshold = 0.7     # a frame the gate and detector both rejected becomes a bird if the species model is this sure
 
 [detector]
 model = "models/efficientdet_lite0_320_ptq.tflite"   # COCO object detector; restart-only

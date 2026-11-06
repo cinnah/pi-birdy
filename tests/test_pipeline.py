@@ -595,14 +595,29 @@ def test_backfill_keeps_a_birds_species_when_the_rerun_has_none(store, live):
     assert store.classification_backlog() == []
 
 
-def test_backfill_new_species_overwrites_a_birds_species(store, live):
+def test_backfill_keeps_a_seen_rows_species_even_if_the_rerun_differs(store, live):
     ev = add(store, 0)
-    store.update_classification(ev.capture_id, True, 0.9, "Robin", 0.8)
+    store.update_classification(ev.capture_id, True, 0.9, "Robin", 0.8)  # species_checked = 1
     detector_unchecked(store, [ev.capture_id])
     pred = Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7)
-    Pipeline(store, ReturnsFake(pred), live).sweep()
+    pub = FakePublisher()
+    Pipeline(store, ReturnsFake(pred), live, publisher=pub).sweep()
     c = store.get(ev.capture_id)
-    assert c.species == "Blackbird" and c.species_confidence == 0.7
+    assert c.species == "Robin" and c.species_confidence == 0.8
+    assert pub.evaluated == []
+    assert store.classification_backlog() == []
+
+
+def test_backfill_writes_species_for_unseen_rows(store, live):
+    ev = add(store, 0)
+    store.update_classification(ev.capture_id, True, 0.9, None, None)
+    unchecked(store, [ev.capture_id])
+    pred = Prediction(is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8)
+    pub = FakePublisher()
+    Pipeline(store, ReturnsFake(pred), live, publisher=pub).sweep()
+    c = store.get(ev.capture_id)
+    assert c.species == "Robin" and c.species_confidence == 0.8
+    assert [x.id for x in pub.evaluated] == [ev.capture_id]
     assert store.classification_backlog() == []
 
 

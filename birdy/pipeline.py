@@ -147,16 +147,21 @@ class Pipeline:
         try:
             crop = crop_box(c.motion_box, cfg.motion.roi, self._lores_size)
             pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
-            # Never demote: a bird stays a bird. Confidence comes from the new verdict when it
-            # says bird (gate, detector or species rescue); the old confidence is kept when the
-            # new verdict says non-bird. det_* always records the latest detector run,
-            # independent of the verdict.
+            # Species: written only for rows the species model hasn't seen; a row it has seen
+            # keeps its label (the crop may have changed with the ROI, and rewriting would move
+            # publish slots and re-rank history). A promoted row was never a bird, so it has no
+            # species or publish slot to protect and gets one like a new row.
+            # Bird/non-bird: never demote; promote when the new verdict says bird (gate,
+            # detector or rescue). Confidence comes from the new verdict when it says bird, else
+            # the old one is kept. det_* always records the latest detector run.
+            promoted = (not c.is_bird) and pred.is_bird
             is_bird = bool(c.is_bird) or pred.is_bird
             confidence = pred.confidence if pred.is_bird else c.confidence
-            # A bird keeps its species when the re-run finds none; a new species overwrites it.
-            species, species_confidence = pred.species, pred.species_confidence
-            if c.is_bird and not pred.species:
-                species, species_confidence = c.species, c.species_confidence
+            species, species_confidence = c.species, c.species_confidence
+            # A bird keeps its species when the re-run finds none.
+            write_species = (not c.species_checked or promoted) and bool(pred.species or not c.is_bird)
+            if write_species:
+                species, species_confidence = pred.species, pred.species_confidence
             self._store.update_classification(
                 c.id, is_bird, confidence, species, species_confidence,
                 det_confidence=pred.detector_confidence, det_box=pred.detector_box,
@@ -170,12 +175,13 @@ class Pipeline:
                 log.exception("mark_checked failed for capture %d", c.id)
             return False, False
         # Historical photos may be published too (unlike alerts, which are for live events only).
-        if self._publisher is not None and pred.species:
+        got_species = write_species and bool(pred.species)
+        if self._publisher is not None and got_species:
             try:
                 self._publisher.evaluate(self._store.get(c.id))
             except Exception:
                 log.exception("publish decision failed for capture %d", c.id)
-        return bool(pred.species), (not c.is_bird) and pred.is_bird
+        return got_species, promoted
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick

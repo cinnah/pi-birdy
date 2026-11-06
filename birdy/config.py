@@ -57,7 +57,7 @@ class SpeciesConfig:
     model: Path
     labels: Path
     threshold: float          # show a species at or above this
-    rescue_threshold: float   # promote a gate-rejected frame to "bird" at or above this
+    rescue_threshold: float   # promote a frame the gate and detector both rejected to "bird" at or above this
 
 
 @dataclass(frozen=True)
