@@ -241,6 +241,8 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
 
     clf = Clf()
     monkeypatch.setattr("birdy.cli._classifier", lambda cfg, live: clf)
+    calls = []
+    monkeypatch.setattr("birdy.store.Store.reset_species_for_model", lambda self, mid: calls.append(mid) or 0)
     real_init = pipeline.Pipeline.__init__
 
     def pipeline_init(self, store, classifier, live, notifier=None, publisher=None, lores_size=(320, 240)):
@@ -279,6 +281,7 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     assert rc == 0
     assert clf.species_list.started == [(config.site.lat, config.site.lon, config.species.region_radius_km)]
     assert clf.species_list.stopped is True
+    assert calls == ["test/1"]
     assert seen["status_http"] == 200
     assert b"motion_score" in seen["status_body"]
     lives = [seen[k] for k in ("pipeline", "retention", "watcher", "capture")]
@@ -627,6 +630,40 @@ def test_cmd_species_list_prints_list_and_refreshes(capsys, config, monkeypatch,
     monkeypatch.setattr("birdy.species_list.fetch_species_counts", fake_fetch)
     assert cli.cmd_species_list(config, refresh=True) == 0
     assert called["r"] == 50
+
+
+def test_cmd_species_list_refresh_failure_exits_1(capsys, config, monkeypatch, tmp_path):
+    from birdy import cli
+    from birdy.config import SiteConfig, StorageConfig
+    from birdy.species_list import LocalList
+
+    config = dataclasses.replace(config, site=SiteConfig("t", 38.8, -9.39), storage=StorageConfig(tmp_path / "data"))
+    config = dataclasses.replace(config, species=dataclasses.replace(config.species, bank=_bank(tmp_path / "bank.npz")))
+    LocalList(datetime.now(timezone.utc), 38.8, -9.39, 50, [{"id": 13094, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 3}]).save(tmp_path / "data" / "species" / "local.json")
+
+    def failing_fetch(*a, **kw):
+        raise OSError("offline")
+    monkeypatch.setattr("birdy.species_list.fetch_species_counts", failing_fetch)
+    assert cli.cmd_species_list(config, refresh=True) == 1
+    captured = capsys.readouterr()
+    assert "Black Redstart" in captured.out
+    assert "species-list: refresh failed (or too few species); showing the list fetched 0 days ago" in captured.err
+
+
+def test_cmd_run_tolerates_a_classifier_without_species_attrs(config_path, monkeypatch):
+    from birdy import cli
+    from birdy.config import load_config
+
+    cfg = load_config(config_path)
+    cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
+    monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
+    monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: None)
+    handlers = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        assert cli.cmd_run(cfg, config_path) == 0
+    finally:
+        for s, h in handlers.items():
+            signal.signal(s, h)
 
 
 def test_cmd_species_list_without_location_exits_1(capsys, config):

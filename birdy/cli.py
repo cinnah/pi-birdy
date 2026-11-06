@@ -346,19 +346,23 @@ def cmd_species_list(config: Config, refresh: bool = False) -> int:
         print(f"model error: {e}", file=sys.stderr)
         return 2
     sl = SpeciesList(config.storage.data_dir, bank)
+    fetched = False
     if refresh or sl.current() is None:
         fetched = sl.refresh_if_needed(config.site.lat, config.site.lon, config.species.region_radius_km, force=refresh)
         if not fetched and sl.current() is None:
             print("species-list: fetch failed and no list is stored", file=sys.stderr)
             return 1
     cur = sl.current()
-    age = (datetime.now(timezone.utc) - cur.fetched_at).days
+    age = max(0, (datetime.now(timezone.utc) - cur.fetched_at).days)
     print(f"{len(cur.species)} species within {cur.radius_km} km of {cur.lat:.3f},{cur.lon:.3f} (fetched {age} days ago)")
     for s in sorted(cur.species, key=lambda s: -s["count"]):
         print(f"  {s['count']:6d}  {s['common']} ({s['latin']})")
     unknown = sl.unknown_names(config.species.include + config.species.exclude)
     if unknown:
         print("unknown names in species.include/exclude: " + ", ".join(unknown))
+    if refresh and not fetched:
+        print(f"species-list: refresh failed (or too few species); showing the list fetched {age} days ago", file=sys.stderr)
+        return 1
     return 0
 
 
