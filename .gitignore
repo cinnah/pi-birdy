@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 roi.png
 *.egg-info/
+models/bioclip2-vision-int8.onnx
+models/bioclip2-birds.npz
+models/bioclip2-vision-fp32.onnx
+.build-venv/
