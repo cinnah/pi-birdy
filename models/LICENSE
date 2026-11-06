@@ -3,3 +3,6 @@ models, Apache License 2.0 - https://www.apache.org/licenses/LICENSE-2.0
 mobilenet_v2_1.0_224_inat_bird_quant.tflite and inat_bird_labels.txt: Coral
 test data (github.com/google-coral/test_data), Apache License 2.0 -
 https://www.apache.org/licenses/LICENSE-2.0
+efficientdet_lite0_320_ptq.tflite and coco_labels.txt: Coral test data
+(github.com/google-coral/test_data), Apache License 2.0 -
+https://www.apache.org/licenses/LICENSE-2.0

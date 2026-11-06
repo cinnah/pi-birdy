@@ -14,3 +14,10 @@ classifier sums their probabilities to get P(bird).
 Coral iNaturalist bird classifier (965 classes incl. `background`, MobileNetV2
 uint8, output already softmax-scaled 1/256) from
 github.com/google-coral/test_data, Apache-2.0. Used for species recognition.
+
+`efficientdet_lite0_320_ptq.tflite` + `coco_labels.txt` are the Coral COCO object
+detector (EfficientDet-Lite0, uint8 320×320, outputs post-processed: boxes as
+`ymin,xmin,ymax,xmax` fractions, classes, scores, count) from
+github.com/google-coral/test_data, Apache-2.0. Used as the second bird/not-bird
+signal: a `bird` detection (label line 16, class id 15 — line index = id) at or
+above `detector.threshold` makes a photo a bird even when the ImageNet gate says no.
