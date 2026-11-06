@@ -233,23 +233,32 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
     p_gate = clf.gate.predict(img)
     pred, top = clf.classify_image(img)
     threshold = config.classifier.threshold
-    rescued = ", rescued by species" if pred.is_bird and p_gate < threshold and pred.detector_confidence < config.detector.threshold else ""
+    p_det = pred.detector_confidence
+    rescued = (
+        ", rescued by species"
+        if pred.is_bird and p_gate < threshold and p_det < config.detector.threshold
+        else ""
+    )
     print(
-        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}, detector {pred.detector_confidence:.3f}{rescued}) "
+        f"bird={pred.is_bird} p_bird={pred.confidence:.3f} (gate {p_gate:.3f}, detector {p_det:.3f}{rescued}) "
         f"species={pred.species or '-'}"
     )
     print("gate (ImageNet):")
     for label, prob in clf.gate.top_k_image(img, k=5):
         print(f"  {prob:.3f}  {label}")
-    dets = clf.detector.detect(img) if clf.detector is not None else []
-    bird = next((d for d in dets if d.label == clf.detector.bird_label), None) if dets else None
-    if bird is not None:
-        x, y, w, h = bird.box
-        print(f"detector (COCO): bird {bird.score:.2f} box x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f}")
-    elif dets:
-        print(f"detector (COCO): no bird (best: {dets[0].label} {dets[0].score:.2f})")
+    if pred.detector_box is not None:
+        x, y, w, h = pred.detector_box
+        print(f"detector (COCO): bird {p_det:.3f} box x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f}")
     else:
-        print("detector (COCO): no detections")
+        try:
+            dets = clf.detector.detect(img)
+        except Exception as e:
+            print(f"detector (COCO): failed ({e})")
+        else:
+            if dets:
+                print(f"detector (COCO): no bird (best: {dets[0].label} {dets[0].score:.3f})")
+            else:
+                print("detector (COCO): no detections")
     print("species (iNat):")
     for label, prob in top:
         print(f"  {prob:.3f}  {label.common} ({label.latin})")

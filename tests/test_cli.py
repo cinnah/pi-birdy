@@ -13,6 +13,10 @@ from birdy.cli import build_parser, cmd_run
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures"
+DETECTOR_TOML = (
+    f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
+    f'labels = "{ROOT}/models/coco_labels.txt"\n'
+)
 
 
 def _free_port() -> int:
@@ -52,8 +56,7 @@ def test_classify_command_prints_prediction(tmp_path):
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
         f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
-        f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
-        f'labels = "{ROOT}/models/coco_labels.txt"\n'
+        + DETECTOR_TOML
     )
     proc = _run_cli("--config", str(cfg), "classify", str(bird))
     assert proc.returncode == 0, proc.stderr
@@ -73,8 +76,7 @@ def _classify_config(tmp_path, species_model: str) -> Path:
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{species_model}"\n'
         f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
-        f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
-        f'labels = "{ROOT}/models/coco_labels.txt"\n'
+        + DETECTOR_TOML
     )
     return cfg
 
@@ -159,8 +161,7 @@ def test_run_wires_live_config_and_exits_without_camera(tmp_path):
         f'labels = "{ROOT}/models/imagenet_labels.txt"\nbird_classes = "{ROOT}/models/imagenet_bird_classes.txt"\n'
         f'[species]\nmodel = "{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite"\n'
         f'labels = "{ROOT}/models/inat_bird_labels.txt"\n'
-        f'[detector]\nmodel = "{ROOT}/models/efficientdet_lite0_320_ptq.tflite"\n'
-        f'labels = "{ROOT}/models/coco_labels.txt"\n'
+        + DETECTOR_TOML
     )
     proc = subprocess.run(
         [sys.executable, "-m", "birdy.cli", "--config", str(cfg), "run"],
@@ -518,5 +519,16 @@ def test_listen_socket_none_for_plain_hosts():
 def test_missing_detector_model_exits_2(tmp_path):
     cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
     cfg.write_text(cfg.read_text().replace("efficientdet_lite0_320_ptq.tflite", "nope.tflite"))
+    assert "nope.tflite" in cfg.read_text()
+    proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
+    assert proc.returncode == 2 and "model error" in proc.stderr
+
+
+def test_detector_labels_without_bird_exit_2(tmp_path):
+    labels = tmp_path / "labels.txt"
+    labels.write_text("person\ncat\n")
+    cfg = _classify_config(tmp_path, f"{ROOT}/models/mobilenet_v2_1.0_224_inat_bird_quant.tflite")
+    cfg.write_text(cfg.read_text().replace(f"{ROOT}/models/coco_labels.txt", str(labels)))
+    assert str(labels) in cfg.read_text()
     proc = _run_cli("--config", str(cfg), "classify", str(FIXTURES / "bird.jpg"))
     assert proc.returncode == 2 and "model error" in proc.stderr
