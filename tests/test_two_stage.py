@@ -25,6 +25,12 @@ class FakeSpecies:
         self.p = p
         self.raise_exc = raise_exc
         self.calls = 0
+        self.candidate_sets: list = []
+
+    def set_candidates(self, ids):
+        ids = None if ids is None else sorted(ids)
+        self.candidate_sets.append(ids)
+        return 0 if ids is None else len(ids)
 
     def top(self, img, k=5, skip_background=True):
         self.calls += 1
@@ -192,3 +198,53 @@ def test_without_detector_behaves_as_before(live):
 def test_confident_species_never_rescues(live):
     pred, _ = two_stage(live, 0.2, 0.99, p_det=0.1).classify_image(IMG)
     assert pred.is_bird is False and pred.confidence == 0.2
+
+
+def test_species_not_run_for_non_birds(live):
+    clf = two_stage(live, 0.1, 0.9, p_det=0.1)
+    pred, top = clf.classify_image(IMG)
+    assert pred.is_bird is False and pred.species is None and pred.species_confidence is None
+    assert top == [] and clf.species.calls == 0
+
+
+def test_species_runs_for_detector_birds(live):
+    clf = two_stage(live, 0.1, 0.9, p_det=0.6)
+    pred, top = clf.classify_image(IMG)
+    assert pred.is_bird and pred.species == "Eurasian Blue Tit" and clf.species.calls == 1
+
+
+class FakeList:
+    def __init__(self, ids):
+        self.ids, self.version = ids, 1
+
+    def candidates(self, species_cfg):
+        return self.ids
+
+
+def test_candidates_follow_the_list_and_live_config(live, config):
+    lst = FakeList(frozenset({11, 22}))
+    clf = TwoStageClassifier(FakeGate(0.9), FakeSpecies(0.8), live, lores_size=(320, 240), detector=FakeDetector(0.0), species_list=lst)
+    clf.classify_image(IMG)
+    assert clf.species.candidate_sets == [[11, 22]]
+    clf.classify_image(IMG)
+    assert len(clf.species.candidate_sets) == 1          # unchanged -> not recomputed
+    lst.ids, lst.version = frozenset({33}), 2
+    clf.classify_image(IMG)
+    assert clf.species.candidate_sets[-1] == [33]
+    live.replace(dataclasses.replace(config, species=dataclasses.replace(config.species, exclude=("x",))))
+    clf.classify_image(IMG)
+    assert len(clf.species.candidate_sets) == 3          # live version bump recomputes too
+
+
+def test_candidates_not_refreshed_for_non_birds(live):
+    lst = FakeList(frozenset({11}))
+    clf = TwoStageClassifier(FakeGate(0.1), FakeSpecies(0.8), live, lores_size=(320, 240), detector=FakeDetector(0.0), species_list=lst)
+    clf.classify_image(IMG)
+    assert clf.species.candidate_sets == []
+
+
+def test_no_list_means_species_untouched(live):
+    clf = two_stage(live, 0.9, 0.8)
+    clf.classify_image(IMG)
+    assert clf.species.candidate_sets == []               # no species_list given: never touched
+    assert clf.species_list is None
