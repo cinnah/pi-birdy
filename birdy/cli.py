@@ -117,7 +117,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     state = RuntimeState()
 
     # One classifier for the pipeline worker and the web upload box: it serialises inference
-    # under its own lock (TFLite interpreters are not thread-safe).
+    # under its own lock (TFLite interpreters and the onnxruntime session are not thread-safe).
     clf = _classifier(config, live)
     model_id = getattr(getattr(clf, "species", None), "model_id", None)
     if model_id is not None:

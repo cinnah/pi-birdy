@@ -85,7 +85,7 @@ A new `meta` table (`key TEXT PRIMARY KEY, value TEXT`). `cmd_run`, after buildi
 
 Publishing: when `_backfill` changes a bird's species (old ≠ new, including old → None), it first calls `publisher.forget(old_row)` (re-ranks the old species/day without this row, so the slot moves to the next-best photo) and then `evaluate(new_row)` as today. The web mirror and gallery follow on the next publish run. Alerts: the backfill never alerts; after renaming, a live Black Redstart is not "new" (the DB has many).
 
-Watchlist: names must match the bank's common names (iNaturalist English: "Eurasian Hoopoe", "Eurasian Blue Tit"). The settings page validates the watchlist against the bank and shows unknown names as an error; `AlertPolicy` matching stays casefold.
+Watchlist: names must match the bank's common names (iNaturalist English: "Common Hoopoe", "Eurasian Blue Tit"). The settings page validates the watchlist against the bank and shows unknown names as an error; `AlertPolicy` matching stays casefold.
 
 ## Pi operations
 

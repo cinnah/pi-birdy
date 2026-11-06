@@ -41,7 +41,7 @@ model = "models/bioclip2-vision-int8.onnx"   # BioCLIP 2 image tower; built by d
 bank = "models/bioclip2-birds.npz"           # name embeddings for every iNaturalist bird species; same script; restart-only
 threshold = 0.5            # name a bird at or above this confidence; applies without a restart
 region_radius_km = 50      # the local species list = birds seen on iNaturalist within this radius of [site] lat/lon; a change refetches at the next start
-include = []               # names to add to the local list (latin or common), e.g. ["Eurasian Hoopoe"]; live
+include = []               # names to add to the local list (latin or common), e.g. ["Common Hoopoe"]; live
 exclude = []               # names to drop from it; live
 
 [detector]
@@ -64,7 +64,7 @@ enabled = false            # restart-only; set true once bot_token and chat_id a
 bot_token = ""             # restart-only, SECRET — from @BotFather; this file is gitignored
 chat_id = ""               # restart-only — `birdy telegram-chat-id` prints it after you message the bot
 base_url = "http://birdy.local:8000"   # link in the alert caption
-watchlist = []             # species common names (as on /species), e.g. ["Eurasian Hoopoe"]
+watchlist = []             # species common names (as on /species), e.g. ["Common Hoopoe"]
 alert_new_species = true   # one alert the first time any species is ever seen
 cooldown_minutes = 30      # at most one alert per species per this many minutes
 
