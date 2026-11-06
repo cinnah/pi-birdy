@@ -24,6 +24,7 @@
   .verdict .call { font: 800 22px/1.1 var(--mono); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: 0.02em; }
   .verdict .call.no { color: var(--dim); }
   .verdict .name { font-size: 17px; font-weight: 600; }
+  .verdict .det { font: 600 12px/1 var(--mono); color: var(--dim); }
   .guesses { padding: 6px 14px 14px; }
   .guesses .key { display: block; margin-bottom: 6px; }
   .guess { display: grid; grid-template-columns: minmax(0, 1fr) 48px minmax(80px, 30%); gap: 12px; align-items: center; padding: 5px 0; border-top: 1px solid var(--rule); font-size: 14px; }
@@ -66,10 +67,11 @@
     {% if error %}<div class="msg bad" role="alert" style="margin-top:16px">{{ error }}</div>{% endif %}
     {% if result %}
     <div class="readout" role="status">
-      <div class="stamp"><span>{{ result.filename }}</span><span>gate + species</span></div>
+      <div class="stamp"><span>{{ result.filename }}</span><span>gate + detector + species</span></div>
       <div class="verdict">
         {% if result.is_bird %}<span class="call">bird ({{ (result.confidence * 100) | round(0) | int }}%)</span>{% else %}<span class="call no">not a bird ({{ (result.confidence * 100) | round(0) | int }}% bird)</span>{% endif %}
         {% if result.species %}<span class="name">{{ result.species }}</span>{% endif %}
+        <span class="det">detector {{ (result.detector * 100) | round(0) | int }}%</span>
       </div>
       {% if result.top %}
       <div class="guesses">

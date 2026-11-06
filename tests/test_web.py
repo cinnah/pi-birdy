@@ -40,7 +40,10 @@ class FakeTwoStage:
 
     def classify_image(self, img, threshold=None):
         self.images.append(img.shape)
-        pred = Prediction(is_bird=True, confidence=0.93, species="Eurasian Blue Tit", species_confidence=0.81)
+        pred = Prediction(
+            is_bird=True, confidence=0.93, species="Eurasian Blue Tit", species_confidence=0.81,
+            detector_confidence=0.42, detector_box=(0.1, 0.1, 0.5, 0.5),
+        )
         return pred, [(BLUE_TIT, 0.81), (SpeciesLabel("Parus major", "Great Tit"), 0.05)]
 
 
@@ -749,6 +752,23 @@ def test_crop_jpg_falls_back_to_roi(client, store, config):
     img = cv2.imdecode(np.frombuffer(client.get(f"/captures/{cid}/crop.jpg").content, np.uint8), cv2.IMREAD_COLOR)
     rb = roi_bbox(config.motion.roi)   # 240 x 160 lores, padded 10 % each side, x2
     assert img.shape[1] == round((rb.w * 1.2) * 2) and img.shape[0] == round((rb.h * 1.2) * 2)
+
+
+def test_crop_jpg_draws_the_detector_box(client, store):
+    cid = _add_photo(store, (100 / 320, 100 / 240, 20 / 320, 20 / 240))   # 80x80 crop
+    plain = cv2.imdecode(np.frombuffer(client.get(f"/captures/{cid}/crop.jpg").content, np.uint8), cv2.IMREAD_COLOR)
+    store.update_classification(cid, True, 0.6, None, None, det_confidence=0.6, det_box=(0.25, 0.25, 0.5, 0.5))
+    boxed = cv2.imdecode(np.frombuffer(client.get(f"/captures/{cid}/crop.jpg").content, np.uint8), cv2.IMREAD_COLOR)
+    assert boxed.shape == plain.shape
+    b, g, r = boxed[20, 40]   # top edge of the box, BGR; #ffcc00 = (0, 204, 255) ± JPEG
+    assert r > 200 and g > 150 and b < 80
+    assert not np.array_equal(plain[20, 40], boxed[20, 40])
+
+
+def test_classify_upload_shows_detector(client, classifier, store):
+    data = (Path(__file__).parent / "fixtures" / "bird.jpg").read_bytes()
+    r = client.post("/classify", files={"image": ("b.jpg", data, "image/jpeg")})
+    assert r.status_code == 200 and "detector 42%" in r.text
 
 
 def test_crop_jpg_unknown_capture(client):

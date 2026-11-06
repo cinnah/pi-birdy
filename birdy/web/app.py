@@ -79,13 +79,18 @@ def create_app(
     lores_size = live.get().camera.lores_size
 
     def _crop_jpeg(c) -> bytes | None:
-        """The exact crop the classifier sees for this capture (BGR JPEG); None if unreadable."""
+        """What the classifier saw: the motion crop (else the ROI crop), with the stored detector box drawn."""
         crop = crop_box(c.motion_box, live.get().motion.roi, lores_size)
         try:
             rgb = CropLoader(lores_size).load(store.photos_dir / c.path, crop.bbox, crop.pad)
         except ValueError:
             return None
-        ok, jpg = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        if c.det_box is not None:
+            h, w = bgr.shape[:2]
+            x, y, bw, bh = c.det_box
+            cv2.rectangle(bgr, (int(x * w), int(y * h)), (int((x + bw) * w), int((y + bh) * h)), (0, 204, 255), 2)
+        ok, jpg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return jpg.tobytes() if ok else None
 
     def status_payload() -> dict:
@@ -212,6 +217,7 @@ def create_app(
             "is_bird": pred.is_bird,
             "confidence": pred.confidence,
             "species": pred.species,
+            "detector": pred.detector_confidence,
             "top": [(label.common, label.latin, p) for label, p in top[:3]],
             "filename": upload.filename or "photo",
         }
