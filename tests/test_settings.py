@@ -391,3 +391,17 @@ def test_species_include_exclude_roundtrip(config_path, config):
 def test_parse_form_species_lists():
     p = parse_settings_form({**FORM, "species_include": "Hoopoe\r\n\r\n Blue Tit \n", "species_exclude": "Rock Pigeon"})
     assert p.species_include == ("Hoopoe", "Blue Tit") and p.species_exclude == ("Rock Pigeon",)
+
+
+def test_save_drops_legacy_rescue_key_and_writes_new_species_keys(tmp_path):
+    path = tmp_path / "birdy.toml"
+    path.write_text(
+        '[site]\nname = "test"\n\n[motion]\nroi = [[40, 60], [280, 60], [280, 220], [40, 220]]\n'
+        "\n[species]\nthreshold = 0.5\nrescue_threshold = 1.0\n"
+    )
+    cfg = load_config(path)
+    save_settings(path, cfg, default_patch(cfg))
+    text = path.read_text()
+    assert "rescue_threshold" not in text
+    assert "bank" in text
+    assert load_config(path).species.region_radius_km == 50

@@ -255,17 +255,17 @@
     {{ num("species_threshold", "species.threshold", "Species certainty",
            "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
     <div class="row {{ 'error' if error_field == 'species_include' else '' }}">
-      <label for="species_include">Also consider</label>
+      <label for="species_include">Add to local list</label>
       <span></span>
-      {{ explain("Species to add to the local list (latin or common name), one per line.", "species.include") }}
-      <textarea id="species_include" name="species_include" rows="3">{{ v['species_include'] }}</textarea>
+      {{ explain("Birds that should always be a candidate, even if iNaturalist has not seen them near you. Latin or common name, one per line.", "species.include") }}
+      <textarea id="species_include" name="species_include" rows="4" placeholder="one species per line">{{ v['species_include'] }}</textarea>
     </div>
     {% if error_field == 'species_include' %}<div class="hint error">{{ error_message }}</div>{% endif %}
     <div class="row {{ 'error' if error_field == 'species_exclude' else '' }}">
-      <label for="species_exclude">Never name</label>
+      <label for="species_exclude">Remove from local list</label>
       <span></span>
-      {{ explain("Species to drop from the local list, one per line.", "species.exclude") }}
-      <textarea id="species_exclude" name="species_exclude" rows="3">{{ v['species_exclude'] }}</textarea>
+      {{ explain("Birds that should never be named, even if iNaturalist reports them near you. Latin or common name, one per line.", "species.exclude") }}
+      <textarea id="species_exclude" name="species_exclude" rows="4" placeholder="one species per line">{{ v['species_exclude'] }}</textarea>
     </div>
     {% if error_field == 'species_exclude' %}<div class="hint error">{{ error_message }}</div>{% endif %}
   </section>

@@ -1,4 +1,4 @@
-"""Three models on one crop: an ImageNet bird/not-bird gate, a COCO bird detector and an iNat species model. Gate or detector makes a bird; a frame both rejected is not a bird."""
+"""Three models on one crop: an ImageNet bird/not-bird gate, a COCO bird detector and a species model. Gate or detector makes a bird; a frame both rejected is not a bird."""
 
 from __future__ import annotations
 

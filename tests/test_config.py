@@ -156,8 +156,14 @@ def test_species_threshold_range(tmp_path):
 
 
 def test_species_unknown_key_ignored(tmp_path):
-    cfg = load_config(write(tmp_path, MINIMAL + "\n[species]\nrescue_threshold = 1.0\n"))
-    assert cfg.species.threshold == 0.5
+    old = (
+        '\n[species]\nmodel = "models/old.tflite"\nlabels = "models/old.txt"\n'
+        "threshold = 0.6\nrescue_threshold = 1.0\n"
+    )
+    cfg = load_config(write(tmp_path, MINIMAL + old))
+    assert cfg.species.threshold == 0.6
+    assert cfg.species.region_radius_km == 50
+    assert cfg.species.include == ()
 
 
 @pytest.mark.parametrize("text", ["region_radius_km = 0", "region_radius_km = 501", 'region_radius_km = "x"'])
