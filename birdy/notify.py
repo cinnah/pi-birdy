@@ -17,7 +17,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from birdy.classifier import Prediction
 from birdy.config import Config
 from birdy.live import LiveConfig
 from birdy.store import Store
@@ -198,20 +197,28 @@ class TelegramNotifier:
         self._thread = threading.Thread(target=self._run, name="telegram", daemon=True)
 
     def consider(
-        self, capture_id: int, photo_path: Path, pred: Prediction, captured_at: datetime, now: datetime | None = None
+        self,
+        capture_id: int,
+        photo_path: Path,
+        species: str | None,
+        species_confidence: float,
+        captured_at: datetime,
+        first_seen: bool,
+        now: datetime | None = None,
     ) -> str | None:
-        if not pred.is_bird or not pred.species:
+        """Fed by `Visits` once per visit (its best photo). `first_seen`: this is the first visit with
+        that species. Returns the alert reason when one is queued, else None."""
+        if not species:
             return None
         cfg = self._live.get()
         if not cfg.telegram.enabled:
             return None
-        first_seen = self._store.count("birds", species=pred.species) == 1  # this capture is the only one
         reason = self._policy.decide(
-            pred.species, first_seen, TelegramSettings.from_config(cfg), now or datetime.now().astimezone()
+            species, first_seen, TelegramSettings.from_config(cfg), now or datetime.now().astimezone()
         )
         if reason is None:
             return None
-        alert = Alert(capture_id, photo_path, pred.species, pred.species_confidence or 0.0, captured_at, reason)
+        alert = Alert(capture_id, photo_path, species, species_confidence or 0.0, captured_at, reason)
         try:
             self._queue.put_nowait(alert)
         except queue.Full:
