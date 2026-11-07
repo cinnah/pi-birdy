@@ -427,3 +427,29 @@ def test_rename_drops_auto_and_syncs(store, visits):
     visits.correct(a, "species:European Robin")   # the fake re-rank changes nothing; the mirror must still sync
     assert store.get(a).published is None and visits._publisher.notified > n
     assert ("Black Redstart", T0.date()) in visits._publisher.days and ("European Robin", T0.date()) in visits._publisher.days
+
+
+# --- Back to model on a lone photo ------------------------------------------------
+
+def test_clear_on_a_lone_bird_joins_the_nearby_visit(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=False)     # Black Redstart visit
+    b = add(store, 20, species="European Robin", p=0.5)       # model: bird, stale name, no embedding
+    store.set_manual(b, is_bird=False, species=None, at=T0)   # corrected not-bird, never in a visit
+    visits.resolve_single(b)
+    assert store.get(b).visit_id is None and store.get(b).is_bird is False
+    visits.correct(b, "clear")
+    c = store.get(b)
+    assert c.visit_id == store.get(a).visit_id and c.manual_at is None
+    assert c.is_bird is True and c.species == "Black Redstart"      # the visit's name, not the stale one
+    assert c.species_checked is False                               # the backfill fetches its embedding
+    assert store.get_visit(c.visit_id).alert == "skipped"
+
+
+def test_clear_on_a_lone_model_non_bird_stays_lone(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=False)
+    b = add(store, 20, bird=False); visits.photo_classified(store.get(b), live=False)
+    store.set_manual(b, is_bird=True, species=None, at=T0)
+    visits.resolve_single(b)
+    visits.correct(b, "clear")
+    c = store.get(b)
+    assert c.visit_id is None and c.is_bird is False and c.species is None

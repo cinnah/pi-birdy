@@ -457,11 +457,6 @@ class Store:
                 (int(is_bird), confidence, species, species_confidence, det_confidence, *bx, blob, capture_id),
             )
 
-    def embedding(self, capture_id: int) -> np.ndarray | None:
-        with self._lock:
-            row = self._conn.execute("SELECT embedding FROM captures WHERE id = ?", (capture_id,)).fetchone()
-        return None if row is None or row["embedding"] is None else _from_blob(row["embedding"])
-
     def embeddings(self, capture_ids: list[int]) -> dict[int, np.ndarray]:
         """{id: float32 embedding} for those of `capture_ids` that have one."""
         ids = list(capture_ids)
@@ -514,6 +509,13 @@ class Store:
             self._conn.execute(
                 "UPDATE captures SET manual_is_bird = NULL, manual_species = NULL, manual_at = NULL WHERE id = ?",
                 (capture_id,),
+            )
+
+    def queue_embedding(self, capture_id: int) -> None:
+        """Put a row without an embedding back in the species backlog (`species_checked = 0`)."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET species_checked = 0 WHERE id = ? AND embedding IS NULL", (capture_id,)
             )
 
     def mark_not_bird(self, capture_id: int) -> Capture | None:
@@ -762,13 +764,6 @@ class Store:
     def open_visits(self) -> list[Visit]:
         with self._lock:
             rows = self._conn.execute("SELECT * FROM visits WHERE closed = 0 ORDER BY ended_at, id").fetchall()
-        return [_row_to_visit(r) for r in rows]
-
-    def pending_alert_visits(self) -> list[Visit]:
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM visits WHERE alert = 'pending' ORDER BY started_at, id"
-            ).fetchall()
         return [_row_to_visit(r) for r in rows]
 
     def count_visits_with_species(self, species: str) -> int:

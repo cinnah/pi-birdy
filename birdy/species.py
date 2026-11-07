@@ -136,11 +136,6 @@ class BioClipSpecies:
     def candidate_count(self) -> int:
         return int(len(self._cand))
 
-    @property
-    def candidate_rows(self) -> np.ndarray:
-        """Bank row indices of the current candidates."""
-        return self._cand
-
     def embed(self, img_rgb: np.ndarray) -> np.ndarray:
         e = self._sess.run(None, {self._input: preprocess(img_rgb)})[0][0].astype(np.float32)
         return e / max(1e-12, float(np.linalg.norm(e)))

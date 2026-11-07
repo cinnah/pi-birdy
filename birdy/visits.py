@@ -345,7 +345,15 @@ class Visits:
                 raise KeyError(capture_id)
             if label == "clear":
                 if c.visit_id is None:
-                    self._store.clear_manual_single(c.id); self.resolve_single(c.id)
+                    self._store.clear_manual_single(c.id)
+                    c = self._store.get(c.id)
+                    if self._is_member(c):
+                        # the model says bird: it joins/creates a visit like a freshly classified
+                        # photo (never alerts), and gets an embedding from the backfill if it has none
+                        self._store.queue_embedding(c.id)
+                        self.resolve(self.assign(c, live=False))
+                    else:
+                        self.resolve_single(c.id)
                 else:
                     self._store.clear_manual(c.visit_id)
                     for p in self._store.visit_photos(c.visit_id):

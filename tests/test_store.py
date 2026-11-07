@@ -639,9 +639,9 @@ def test_store_verdict_writes_model_columns_only(store):
     assert c.status == "done" and c.species_checked and c.model_is_bird is True and c.model_confidence == 0.7
     assert c.model_species == "Robin" and c.model_species_confidence == 0.9 and c.det_confidence == 0.6
     assert c.is_bird is None and c.species is None            # final columns untouched
-    assert c.has_embedding and np.allclose(store.embedding(cid), emb, atol=1e-3)
+    assert c.has_embedding and np.allclose(store.embeddings([cid])[cid], emb, atol=1e-3)
     store.store_verdict(cid, is_bird=False, confidence=0.1, species=None, species_confidence=None, embedding=None)
-    assert store.embedding(cid) is not None                    # a None embedding keeps the stored one
+    assert cid in store.embeddings([cid])                      # a None embedding keeps the stored one
 
 
 def test_embeddings_returns_only_rows_with_a_blob(store):
@@ -651,7 +651,7 @@ def test_embeddings_returns_only_rows_with_a_blob(store):
     store.store_verdict(b, is_bird=True, confidence=0.7, species=None, species_confidence=None)
     out = store.embeddings([a, b, c, 999])
     assert set(out) == {a} and out[a].dtype == np.float32 and out[a].shape == (768,)
-    assert store.embeddings([]) == {} and store.embedding(999) is None
+    assert store.embeddings([]) == {}
 
 
 def test_update_classification_also_writes_model_columns(store):
@@ -745,14 +745,13 @@ def test_open_visits_and_members(store):
     assert store.get(a).manual_at is None and store.get(a).manual_species is None
 
 
-def test_pending_alert_visits_sizes_and_clear_manual_single(store):
+def test_visit_sizes_and_clear_manual_single(store):
     a = add(store, T0); b = add(store, T0 + timedelta(seconds=5)); c = add(store, T0 + timedelta(minutes=5))
     v1 = store.create_visit(T0 + timedelta(seconds=5), T0 + timedelta(seconds=5))
     v2 = store.create_visit(T0, T0, alert="sent")
     v3 = store.create_visit(T0 - timedelta(minutes=1), T0)
     store.attach_to_visit(a, v1, extend=True); store.attach_to_visit(b, v1); store.attach_to_visit(c, v2)
     assert store.get_visit(v1).started_at == T0                 # extend widens backwards too
-    assert [x.id for x in store.pending_alert_visits()] == [v3, v1]
     assert store.visit_sizes([v1, v2, v3]) == {v1: 2, v2: 1} and store.visit_sizes([]) == {}
     store.set_manual(a, is_bird=False, species=None); store.set_manual(b, is_bird=False, species=None)
     store.clear_manual_single(a)

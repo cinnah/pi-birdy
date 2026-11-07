@@ -801,9 +801,9 @@ def test_detector_only_backfill_keeps_the_stored_embedding(store, live):
     new = np.array([0.0, 1.0, 0.0, 0.0], np.float32)
     pred = Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7, embedding=new)
     Pipeline(store, ReturnsFake(pred), live).sweep()
-    assert np.allclose(store.embedding(ev.capture_id), old)
+    assert np.allclose(store.embeddings([ev.capture_id])[ev.capture_id], old)
     c = store.get(ev.capture_id)
     assert c.species == "Robin" and store.classification_backlog() == []
     unchecked(store, [ev.capture_id])                          # a species pass does take the new one
     Pipeline(store, ReturnsFake(pred), live).sweep()
-    assert np.allclose(store.embedding(ev.capture_id), new)
+    assert np.allclose(store.embeddings([ev.capture_id])[ev.capture_id], new)
