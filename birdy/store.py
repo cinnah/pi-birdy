@@ -610,10 +610,12 @@ class Store:
     def merge_visits(self, into: int, others: list[int]) -> None:
         """Move the photos of `others` into `into`, widen its span over theirs, delete them."""
         others = [o for o in others if o != into]
-        if not others:
-            return
         marks = ",".join("?" * len(others))
         with self._lock, self._conn:
+            if self._conn.execute("SELECT 1 FROM visits WHERE id = ?", (into,)).fetchone() is None:
+                raise KeyError(into)
+            if not others:
+                return
             span = self._conn.execute(
                 f"SELECT MIN(started_at) AS s, MAX(ended_at) AS e FROM visits WHERE id = ? OR id IN ({marks})",
                 (into, *others),

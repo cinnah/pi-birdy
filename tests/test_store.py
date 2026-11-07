@@ -678,6 +678,14 @@ def test_visit_crud(store):
     assert store.get_visit(v1) is None and store.get(a).visit_id is None
 
 
+def test_merge_into_unknown_visit_raises(store):
+    a = add(store, T0)
+    v = store.create_visit(T0, T0); store.attach_to_visit(a, v)
+    with pytest.raises(KeyError):
+        store.merge_visits(v + 1, [v])
+    assert store.get_visit(v) is not None and store.get(a).visit_id == v
+
+
 def test_open_visits_and_members(store):
     a = add(store, T0)
     v = store.create_visit(T0, T0, alert="pending"); store.attach_to_visit(a, v)
