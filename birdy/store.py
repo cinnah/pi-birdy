@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,17 @@ CREATE INDEX IF NOT EXISTS captures_captured_at ON captures(captured_at DESC);
 CREATE INDEX IF NOT EXISTS captures_is_bird ON captures(is_bird, captured_at DESC);
 CREATE INDEX IF NOT EXISTS captures_status ON captures(status);
 CREATE INDEX IF NOT EXISTS captures_species ON captures(species, captured_at DESC);
+CREATE TABLE IF NOT EXISTS visits (
+  id INTEGER PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  ended_at TEXT NOT NULL,
+  closed INTEGER NOT NULL DEFAULT 0,
+  species TEXT,
+  species_confidence REAL,
+  alert TEXT NOT NULL DEFAULT 'pending'
+);
+CREATE INDEX IF NOT EXISTS visits_time ON visits(ended_at);
+CREATE INDEX IF NOT EXISTS visits_open ON visits(closed, ended_at);
 """
 
 FILTERS = {
@@ -56,6 +68,11 @@ FILTERS = {
 _BACKLOG_WHERE = "status = 'done' AND (species_checked = 0 OR detector_checked = 0) AND manual_at IS NULL"
 _BACKLOG_COUNT = f"SELECT COUNT(*) FROM captures WHERE {_BACKLOG_WHERE}"
 _BACKLOG_SELECT = f"SELECT * FROM captures WHERE {_BACKLOG_WHERE} ORDER BY captured_at DESC, id DESC LIMIT ?"
+
+# A photo counts as a bird in its visit: a person's word first, else the model's verdict (or the
+# final column, for rows classified before the verdict/final split).
+_BIRD_MEMBER = "(manual_is_bird = 1 OR (manual_is_bird IS NULL AND (model_is_bird = 1 OR is_bird = 1)))"
+VISIT_ALERT_STATES = ("pending", "sent", "skipped")
 
 
 @dataclass(frozen=True)
@@ -75,9 +92,10 @@ class Capture:
     web_path: str | None = None    # relative path of the web-sized copy under data/publish/photos
     # Motion box at the trigger frame as fractions (x, y, w, h) of the lores frame; None = unknown.
     motion_box: tuple[float, float, float, float] | None = None
-    # The user's correction (None = none) and, once corrected, what the model had said.
+    # A person's correction (None = none); manual_species is the bank's common name.
     manual_is_bird: bool | None = None
     manual_at: datetime | None = None
+    # The classifier's verdict for this photo (the final columns above are the visit's result).
     model_is_bird: bool | None = None
     model_species: str | None = None
     model_species_confidence: float | None = None
@@ -85,6 +103,21 @@ class Capture:
     # and its box as fractions (x, y, w, h) of the classified crop.
     det_confidence: float | None = None
     det_box: tuple[float, float, float, float] | None = None
+    visit_id: int | None = None
+    model_confidence: float | None = None
+    manual_species: str | None = None
+    has_embedding: bool = False      # the species model's image embedding is stored
+
+
+@dataclass(frozen=True)
+class Visit:
+    id: int
+    started_at: datetime
+    ended_at: datetime
+    closed: bool
+    species: str | None              # resolved label (common name); None = bird, no species
+    species_confidence: float | None
+    alert: str                       # 'pending' | 'sent' | 'skipped'
 
 
 @dataclass(frozen=True)
@@ -130,7 +163,27 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         model_species_confidence=row["model_species_confidence"],
         det_confidence=row["det_confidence"],
         det_box=None if row["det_x"] is None else (row["det_x"], row["det_y"], row["det_w"], row["det_h"]),
+        visit_id=row["visit_id"],
+        model_confidence=row["model_confidence"],
+        manual_species=row["manual_species"],
+        has_embedding=row["embedding"] is not None,
     )
+
+
+def _row_to_visit(row: sqlite3.Row) -> Visit:
+    return Visit(
+        id=row["id"],
+        started_at=_from_db_time(row["started_at"]),
+        ended_at=_from_db_time(row["ended_at"]),
+        closed=bool(row["closed"]),
+        species=row["species"],
+        species_confidence=row["species_confidence"],
+        alert=row["alert"],
+    )
+
+
+def _from_blob(blob: bytes) -> np.ndarray:
+    return np.frombuffer(blob, np.float16).astype(np.float32)
 
 
 class Store:
@@ -156,8 +209,8 @@ class Store:
                 ("motion_y", "REAL"),
                 ("motion_w", "REAL"),
                 ("motion_h", "REAL"),
-                # The model's verdict, kept here once a person corrects the row (the final
-                # is_bird/species columns then hold the correction).
+                # The classifier's verdict for the photo; the final is_bird/species columns hold
+                # the visit's result (or a person's correction).
                 ("model_is_bird", "INTEGER"),
                 ("model_confidence", "REAL"),
                 ("model_species", "TEXT"),
@@ -171,6 +224,9 @@ class Store:
                 ("det_w", "REAL"),
                 ("det_h", "REAL"),
                 ("detector_checked", "INTEGER NOT NULL DEFAULT 0"),
+                ("visit_id", "INTEGER"),
+                # The species model's L2-normalised image embedding, 768 x float16.
+                ("embedding", "BLOB"),
             ):
                 if name not in cols:
                     try:
@@ -180,6 +236,7 @@ class Store:
                         if "duplicate column" not in str(e):
                             raise
             self._conn.execute("CREATE INDEX IF NOT EXISTS captures_published ON captures(published)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS captures_visit ON captures(visit_id)")
 
     # --- site -------------------------------------------------------------
 
@@ -279,12 +336,90 @@ class Store:
         det_box: tuple[float, float, float, float] | None = None,
     ) -> None:
         bx = (None, None, None, None) if det_box is None else det_box
+        verdict = (int(is_bird), confidence, species, species_confidence)
         with self._lock, self._conn:
             self._conn.execute(
                 "UPDATE captures SET is_bird = ?, confidence = ?, species = ?, species_confidence = ?,"
+                " model_is_bird = ?, model_confidence = ?, model_species = ?, model_species_confidence = ?,"
                 " det_confidence = ?, det_x = ?, det_y = ?, det_w = ?, det_h = ?,"
                 " species_checked = 1, detector_checked = 1, status = 'done' WHERE id = ?",
-                (int(is_bird), confidence, species, species_confidence, det_confidence, *bx, capture_id),
+                (*verdict, *verdict, det_confidence, *bx, capture_id),
+            )
+
+    def store_verdict(
+        self,
+        capture_id: int,
+        *,
+        is_bird: bool,
+        confidence: float,
+        species: str | None,
+        species_confidence: float | None,
+        det_confidence: float = 0.0,
+        det_box: tuple[float, float, float, float] | None = None,
+        embedding: np.ndarray | None = None,
+    ) -> None:
+        """The classifier's verdict for a photo (model_*); the final columns are written by Visits.
+        A None embedding keeps the stored one."""
+        bx = (None, None, None, None) if det_box is None else det_box
+        blob = None if embedding is None else np.asarray(embedding, np.float16).tobytes()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET model_is_bird = ?, model_confidence = ?, model_species = ?, model_species_confidence = ?,"
+                " det_confidence = ?, det_x = ?, det_y = ?, det_w = ?, det_h = ?,"
+                " embedding = COALESCE(?, embedding), species_checked = 1, detector_checked = 1, status = 'done'"
+                " WHERE id = ?",
+                (int(is_bird), confidence, species, species_confidence, det_confidence, *bx, blob, capture_id),
+            )
+
+    def embedding(self, capture_id: int) -> np.ndarray | None:
+        with self._lock:
+            row = self._conn.execute("SELECT embedding FROM captures WHERE id = ?", (capture_id,)).fetchone()
+        return None if row is None or row["embedding"] is None else _from_blob(row["embedding"])
+
+    def embeddings(self, capture_ids: list[int]) -> dict[int, np.ndarray]:
+        """{id: float32 embedding} for those of `capture_ids` that have one."""
+        ids = list(capture_ids)
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT id, embedding FROM captures WHERE id IN ({marks}) AND embedding IS NOT NULL", ids
+            ).fetchall()
+        return {int(r["id"]): _from_blob(r["embedding"]) for r in rows}
+
+    def write_final(
+        self, capture_id: int, is_bird: bool, confidence: float | None, species: str | None, species_confidence: float | None
+    ) -> None:
+        """The final columns every reader uses (written by Visits: the visit's result, or the model's for a lone photo)."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET is_bird = ?, confidence = ?, species = ?, species_confidence = ? WHERE id = ?",
+                (int(is_bird), confidence, species, species_confidence, capture_id),
+            )
+
+    def set_manual(self, capture_id: int, *, is_bird: bool, species: str | None, at: datetime | None = None) -> None:
+        """A person's correction on one photo (Visits copies it across the visit)."""
+        when = _to_db_time(at or datetime.now(timezone.utc))
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET manual_is_bird = ?, manual_species = ?, manual_at = ? WHERE id = ?",
+                (int(is_bird), species, when, capture_id),
+            )
+
+    def clear_manual(self, visit_id: int) -> None:
+        """Drop the correction on every photo of the visit."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET manual_is_bird = NULL, manual_species = NULL, manual_at = NULL WHERE visit_id = ?",
+                (visit_id,),
+            )
+
+    def clear_manual_single(self, capture_id: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET manual_is_bird = NULL, manual_species = NULL, manual_at = NULL WHERE id = ?",
+                (capture_id,),
             )
 
     def mark_not_bird(self, capture_id: int) -> Capture | None:
@@ -417,6 +552,129 @@ class Store:
                 " ORDER BY captured_at DESC LIMIT 1"
             ).fetchone()
         return None if row is None else (row["species"], _from_db_time(row["captured_at"]))
+
+    # --- visits -----------------------------------------------------------
+
+    def create_visit(self, started_at: datetime, ended_at: datetime, alert: str = "pending") -> int:
+        if alert not in VISIT_ALERT_STATES:
+            raise ValueError(f"bad visit alert state {alert!r}")
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO visits (started_at, ended_at, alert) VALUES (?, ?, ?)",
+                (_to_db_time(started_at), _to_db_time(ended_at), alert),
+            )
+            return int(cur.lastrowid)
+
+    def get_visit(self, visit_id: int) -> Visit | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM visits WHERE id = ?", (visit_id,)).fetchone()
+        return None if row is None else _row_to_visit(row)
+
+    def attach_to_visit(self, capture_id: int, visit_id: int, extend: bool = False) -> None:
+        """Put a photo in a visit; `extend` widens the visit's span to include the photo's time."""
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE captures SET visit_id = ? WHERE id = ?", (visit_id, capture_id))
+            if extend:
+                row = self._conn.execute("SELECT captured_at FROM captures WHERE id = ?", (capture_id,)).fetchone()
+                if row is not None:
+                    t = row["captured_at"]
+                    self._conn.execute(
+                        "UPDATE visits SET started_at = MIN(started_at, ?), ended_at = MAX(ended_at, ?) WHERE id = ?",
+                        (t, t, visit_id),
+                    )
+
+    def visit_photos(self, visit_id: int) -> list[Capture]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM captures WHERE visit_id = ? ORDER BY captured_at, id", (visit_id,)
+            ).fetchall()
+        return [_row_to_capture(r) for r in rows]
+
+    def bird_members(self, visit_id: int) -> list[int]:
+        """Ids of the visit's photos that count as a bird (a correction wins over the model)."""
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT id FROM captures WHERE visit_id = ? AND {_BIRD_MEMBER} ORDER BY captured_at, id", (visit_id,)
+            ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    def visits_overlapping(self, start: datetime, end: datetime) -> list[Visit]:
+        """Visits whose span touches [start, end], oldest id first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM visits WHERE started_at <= ? AND ended_at >= ? ORDER BY id",
+                (_to_db_time(end), _to_db_time(start)),
+            ).fetchall()
+        return [_row_to_visit(r) for r in rows]
+
+    def merge_visits(self, into: int, others: list[int]) -> None:
+        """Move the photos of `others` into `into`, widen its span over theirs, delete them."""
+        others = [o for o in others if o != into]
+        if not others:
+            return
+        marks = ",".join("?" * len(others))
+        with self._lock, self._conn:
+            span = self._conn.execute(
+                f"SELECT MIN(started_at) AS s, MAX(ended_at) AS e FROM visits WHERE id = ? OR id IN ({marks})",
+                (into, *others),
+            ).fetchone()
+            self._conn.execute(f"UPDATE captures SET visit_id = ? WHERE visit_id IN ({marks})", (into, *others))
+            if span["s"] is not None:
+                self._conn.execute(
+                    "UPDATE visits SET started_at = ?, ended_at = ? WHERE id = ?", (span["s"], span["e"], into)
+                )
+            self._conn.execute(f"DELETE FROM visits WHERE id IN ({marks})", others)
+
+    def set_visit_result(self, visit_id: int, species: str | None, species_confidence: float | None) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE visits SET species = ?, species_confidence = ? WHERE id = ?",
+                (species, species_confidence, visit_id),
+            )
+
+    def close_visit(self, visit_id: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE visits SET closed = 1 WHERE id = ?", (visit_id,))
+
+    def set_visit_alert(self, visit_id: int, state: str) -> None:
+        if state not in VISIT_ALERT_STATES:
+            raise ValueError(f"bad visit alert state {state!r}")
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE visits SET alert = ? WHERE id = ?", (state, visit_id))
+
+    def open_visits(self) -> list[Visit]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM visits WHERE closed = 0 ORDER BY ended_at, id").fetchall()
+        return [_row_to_visit(r) for r in rows]
+
+    def pending_alert_visits(self) -> list[Visit]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM visits WHERE alert = 'pending' ORDER BY started_at, id"
+            ).fetchall()
+        return [_row_to_visit(r) for r in rows]
+
+    def count_visits_with_species(self, species: str) -> int:
+        with self._lock:
+            return int(self._conn.execute("SELECT COUNT(*) FROM visits WHERE species = ?", (species,)).fetchone()[0])
+
+    def delete_visit(self, visit_id: int) -> None:
+        """Delete the visit row; its photos stay, with no visit."""
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE captures SET visit_id = NULL WHERE visit_id = ?", (visit_id,))
+            self._conn.execute("DELETE FROM visits WHERE id = ?", (visit_id,))
+
+    def visit_sizes(self, visit_ids: list[int]) -> dict[int, int]:
+        """{visit id: photo count}; visits with no photos are absent."""
+        ids = list(visit_ids)
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT visit_id, COUNT(*) AS n FROM captures WHERE visit_id IN ({marks}) GROUP BY visit_id", ids
+            ).fetchall()
+        return {int(r["visit_id"]): int(r["n"]) for r in rows}
 
     # --- publishing -------------------------------------------------------
 
