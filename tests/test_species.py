@@ -179,3 +179,15 @@ class TestRealBioClip:
         sp = BioClipSpecies(BIOCLIP, BANK)
         label, p = sp.top(rgb(FIXTURES / "bird.jpg"), k=1)[0]
         assert p > 0.3 and label.latin and label.common
+
+
+def test_score_candidates_matches_top(standin):
+    from birdy.species import score_candidates
+    sp = BioClipSpecies(*standin)
+    img = flat((0, 255, 0))
+    top, emb = sp.top_with_embedding(img, k=3)
+    assert emb.shape == (D,) and abs(np.linalg.norm(emb) - 1) < 1e-5
+    scored = score_candidates(sp.bank, sp.candidate_rows, emb)          # [(bank row, p)] best first
+    assert [sp.bank.ids[r] for r, _ in scored[:3]] == [sp.bank.resolve(l.common) for l, _ in top]
+    assert abs(scored[0][1] - top[0][1]) < 1e-6
+    assert score_candidates(sp.bank, np.array([], np.int64), emb) == []

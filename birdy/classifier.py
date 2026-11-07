@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -33,6 +33,8 @@ class Prediction:
     species_confidence: float | None = None
     detector_confidence: float = 0.0   # best COCO "bird" detection score; 0 when none
     detector_box: tuple[float, float, float, float] | None = None   # (x, y, w, h) fractions of the crop
+    # The species model's L2-normalised image embedding, when it ran; None otherwise.
+    embedding: np.ndarray | None = field(default=None, compare=False, repr=False)
 
 
 class Classifier(Protocol):
@@ -229,19 +231,20 @@ class TwoStageClassifier:
                         self._detector_errors.add(key)
             p_det = det.score if det is not None else 0.0
             is_bird = p_bird >= t_gate or p_det >= t_det
-            top = []
+            top, emb = [], None
             if is_bird or known_bird:
                 # The species model has no "nothing here" answer (14 % of empty frames get a confident
                 # name), so it only ever sees photos the gate or detector (or an earlier verdict) called a bird.
                 try:
                     self._refresh_candidates(cfg)
-                    top = self.species.top(img_rgb, k=5)
+                    fn = getattr(self.species, "top_with_embedding", None)
+                    top, emb = fn(img_rgb, k=5) if fn else (self.species.top(img_rgb, k=5), None)
                 except Exception as e:
                     key = f"{type(e).__name__}: {e}"
                     if key not in self._species_errors:
                         log.exception("species model failed (%s); continuing without a species", key)
                         self._species_errors.add(key)
-                    top = []
+                    top, emb = [], None
         label, p_sp = top[0] if top else (None, 0.0)
         species = label.common if label is not None and p_sp >= t_sp else None
         pred = Prediction(
@@ -251,6 +254,7 @@ class TwoStageClassifier:
             species_confidence=p_sp if species is not None else None,
             detector_confidence=p_det,
             detector_box=det.box if det is not None else None,
+            embedding=emb,
         )
         return pred, top
 

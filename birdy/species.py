@@ -89,6 +89,17 @@ def preprocess(img_rgb: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(x.transpose(2, 0, 1)[np.newaxis])
 
 
+def score_candidates(bank: Bank, cand_rows: np.ndarray, emb: np.ndarray) -> list[tuple[int, float]]:
+    """Softmax of logit_scale · E[cand] · emb over the candidate rows; [(bank row, p)] best first."""
+    if len(cand_rows) == 0:
+        return []
+    logits = bank.logit_scale * (bank.emb[cand_rows] @ emb)
+    p = np.exp(logits - logits.max())
+    p /= p.sum()
+    order = np.argsort(p)[::-1]
+    return [(int(cand_rows[i]), float(p[i])) for i in order]
+
+
 class BioClipSpecies:
     """Zero-shot species over the current candidate ids. Not thread-safe; called under
     `TwoStageClassifier._lock`. ~3.5 s per image on a Pi 4 (int8 ViT-L/14).
@@ -125,22 +136,28 @@ class BioClipSpecies:
     def candidate_count(self) -> int:
         return int(len(self._cand))
 
+    @property
+    def candidate_rows(self) -> np.ndarray:
+        """Bank row indices of the current candidates."""
+        return self._cand
+
     def embed(self, img_rgb: np.ndarray) -> np.ndarray:
         e = self._sess.run(None, {self._input: preprocess(img_rgb)})[0][0].astype(np.float32)
         return e / max(1e-12, float(np.linalg.norm(e)))
 
-    def top(self, img_rgb: np.ndarray, k: int = 5) -> list[tuple[SpeciesLabel, float]]:
+    def top_with_embedding(
+        self, img_rgb: np.ndarray, k: int = 5
+    ) -> tuple[list[tuple[SpeciesLabel, float]], np.ndarray | None]:
+        """`top` plus the image's L2-normalised embedding (None when there are no candidates)."""
         cand = self._cand
         if len(cand) == 0:
-            return []
+            return [], None
         e = self.embed(img_rgb)
-        logits = self.bank.logit_scale * (self.bank.emb[cand] @ e)
-        p = np.exp(logits - logits.max())
-        p /= p.sum()
-        order = np.argsort(p)[::-1][:k]
         out = []
-        for i in order:
-            row = int(cand[i])
+        for row, p in score_candidates(self.bank, cand, e)[:k]:
             latin = self.bank.latin[row]
-            out.append((SpeciesLabel(latin, self.bank.common[row] or latin), float(p[i])))
-        return out
+            out.append((SpeciesLabel(latin, self.bank.common[row] or latin), p))
+        return out, e
+
+    def top(self, img_rgb: np.ndarray, k: int = 5) -> list[tuple[SpeciesLabel, float]]:
+        return self.top_with_embedding(img_rgb, k)[0]
