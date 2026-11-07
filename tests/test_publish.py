@@ -601,4 +601,5 @@ def test_evaluate_day_reranks_by_name_and_time(live, store, config):
     c = bird(store, T0 + timedelta(minutes=2), "Robin", 0.95)
     assert pub.evaluate(c) is True          # evaluate goes through evaluate_day
     assert [store.get(x.id).published for x in (a, b, c)] == [None, None, "auto"]
-    assert pub.evaluate(c) is pub.evaluate_day(c.species, c.captured_at) is False
+    assert pub.evaluate(c) is False
+    assert pub.evaluate_day(c.species, c.captured_at) is False
