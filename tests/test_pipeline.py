@@ -380,12 +380,12 @@ def test_backfill_never_notifies(store, live):
 
 def test_queued_event_passes_captured_at(store, live):
     n = FakeNotifier()
-    p = Pipeline(store, SpeciesFake(), live, notifier=n)
+    p = Pipeline(store, SpeciesFake(), live, notifier=n, tick_interval=0.1)
     p.start()
     try:
         ev = add_at(store, recent())
         p.submit(ev)
-        assert wait_until(lambda: n.calls, timeout=8)     # the worker's 5 s tick closes the visit
+        assert wait_until(lambda: n.calls, timeout=3)     # the worker's tick closes the visit
         assert n.calls[0][3] == ev.captured_at
     finally:
         p.stop()
@@ -719,8 +719,8 @@ def test_backfill_same_species_does_not_forget(store, live):
     unchecked(store, [ev.capture_id])
     pub = FakePublisher()
     Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Robin", species_confidence=0.85)), live, publisher=pub).sweep()
-    # Same name: no species change, so no re-rank (Visits re-ranks on species changes only).
-    assert pub.days == []
+    # Same name, new confidence: that day is re-ranked once.
+    assert pub.days == [("Robin", T0.date())]
     c = store.get(ev.capture_id)
     assert c.species == "Robin" and c.species_confidence == 0.85
 
@@ -766,14 +766,14 @@ def test_backfill_rename_hands_the_old_slot_to_the_next_best_photo(store, live):
 
 
 def test_run_loop_ticks_visits(store, live):
-    p = Pipeline(store, SpeciesFake(), live, sweep_interval=100)
+    p = Pipeline(store, SpeciesFake(), live, sweep_interval=100, tick_interval=0.1)
     p.start()
     try:
         ev = add_at(store, recent())
         assert p.submit(ev)
         assert wait_until(lambda: store.get(ev.capture_id).status == "done")
         assert store.get(ev.capture_id).visit_id is not None
-        assert wait_until(lambda: store.open_visits() == [], timeout=8)
+        assert wait_until(lambda: store.open_visits() == [], timeout=3)
     finally:
         p.stop()
 
@@ -790,3 +790,20 @@ def test_sweep_resolves_unlabelled_done_rows(store, live, caplog):
     assert clf.calls == []                       # no model runs: the stored verdict is resolved
     assert store.unresolved_done() == []
     assert "resolved 1 unlabelled rows" in caplog.text
+
+
+def test_detector_only_backfill_keeps_the_stored_embedding(store, live):
+    ev = add(store, 0)
+    old = np.array([1.0, 0.0, 0.0, 0.0], np.float32)
+    store.store_verdict(ev.capture_id, is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8, embedding=old)
+    Pipeline(store, FakeClassifier(), live).sweep()            # resolves the row (unlabelled sweep)
+    detector_unchecked(store, [ev.capture_id])                 # species_checked stays 1
+    new = np.array([0.0, 1.0, 0.0, 0.0], np.float32)
+    pred = Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7, embedding=new)
+    Pipeline(store, ReturnsFake(pred), live).sweep()
+    assert np.allclose(store.embedding(ev.capture_id), old)
+    c = store.get(ev.capture_id)
+    assert c.species == "Robin" and store.classification_backlog() == []
+    unchecked(store, [ev.capture_id])                          # a species pass does take the new one
+    Pipeline(store, ReturnsFake(pred), live).sweep()
+    assert np.allclose(store.embedding(ev.capture_id), new)

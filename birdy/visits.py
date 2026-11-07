@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from birdy.live import LiveConfig
+from birdy.publish import local_day_bounds
 from birdy.species import Bank, score_candidates
 from birdy.store import Capture, Store, Visit
 
@@ -183,6 +184,7 @@ class Visits:
             vote_species, vote_p = (v.species, v.p) if v is not None else (None, None)
             own_p, names = self._score_all(embs, cand)
             changes: list[Change] = []
+            rerank: set[tuple[str, datetime]] = set()   # same name, new confidence: its day's ranking may move
             for p in photos:
                 probs = own_p.get(p.id)
                 if probs is not None:
@@ -207,9 +209,11 @@ class Visits:
                         changes.append(Change(p.id, p.species, species, p.captured_at))
                         if p.published == "auto":
                             self._store.set_published(p.id, None)
+                    elif species is not None and p.species_confidence != sp_conf:
+                        rerank.add((species, p.captured_at))
                     self._store.write_final(p.id, is_bird, conf, species, sp_conf)
             self._store.set_visit_result(visit_id, *self._visit_result(photos, vote_species, vote_p))
-            self._publish(changes)
+            self._publish(changes, rerank)
             return changes
 
     def _visit_result(self, photos: list[Capture], vote_species: str | None, vote_p: float | None) -> tuple[str | None, float | None]:
@@ -241,16 +245,21 @@ class Visits:
                 return float(max(hits))
         return p.model_species_confidence if p.model_species == species else None
 
-    def _publish(self, changes: list[Change]) -> None:
+    def _publish(self, changes: list[Change], rerank=()) -> None:
+        """Re-rank each (species, local day) touched once: the old and new species of every change,
+        plus `rerank` (same name, new confidence). A 30-photo rename is two re-ranks, not sixty."""
         if self._publisher is None:
             return
-        for ch in changes:
-            for sp in (ch.old_species, ch.new_species):
-                if sp:
-                    try:
-                        self._publisher.evaluate_day(sp, ch.captured_at)
-                    except Exception:
-                        log.exception("publish re-rank failed for %s", sp)
+        todo: dict[tuple[str, datetime], datetime] = {}
+        pairs = [(sp, ch.captured_at) for ch in changes for sp in (ch.old_species, ch.new_species)]
+        for sp, when in [*pairs, *sorted(rerank, key=lambda r: (r[1], r[0]))]:
+            if sp:
+                todo.setdefault((sp, local_day_bounds(when)[0]), when)
+        for (sp, _day), when in todo.items():
+            try:
+                self._publisher.evaluate_day(sp, when)
+            except Exception:
+                log.exception("publish re-rank failed for %s", sp)
 
     # --- close / alert -------------------------------------------------------------
     def tick(self, now: datetime | None = None) -> None:

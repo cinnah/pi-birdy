@@ -352,3 +352,29 @@ def test_inherited_correction_keeps_original_time(store, visits):
 def test_correct_unknown_id_raises_keyerror(visits):
     with pytest.raises(KeyError):
         visits.correct(999, "not_bird")
+
+
+def test_same_name_new_confidence_reranks_its_day_once(store, live):
+    pub = FakePublisher()
+    v = Visits(store, live, bank=None, species_list=None, publisher=pub)
+    a = add(store, 0, species="Robin", p=0.7); v.photo_classified(store.get(a), live=False)
+    assert pub.days == [("Robin", T0.date())]
+    pub.days.clear()
+    store.store_verdict(a, is_bird=True, confidence=0.9, species="Robin", species_confidence=0.9)
+    assert v.photo_classified(store.get(a), live=False) == []      # no label change
+    assert store.get(a).species_confidence == 0.9
+    assert pub.days == [("Robin", T0.date())]
+
+
+def test_rename_reranks_each_species_day_once_not_per_photo(store, live):
+    pub = FakePublisher()
+    v = Visits(store, live, bank=None, species_list=None, publisher=pub)
+    ids = [add(store, s, species="Robin", p=0.7) for s in (0, 10, 20)]
+    for cid in ids:
+        v.photo_classified(store.get(cid), live=False)
+    pub.days.clear()
+    for cid in ids:
+        store.store_verdict(cid, is_bird=True, confidence=0.9, species="Hoopoe", species_confidence=0.7)
+    changes = v.photo_classified(store.get(ids[-1]), live=False)
+    assert len(changes) == 3 and all(store.get(cid).species == "Hoopoe" for cid in ids)
+    assert pub.days == [("Robin", T0.date()), ("Hoopoe", T0.date())]

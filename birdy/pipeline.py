@@ -1,4 +1,7 @@
-"""Queue between capture and classification, plus a backlog sweep."""
+"""Queue between capture and classification, plus a backlog sweep and the visit tick.
+
+The worker thread classifies queued events, sweeps the backlog every `sweep_interval`, and calls
+`Visits.tick()` every `tick_interval` (also between backlog rows) so quiet visits close and alert."""
 
 from __future__ import annotations
 
@@ -47,6 +50,7 @@ class Pipeline:
         lores_size: tuple[int, int] = (320, 240),
         maxsize: int = 50,
         sweep_interval: float = 300.0,
+        tick_interval: float = TICK_INTERVAL,
     ) -> None:
         self._store = store
         self._classifier = classifier
@@ -62,6 +66,8 @@ class Pipeline:
         self._lores_size = lores_size
         self._queue: queue.Queue[MotionEvent] = queue.Queue(maxsize=maxsize)
         self._sweep_interval = sweep_interval
+        self._tick_interval = tick_interval
+        self._next_tick = time.monotonic()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="pipeline", daemon=True)
 
@@ -140,6 +146,7 @@ class Pipeline:
             if self._stop.is_set() or self._queue.qsize():
                 break
             got_species, was_promoted, was_renamed = self._backfill(c)
+            self._maybe_tick()          # a long sweep must not hold back visit closes and alerts
             processed += 1
             with_species += got_species
             promoted += was_promoted
@@ -157,10 +164,12 @@ class Pipeline:
             if self._stop.is_set() or self._queue.qsize():
                 break
             try:
-                self.visits.photo_classified(c, live=False)
+                # live=True: these rows came from the live path; the LATE rule keeps old ones from alerting.
+                self.visits.photo_classified(c, live=True)
                 resolved += 1
             except Exception:
                 log.exception("resolving unlabelled capture %d failed", c.id)
+            self._maybe_tick()
         if resolved:
             log.info("resolved %d unlabelled rows", resolved)
 
@@ -170,15 +179,17 @@ class Pipeline:
         path = self._store.photos_dir / c.path
         try:
             crop = crop_box(c.motion_box, cfg.motion.roi, self._lores_size)
-            # known_bird: a stored bird always gets a species run, so a stricter gate can't strip its name.
+            # known_bird: a stored bird (final or model verdict) always gets a species run, so a
+            # stricter gate can't strip its name.
+            known = bool(c.is_bird or c.model_is_bird)
             pred = self._classifier.classify(
-                path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad, known_bird=bool(c.is_bird)
+                path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad, known_bird=known
             )
             # Bird/non-bird: never demote; promote when the new verdict says bird (gate or
             # detector). Visits decides membership from model_is_bird, so the merged verdict is
             # what gets stored. Confidence comes from the new verdict when it says bird, else the
             # old one is kept. det_* always records the latest detector run.
-            is_bird = bool(c.is_bird) or pred.is_bird
+            is_bird = known or pred.is_bird
             confidence = pred.confidence if pred.is_bird else (c.model_confidence or c.confidence or 0.0)
             if c.model_is_bird is None:     # a row from before the verdict/final split: final = model
                 species, species_confidence = c.species, c.species_confidence
@@ -188,12 +199,15 @@ class Pipeline:
             # takes the new verdict, even "no species" (its old name came from another model); a seen
             # row keeps its label (the crop may have changed with the ROI; rewriting would move publish
             # slots for nothing). A promoted non-bird gets one like a new row.
-            write_species = (not c.species_checked) or ((not c.is_bird) and pred.is_bird)
+            write_species = (not c.species_checked) or ((not known) and pred.is_bird)
             if write_species:
                 species, species_confidence = pred.species, pred.species_confidence
+            # The embedding drives the visit vote: a detector-only pass on a seen row keeps the
+            # stored one (None = keep), so it can't move the visit's label.
+            embedding = pred.embedding if write_species or not c.has_embedding else None
             self._store.store_verdict(
                 c.id, is_bird=is_bird, confidence=confidence, species=species, species_confidence=species_confidence,
-                det_confidence=pred.detector_confidence, det_box=pred.detector_box, embedding=pred.embedding,
+                det_confidence=pred.detector_confidence, det_box=pred.detector_box, embedding=embedding,
             )
         except Exception:
             # Unlike live processing, a failure here must not flip a `done` row to `error`.
@@ -208,17 +222,17 @@ class Pipeline:
         try:
             changes = self.visits.photo_classified(self._store.get(c.id), live=False)
         except Exception:
-            log.exception("visit update failed for capture %d", c.id)   # the unlabelled sweep retries
+            # The row keeps its previous final columns; the next resolve of its visit heals it.
+            log.exception("visit update failed for capture %d", c.id)
             changes = []
         after = self._store.get(c.id)
         got_species = after is not None and bool(after.species)
         promoted = (not c.is_bird) and after is not None and bool(after.is_bird)
-        renamed = any(ch.old_species != ch.new_species for ch in changes)
+        renamed = any(ch.capture_id == c.id and ch.old_species for ch in changes)
         return got_species, promoted, renamed
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick
-        next_tick = time.monotonic()
         while not self._stop.is_set():
             try:
                 ev = self._queue.get(timeout=0.5)
@@ -239,9 +253,14 @@ class Pipeline:
                 except Exception:
                     log.exception("sweep failed")
                 next_sweep = time.monotonic() + self._sweep_interval
-            if time.monotonic() >= next_tick:
-                try:
-                    self.visits.tick()   # close quiet visits, alert
-                except Exception:
-                    log.exception("visit tick failed")
-                next_tick = time.monotonic() + TICK_INTERVAL
+            self._maybe_tick()
+
+    def _maybe_tick(self) -> None:
+        """Close quiet visits and alert, at most once per `tick_interval`."""
+        if time.monotonic() < self._next_tick:
+            return
+        try:
+            self.visits.tick()
+        except Exception:
+            log.exception("visit tick failed")
+        self._next_tick = time.monotonic() + self._tick_interval
