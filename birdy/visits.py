@@ -28,7 +28,6 @@ LATE = timedelta(minutes=10)   # a visit whose last photo is older than this at 
 class Vote:
     species: str
     p: float
-    pooled: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -52,7 +51,7 @@ def vote(embeddings: list[np.ndarray], bank: Bank, cand_rows: np.ndarray, thresh
     if not scored or scored[0][1] < threshold:
         return None
     row, p = scored[0]
-    return Vote(bank.common[row] or bank.latin[row], p, pooled)
+    return Vote(bank.common[row] or bank.latin[row], p)
 
 
 def final_label(*, manual_is_bird: bool | None, manual_species: str | None, own: tuple[str, float] | None,
@@ -62,7 +61,7 @@ def final_label(*, manual_is_bird: bool | None, manual_species: str | None, own:
         return False, None
     if manual_is_bird is True:
         return True, manual_species
-    if own is not None and vote_species is not None and own[0] != vote_species and own[1] >= KEEP_OWN:
+    if own is not None and own[1] >= KEEP_OWN and own[0] != vote_species:
         return True, own[0]
     return True, vote_species
 
@@ -85,14 +84,24 @@ class Visits:
     def _name_of_row(self, row: int) -> str:
         return self._bank.common[row] or self._bank.latin[row]
 
-    def _own(self, emb: np.ndarray | None, cand: np.ndarray) -> list[tuple[int, float]]:
-        return [] if emb is None or self._bank is None else score_candidates(self._bank, cand, emb)
+    def _score_all(self, embs: dict[int, np.ndarray], cand: np.ndarray) -> tuple[dict[int, np.ndarray], list[str]]:
+        """Every photo's own softmax over the candidates in one matmul: ({capture id: p per candidate}, candidate names)."""
+        if self._bank is None or len(cand) == 0 or not embs:
+            return {}, []
+        ids = list(embs)
+        logits = self._bank.logit_scale * (self._bank.emb[cand] @ np.stack([embs[i] for i in ids]).T)   # [C, M]
+        p = np.exp(logits - logits.max(axis=0, keepdims=True))
+        p /= p.sum(axis=0, keepdims=True)
+        return {cid: p[:, j] for j, cid in enumerate(ids)}, [self._name_of_row(int(r)) for r in cand]
 
     # --- entry points ----------------------------------------------------------
     def photo_classified(self, c: Capture, live: bool) -> list[Change]:
         """After `store_verdict`: a bird joins/creates a visit and the visit is resolved; a non-bird
         is resolved alone (final = model, no species)."""
         with self._lock:
+            c = self._store.get(c.id)       # the caller's copy may be stale by the time we hold the lock
+            if c is None:
+                return []
             if not self._is_member(c):
                 if c.visit_id is None:
                     return self.resolve_single(c.id)
@@ -101,9 +110,10 @@ class Visits:
             return self.resolve(vid)
 
     def _is_member(self, c: Capture) -> bool:
+        """A person's word, else the model's verdict; never the final is_bird column (written here)."""
         if c.manual_is_bird is not None:
             return bool(c.manual_is_bird)
-        return bool(c.model_is_bird) or bool(c.is_bird)
+        return bool(c.model_is_bird)
 
     def assign(self, c: Capture, live: bool) -> int:
         """Put a bird photo in a visit: a new one, the one within `gap`, or several merged into the lowest id."""
@@ -116,14 +126,18 @@ class Visits:
             else:
                 vid = found[0].id
                 if len(found) > 1:
-                    states = {v.alert for v in found}     # read before the merge deletes the others
-                    self._store.merge_visits(vid, [v.id for v in found[1:]])
-                    self._store.set_visit_alert(vid, "sent" if "sent" in states else "skipped" if "skipped" in states else "pending")
+                    # merged alert: sent if any was sent, else skipped if any was, else pending
+                    states = {v.alert for v in found}
+                    alert = "sent" if "sent" in states else "skipped" if "skipped" in states else "pending"
+                    self._store.merge_visits(vid, [v.id for v in found[1:]], alert=alert)
             self._store.attach_to_visit(c.id, vid, extend=True)
-            # inherit the visit's correction, if any
-            corrected = next((p for p in self._store.visit_photos(vid) if p.manual_at is not None and p.id != c.id), None)
-            if corrected is not None:
-                self._store.set_manual(c.id, is_bird=bool(corrected.manual_is_bird), species=corrected.manual_species, at=corrected.manual_at)
+            # one visit, one correction: the latest one (with its time) goes to every photo that lacks it
+            photos = self._store.visit_photos(vid)
+            corrected = max((p for p in photos if p.manual_at is not None), key=lambda p: (p.manual_at, p.id), default=None)
+            if corrected is not None and any((p.manual_is_bird, p.manual_species, p.manual_at) !=
+                                             (corrected.manual_is_bird, corrected.manual_species, corrected.manual_at) for p in photos):
+                self._store.set_manual_visit(vid, is_bird=bool(corrected.manual_is_bird), species=corrected.manual_species,
+                                             at=corrected.manual_at)
             return vid
 
     def resolve_single(self, capture_id: int) -> list[Change]:
@@ -151,6 +165,8 @@ class Visits:
             return changes
 
     def resolve(self, visit_id: int) -> list[Change]:
+        """Vote the visit's species and write every photo's final columns (see `final_label`); the
+        visit's result; re-rank publishing for every species change. An empty visit is deleted."""
         with self._lock:
             photos = self._store.visit_photos(visit_id)
             if not photos:
@@ -159,24 +175,33 @@ class Visits:
             cfg = self._live.get()
             cand = self._cand_rows()
             members = [p for p in photos if self._is_member(p)]
+            member_ids = {p.id for p in members}
             embs = self._store.embeddings([p.id for p in members])
             v = vote([embs[p.id] for p in members if p.id in embs], self._bank, cand, cfg.species.threshold) if self._bank is not None else None
-            if v is None and members and not embs:
+            if v is None and (self._bank is None or not embs):
                 v = self._majority(members)
             vote_species, vote_p = (v.species, v.p) if v is not None else (None, None)
+            own_p, names = self._score_all(embs, cand)
             changes: list[Change] = []
             for p in photos:
-                own_scored = self._own(embs.get(p.id), cand)
-                own = (self._name_of_row(own_scored[0][0]), own_scored[0][1]) if own_scored else (
-                    (p.model_species, p.model_species_confidence or 0.0) if p.model_species else None)
-                is_bird, species = final_label(manual_is_bird=p.manual_is_bird, manual_species=p.manual_species, own=own, vote_species=vote_species)
-                if not is_bird:
-                    conf = p.model_confidence or 0.0; sp_conf = None
-                elif p.manual_is_bird is True and species is not None:
-                    conf = p.model_confidence or 0.0; sp_conf = conf
+                probs = own_p.get(p.id)
+                if probs is not None:
+                    best = int(np.argmax(probs))
+                    own = (names[best], float(probs[best]))
                 else:
-                    conf = p.model_confidence or 0.0
-                    sp_conf = self._p_for(own_scored, species, p) if species else None
+                    own = (p.model_species, p.model_species_confidence or 0.0) if p.model_species else None
+                if p.id not in member_ids and p.manual_is_bird is None:
+                    is_bird, species = False, None          # the model says no bird, and no one said otherwise
+                else:
+                    is_bird, species = final_label(manual_is_bird=p.manual_is_bird, manual_species=p.manual_species,
+                                                   own=own, vote_species=vote_species)
+                conf = p.model_confidence or 0.0
+                if not is_bird or species is None:
+                    sp_conf = None
+                elif p.manual_is_bird is True:
+                    sp_conf = conf
+                else:
+                    sp_conf = self._p_for(probs, names, species, p)
                 if (p.is_bird, p.species) != (is_bird, species) or p.species_confidence != sp_conf or p.confidence != conf:
                     if p.species != species:
                         changes.append(Change(p.id, p.species, species, p.captured_at))
@@ -199,18 +224,21 @@ class Visits:
                                              if p.manual_is_bird and p.manual_species == corrected.manual_species)
 
     def _majority(self, members: list[Capture]) -> Vote | None:
-        """No embeddings yet (migration window): the most common model species, ties by confidence."""
+        """No embeddings (migration window) or no bank: the most common model species, ties by confidence."""
         named = [p for p in members if p.model_species]
         if not named:
             return None
         counts = Counter(p.model_species for p in named)
         best = max(counts, key=lambda s: (counts[s], max(p.model_species_confidence or 0 for p in named if p.model_species == s)))
-        return Vote(best, max(p.model_species_confidence or 0 for p in named if p.model_species == best), np.zeros(1))
+        return Vote(best, max(p.model_species_confidence or 0 for p in named if p.model_species == best))
 
-    def _p_for(self, scored: list[tuple[int, float]], species: str, p: Capture) -> float | None:
-        for row, prob in scored:
-            if self._name_of_row(row) == species:
-                return prob
+    @staticmethod
+    def _p_for(probs: np.ndarray | None, names: list[str], species: str, p: Capture) -> float | None:
+        """The photo's own p for `species` (its own scoring), else its model's if it named that species."""
+        if probs is not None:
+            hits = [probs[i] for i, n in enumerate(names) if n == species]
+            if hits:
+                return float(max(hits))
         return p.model_species_confidence if p.model_species == species else None
 
     def _publish(self, changes: list[Change]) -> None:
@@ -226,6 +254,8 @@ class Visits:
 
     # --- close / alert -------------------------------------------------------------
     def tick(self, now: datetime | None = None) -> None:
+        """Close visits quiet for `gap` (resolve, close, alert if pending) and alert pending visits
+        open for `ALERT_AFTER` with the vote so far. Called by the pipeline worker every few seconds."""
         now = now or datetime.now(timezone.utc)
         with self._lock:
             gap = timedelta(seconds=self._live.get().visits.gap_seconds)
@@ -278,7 +308,13 @@ class Visits:
                 if c.visit_id is None:
                     self._store.clear_manual_single(c.id); self.resolve_single(c.id)
                 else:
-                    self._store.clear_manual(c.visit_id); self.resolve(c.visit_id)
+                    self._store.clear_manual(c.visit_id)
+                    for p in self._store.visit_photos(c.visit_id):
+                        if not self._is_member(p):      # back to a model non-bird: it leaves the visit
+                            self._store.detach_from_visit(p.id)
+                            self.resolve_single(p.id)
+                    self.resolve(c.visit_id)            # deleted when no photo is left
+                log.info("capture %d: correction cleared", capture_id)
                 return
             if label == "not_bird":
                 is_bird, species = False, None
@@ -299,14 +335,15 @@ class Visits:
                 vid = self.assign(self._store.get(c.id), live=False)
             else:
                 vid = c.visit_id
-            targets = [p.id for p in self._store.visit_photos(vid)] if vid is not None else [c.id]
-            for pid in targets:
-                self._store.set_manual(pid, is_bird=is_bird, species=species, at=now)
             if vid is not None:
+                self._store.set_manual_visit(vid, is_bird=is_bird, species=species, at=now)
+                n = len(self._store.visit_photos(vid))
                 self.resolve(vid)
             else:
+                self._store.set_manual(c.id, is_bird=is_bird, species=species, at=now)
+                n = 1
                 self.resolve_single(c.id)
-            log.info("capture %d: corrected to %s (%d photos)", capture_id, label, len(targets))
+            log.info("capture %d: corrected to %s (%d photos)", capture_id, label, n)
 
     # --- deletes ------------------------------------------------------------------------
     def photo_removed(self, visit_id: int | None) -> None:

@@ -686,6 +686,36 @@ def test_merge_into_unknown_visit_raises(store):
     assert store.get_visit(v) is not None and store.get(a).visit_id == v
 
 
+def test_merge_sets_alert_in_the_same_call(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=30))
+    v1 = store.create_visit(T0, T0, alert="pending"); v2 = store.create_visit(T0 + timedelta(seconds=30), T0 + timedelta(seconds=30), alert="sent")
+    store.attach_to_visit(a, v1); store.attach_to_visit(b, v2)
+    with pytest.raises(ValueError):
+        store.merge_visits(v1, [v2], alert="bogus")
+    assert store.get_visit(v2) is not None
+    store.merge_visits(v1, [v2], alert="sent")
+    assert store.get_visit(v2) is None and store.get_visit(v1).alert == "sent" and store.get(b).visit_id == v1
+
+
+def test_set_manual_visit_and_detach(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=5)); c = add(store, T0 + timedelta(minutes=5))
+    v = store.create_visit(T0, T0 + timedelta(seconds=5)); store.attach_to_visit(a, v); store.attach_to_visit(b, v)
+    at = T0 + timedelta(hours=1)
+    store.set_manual_visit(v, is_bird=True, species="Robin", at=at)
+    assert all(store.get(x).manual_species == "Robin" and store.get(x).manual_at == at for x in (a, b))
+    assert store.get(c).manual_at is None
+    store.detach_from_visit(b)
+    assert store.get(b).visit_id is None and [x.id for x in store.visit_photos(v)] == [a]
+
+
+def test_bird_members_ignore_the_final_column(store):
+    a = add(store, T0)
+    v = store.create_visit(T0, T0); store.attach_to_visit(a, v)
+    store.store_verdict(a, is_bird=False, confidence=0.1, species=None, species_confidence=None)
+    store.write_final(a, True, 0.9, "Robin", 0.9)        # a final bird the model calls a non-bird
+    assert store.bird_members(v) == []
+
+
 def test_open_visits_and_members(store):
     a = add(store, T0)
     v = store.create_visit(T0, T0, alert="pending"); store.attach_to_visit(a, v)

@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import dataclasses
+
 import cv2
 import numpy as np
 import pytest
@@ -51,7 +53,7 @@ def visits(store, live, tmp_path):
     return Visits(store, live, bank=bank(tmp_path), species_list=FakeList(), notifier=FakeNotifier(), publisher=FakePublisher())
 
 
-def add(store, seconds, *, bird=True, species=None, p=None, emb=None, live_verdict=True):
+def add(store, seconds, *, bird=True, species=None, p=None, emb=None):
     when = T0 + timedelta(seconds=seconds)
     abs_path, rel = store.photo_path_for(when)
     cv2.imwrite(str(abs_path), np.zeros((60, 80, 3), np.uint8))
@@ -156,8 +158,9 @@ def test_species_confidence_is_own_p_or_model_confidence_when_corrected(store, v
 def test_tick_closes_and_alerts_once(store, visits):
     n = visits._notifier
     a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
-    b = add(store, 10, emb=e(0, 0.3)); visits.photo_classified(store.get(b), live=True)
+    b = add(store, 10, emb=e(0, 10.0)); visits.photo_classified(store.get(b), live=True)   # own p ~0.985 < a's ~1.0
     vid = store.get(a).visit_id
+    assert store.get(a).species_confidence > store.get(b).species_confidence
     visits.tick(T0 + timedelta(seconds=30))
     assert store.get_visit(vid).closed is False and n.calls == []
     visits.tick(T0 + timedelta(seconds=71))
@@ -225,8 +228,15 @@ def test_correct_non_bird_to_species_creates_visit_without_alert(store, visits):
 def test_corrections_never_alert(store, visits):
     a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
     visits.correct(a, "species:European Robin")
+    assert visits._notifier.calls == []
     visits.tick(T0 + timedelta(seconds=61))
     assert visits._notifier.calls == [(a, "European Robin", True)]   # the close alert, with the corrected name, once
+    # a visit that already alerted: a correction and the close send nothing new
+    b = add(store, 3600, emb=e(0)); visits.photo_classified(store.get(b), live=True)
+    store.set_visit_alert(store.get(b).visit_id, "sent")
+    visits.correct(b, "species:Eurasian Hoopoe")
+    visits.tick(T0 + timedelta(seconds=3661))
+    assert len(visits._notifier.calls) == 1 and store.get_visit(store.get(b).visit_id).alert == "sent"
 
 
 # --- deletes -----------------------------------------------------------------
@@ -248,3 +258,97 @@ def test_vote_falls_back_to_model_species_majority(store, visits):
     b = add(store, 10, species="Robin", p=0.6); visits.photo_classified(store.get(b), live=False)
     c = add(store, 20, species="Hoopoe", p=0.75); visits.photo_classified(store.get(c), live=False)   # most confident, below KEEP_OWN
     assert store.get(c).species == "Robin" and store.get_visit(store.get(a).visit_id).species == "Robin"
+
+
+# --- review fixes ----------------------------------------------------------------
+
+def test_membership_ignores_the_final_column(store, visits):
+    a = add(store, 0, bird=False); visits.photo_classified(store.get(a), live=True)
+    store.write_final(a, True, 0.9, "European Robin", 0.9)      # a stale final bird the model now rejects
+    visits.photo_classified(store.get(a), live=True)
+    c = store.get(a)
+    assert c.visit_id is None and c.is_bird is False and c.species is None
+
+
+def test_clear_model_non_bird_leaves_the_visit(store, visits):
+    a = add(store, 0, bird=False); visits.photo_classified(store.get(a), live=True)
+    visits.correct(a, "species:European Robin")
+    vid = store.get(a).visit_id
+    assert vid is not None
+    visits.correct(a, "clear")
+    c = store.get(a)
+    assert (c.is_bird, c.species, c.visit_id) == (False, None, None) and store.get_visit(vid) is None
+    assert store.count_visits_with_species("European Robin") == 0
+
+
+def test_clear_model_bird_back_to_its_vote(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
+    vid = store.get(a).visit_id
+    visits.correct(a, "not_bird")
+    assert store.get(a).is_bird is False
+    visits.correct(a, "clear")
+    c = store.get(a)
+    assert (c.is_bird, c.species, c.visit_id) == (True, "Black Redstart", vid) and store.get_visit(vid).species == "Black Redstart"
+
+
+def test_keep_own_without_a_vote(store, visits, live, config):
+    live.replace(dataclasses.replace(config, species=dataclasses.replace(config.species, threshold=0.99)))
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
+    b = add(store, 10, emb=e(1)); visits.photo_classified(store.get(b), live=True)
+    vid = store.get(a).visit_id
+    assert store.get(b).visit_id == vid
+    assert store.get(a).species == "Black Redstart" and store.get(b).species == "European Robin"
+    assert store.get_visit(vid).species is None
+
+
+def test_no_bank_falls_back_to_model_species_majority(store, live):
+    v = Visits(store, live, bank=None, species_list=None, notifier=FakeNotifier(), publisher=FakePublisher())
+    a = add(store, 0, species="Robin", p=0.7, emb=e(0)); v.photo_classified(store.get(a), live=False)
+    b = add(store, 10, species="Robin", p=0.6, emb=e(1)); v.photo_classified(store.get(b), live=False)
+    c = add(store, 20, species="Hoopoe", p=0.75, emb=e(2)); v.photo_classified(store.get(c), live=False)
+    assert [store.get(x).species for x in (a, b, c)] == ["Robin", "Robin", "Robin"]
+    assert store.get_visit(store.get(a).visit_id).species == "Robin"
+
+
+def test_merge_propagates_correction(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
+    visits.correct(a, "species:Eurasian Hoopoe")
+    c = add(store, 100, emb=e(0)); visits.photo_classified(store.get(c), live=True)
+    assert store.get(c).visit_id != store.get(a).visit_id and store.get(c).manual_at is None
+    b = add(store, 50, emb=e(0)); visits.photo_classified(store.get(b), live=True)
+    at = store.get(a).manual_at
+    for x in (a, b, c):
+        p = store.get(x)
+        assert (p.visit_id, p.species, p.manual_species, p.manual_at) == (store.get(a).visit_id, "Eurasian Hoopoe", "Eurasian Hoopoe", at)
+    assert store.get_visit(store.get(a).visit_id).species == "Eurasian Hoopoe"
+
+
+def test_not_bird_photo_keeps_visit_id(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
+    b = add(store, 10, emb=e(0)); visits.photo_classified(store.get(b), live=True)
+    vid = store.get(a).visit_id
+    visits.correct(a, "not_bird")
+    assert store.get(a).visit_id == vid and store.get(b).visit_id == vid and store.get_visit(vid) is not None
+    assert store.get(a).is_bird is False and store.get_visit(vid).species is None
+
+
+def test_merge_skipped_beats_pending(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
+    c = add(store, 100, emb=e(0)); visits.photo_classified(store.get(c), live=False)
+    assert store.get_visit(store.get(a).visit_id).alert == "pending" and store.get_visit(store.get(c).visit_id).alert == "skipped"
+    b = add(store, 50, emb=e(0)); visits.photo_classified(store.get(b), live=True)
+    vid = store.get(a).visit_id
+    assert store.get(c).visit_id == vid and store.get_visit(vid).alert == "skipped"
+
+
+def test_inherited_correction_keeps_original_time(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=True)
+    visits.correct(a, "bird_unknown")
+    at = store.get(a).manual_at
+    b = add(store, 20, emb=e(0)); visits.photo_classified(store.get(b), live=True)
+    assert store.get(b).manual_at == at and store.get(b).manual_is_bird is True and store.get(b).species is None
+
+
+def test_correct_unknown_id_raises_keyerror(visits):
+    with pytest.raises(KeyError):
+        visits.correct(999, "not_bird")

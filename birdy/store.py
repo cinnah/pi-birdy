@@ -69,9 +69,9 @@ _BACKLOG_WHERE = "status = 'done' AND (species_checked = 0 OR detector_checked =
 _BACKLOG_COUNT = f"SELECT COUNT(*) FROM captures WHERE {_BACKLOG_WHERE}"
 _BACKLOG_SELECT = f"SELECT * FROM captures WHERE {_BACKLOG_WHERE} ORDER BY captured_at DESC, id DESC LIMIT ?"
 
-# A photo counts as a bird in its visit: a person's word first, else the model's verdict (or the
-# final column, for rows classified before the verdict/final split).
-_BIRD_MEMBER = "(manual_is_bird = 1 OR (manual_is_bird IS NULL AND (model_is_bird = 1 OR is_bird = 1)))"
+# A photo counts as a bird in its visit: a person's word first, else the model's verdict. Never the
+# final is_bird column: Visits writes it from this.
+_BIRD_MEMBER = "(manual_is_bird = 1 OR (manual_is_bird IS NULL AND model_is_bird = 1))"
 VISIT_ALERT_STATES = ("pending", "sent", "skipped")
 
 
@@ -407,6 +407,14 @@ class Store:
                 (int(is_bird), species, when, capture_id),
             )
 
+    def set_manual_visit(self, visit_id: int, *, is_bird: bool, species: str | None, at: datetime) -> None:
+        """The same correction on every photo of the visit (one UPDATE)."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE captures SET manual_is_bird = ?, manual_species = ?, manual_at = ? WHERE visit_id = ?",
+                (int(is_bird), species, _to_db_time(at), visit_id),
+            )
+
     def clear_manual(self, visit_id: int) -> None:
         """Drop the correction on every photo of the visit."""
         with self._lock, self._conn:
@@ -583,6 +591,11 @@ class Store:
                         (t, t, visit_id),
                     )
 
+    def detach_from_visit(self, capture_id: int) -> None:
+        """Take a photo out of its visit (visit_id = NULL); the visit's span is left as is."""
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE captures SET visit_id = NULL WHERE id = ?", (capture_id,))
+
     def visit_photos(self, visit_id: int) -> list[Capture]:
         with self._lock:
             rows = self._conn.execute(
@@ -607,25 +620,29 @@ class Store:
             ).fetchall()
         return [_row_to_visit(r) for r in rows]
 
-    def merge_visits(self, into: int, others: list[int]) -> None:
-        """Move the photos of `others` into `into`, widen its span over theirs, delete them."""
+    def merge_visits(self, into: int, others: list[int], alert: str | None = None) -> None:
+        """Move the photos of `others` into `into`, widen its span over theirs, delete them; `alert`,
+        when given, becomes the merged visit's alert state in the same transaction."""
+        if alert is not None and alert not in VISIT_ALERT_STATES:
+            raise ValueError(f"bad visit alert state {alert!r}")
         others = [o for o in others if o != into]
         marks = ",".join("?" * len(others))
         with self._lock, self._conn:
             if self._conn.execute("SELECT 1 FROM visits WHERE id = ?", (into,)).fetchone() is None:
                 raise KeyError(into)
-            if not others:
-                return
-            span = self._conn.execute(
-                f"SELECT MIN(started_at) AS s, MAX(ended_at) AS e FROM visits WHERE id = ? OR id IN ({marks})",
-                (into, *others),
-            ).fetchone()
-            self._conn.execute(f"UPDATE captures SET visit_id = ? WHERE visit_id IN ({marks})", (into, *others))
-            if span["s"] is not None:
-                self._conn.execute(
-                    "UPDATE visits SET started_at = ?, ended_at = ? WHERE id = ?", (span["s"], span["e"], into)
-                )
-            self._conn.execute(f"DELETE FROM visits WHERE id IN ({marks})", others)
+            if others:
+                span = self._conn.execute(
+                    f"SELECT MIN(started_at) AS s, MAX(ended_at) AS e FROM visits WHERE id = ? OR id IN ({marks})",
+                    (into, *others),
+                ).fetchone()
+                self._conn.execute(f"UPDATE captures SET visit_id = ? WHERE visit_id IN ({marks})", (into, *others))
+                if span["s"] is not None:
+                    self._conn.execute(
+                        "UPDATE visits SET started_at = ?, ended_at = ? WHERE id = ?", (span["s"], span["e"], into)
+                    )
+                self._conn.execute(f"DELETE FROM visits WHERE id IN ({marks})", others)
+            if alert is not None:
+                self._conn.execute("UPDATE visits SET alert = ? WHERE id = ?", (alert, into))
 
     def set_visit_result(self, visit_id: int, species: str | None, species_confidence: float | None) -> None:
         with self._lock, self._conn:
