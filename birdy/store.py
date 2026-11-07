@@ -182,6 +182,8 @@ def _row_to_visit(row: sqlite3.Row) -> Visit:
     )
 
 
+# Mirrors Visits._majority (over final columns here); not shared because the migration runs on raw
+# rows with SQL inside the store lock, where Visits' locked Store calls would deadlock.
 def _majority_species(rows: list[sqlite3.Row]) -> tuple[str | None, float | None]:
     """The most common species among the rows (ties: the higher best confidence) and its best
     confidence; (None, None) when no row has one."""
@@ -305,10 +307,10 @@ class Store:
         """One-time move to visits (guarded by `meta.visits_version = '1'`); returns the number of
         visits built, 0 when already done.
 
-        Backs the DB up to `birdy.db.bak-visits` first, then in one `BEGIN IMMEDIATE` transaction
-        (re-checking the guard inside, since the service, `birdy purge` and `birdy publish` all open
-        the Store): copies the final verdict into `model_*` on uncorrected rows (corrected rows
-        already hold the model's verdict there); groups the birds into visits over all history in
+        Called by `cmd_run` only. Backs the DB up to `birdy.db.bak-visits` first, then works in one
+        `BEGIN IMMEDIATE` transaction (the guard is re-checked inside it in case two instances race):
+        copies the final verdict into `model_*` on uncorrected rows (before the migration those are
+        the model's latest verdict; corrected rows already hold the model's verdict there); groups the birds into visits over all history in
         `captured_at` order (a gap > `gap_seconds` starts a new one), all closed with
         `alert = 'skipped'` so history never alerts; and queues every uncorrected bird without an
         embedding for the species backfill (`species_checked = 0`). Rows already in a visit are
@@ -332,7 +334,7 @@ class Store:
                 self._conn.execute(
                     "UPDATE captures SET model_is_bird = is_bird, model_confidence = confidence,"
                     " model_species = species, model_species_confidence = species_confidence"
-                    " WHERE status = 'done' AND manual_at IS NULL AND model_is_bird IS NULL"
+                    " WHERE status = 'done' AND manual_at IS NULL"
                 )
                 birds = self._conn.execute(
                     "SELECT id, captured_at, species, species_confidence FROM captures"
@@ -771,7 +773,12 @@ class Store:
 
     def count_visits_with_species(self, species: str) -> int:
         with self._lock:
-            return int(self._conn.execute("SELECT COUNT(*) FROM visits WHERE species = ?", (species,)).fetchone()[0])
+            # Only visits that still have a bird: one emptied by deletes (and never revisited) doesn't count.
+            return int(self._conn.execute(
+                "SELECT COUNT(*) FROM visits v WHERE v.species = ? AND EXISTS"
+                f" (SELECT 1 FROM captures WHERE captures.visit_id = v.id AND {_BIRD_MEMBER})",
+                (species,),
+            ).fetchone()[0])
 
     def delete_visit(self, visit_id: int) -> None:
         """Delete the visit row; its photos stay, with no visit."""

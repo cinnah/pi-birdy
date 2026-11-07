@@ -145,7 +145,11 @@ def cmd_run(config: Config, config_path: Path) -> int:
                 log.exception("applying the species candidates failed; retried on the next bird")
     built = store.migrate_visits(config.visits.gap_seconds)
     if built:
-        log.info("visits: built %d visits over history; embeddings will be filled by the backfill", built)
+        queued = store.count_classification_backlog()
+        # The backfill takes 50 rows per 5-min sweep at ~3.5 s each: whichever bound is longer.
+        eta_min = max(queued * 3.5 / 60, -(-queued // 50) * 5)
+        log.info("visits: built %d visits over history; %d photos queued for embeddings (~%d min)",
+                 built, queued, round(eta_min))
     notifier = None
     if config.telegram.enabled:
         notifier = TelegramNotifier(live, HttpTelegramTransport(config.telegram.bot_token))
@@ -303,8 +307,8 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
 
 def cmd_purge(config: Config) -> int:
     """Run the retention job once, without `Visits` (no classifier is built here). Acceptable: only
-    non-birds are purged, which never vote in their visit; a visit they leave empty stays until the
-    service next resolves it (the next photo, delete or correction there)."""
+    non-birds are purged, which never vote in their visit; a visit they leave without a bird is never
+    revisited, but it no longer counts for the first-visit check (`count_visits_with_species`)."""
     from birdy.retention import run_once
 
     store = Store(config.storage.data_dir)
