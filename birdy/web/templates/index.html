@@ -64,7 +64,7 @@
   }
   .tile img, .tile .nothumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
   .tile .nothumb { display: grid; place-items: center; color: #7d8580; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.1em; }
-  .tile .stamp + .stamp { padding-top: 0; }
+  .tile .stamp + .stamp, .tile a.photo + .stamp { padding-top: 0; }
   .tile .sp { color: var(--osd); overflow: hidden; text-overflow: ellipsis; }
   .tile.junk img { filter: grayscale(0.6) brightness(0.8); }
   .tile .sp.model { color: #a3aaa5; }
@@ -152,7 +152,7 @@
       <option value="{{ species }}" selected>{{ species }} (0)</option>
       {% endif %}
     </select>
-    <span class="count"><b>{{ total }}</b> photos</span>
+    <span class="count"><b>{{ total }}</b> photos{% if visit is not none %} in visit {{ visit }} · <a href="/">all birds</a>{% endif %}</span>
   </nav>
 
   {% if captures %}
@@ -175,17 +175,27 @@
       {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="{{ c.species or ('bird' if c.is_bird else 'capture') }} at {{ t }}" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
       <div class="stamp">
         <span>{{ t[5:] }}</span>
-        {% if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
-        {% elif c.manual_is_bird == false %}<span class="tag no">you: no bird</span>
-        {% elif c.is_bird %}<span class="tag bird">bird {{ (c.confidence * 100) | round(0) | int }}%</span>
-        {% else %}<span class="tag no">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}
+        <span>{% if c.manual_at %}<span class="tag you">you</span> {% endif %}
+        {%- if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
+        {%- elif c.manual_is_bird == false %}<span class="tag no">no bird</span>
+        {%- elif c.manual_is_bird %}<span class="tag bird">bird</span>
+        {%- elif c.is_bird %}<span class="tag bird">bird {{ (c.confidence * 100) | round(0) | int }}%</span>
+        {%- else %}<span class="tag no">no {{ (c.confidence * 100) | round(0) | int }}%</span>{% endif %}</span>
       </div>
       <div class="stamp">
         <span class="mot">mot {{ c.motion_score }}</span>
-        {% if c.species %}<span class="sp">{{ c.species }}</span>
-        {% elif c.manual_at and c.model_species %}<span class="sp model">model: {{ c.model_species }}</span>{% endif %}
+        {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
       </div>
     </a>
+    {% set vn = sizes.get(c.visit_id, 1) if c.visit_id is not none else 1 %}
+    {% set model_line = c.manual_at and c.model_species %}
+    {% if model_line or vn > 1 %}
+    {# outside the photo link: a link can't hold the visit link #}
+    <div class="stamp extra">
+      <span class="sp model">{% if model_line %}model: {{ c.model_species }}{% if c.model_species_confidence is not none %} {{ (c.model_species_confidence * 100) | round(0) | int }}%{% endif %}{% endif %}</span>
+      {% if vn > 1 %}<a class="visit" href="/?visit={{ c.visit_id }}">visit · {{ vn }}</a>{% endif %}
+    </div>
+    {% endif %}
     {% set here = request.url.path + ('?' + request.url.query if request.url.query else '') %}
     <div class="acts">
     {% if publishing %}
@@ -200,12 +210,18 @@
     </form>
     {% endif %}
     <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
-    {% if c.manual_at or (c.is_bird and c.status == 'done') %}
-    <form method="post" action="/captures/{{ c.id }}/label">
-      <input type="hidden" name="next" value="{{ here }}">
-      {% if c.manual_at %}<button class="pb" name="label" value="clear">Back to model</button>
-      {% else %}<button class="pb" name="label" value="not_bird">Not a bird</button>{% endif %}
-    </form>
+    {% if c.status == 'done' and (c.is_bird or c.manual_at) %}
+    <details class="fix"><summary class="pb">Fix</summary>
+      {# the species field comes first: Enter in it submits the form's first button #}
+      <form method="post" action="/captures/{{ c.id }}/label" class="fixf">
+        <input type="hidden" name="next" value="{{ here }}">
+        <input name="species_name" list="species-names" placeholder="species…" aria-label="Species name" autocomplete="off">
+        <button class="pb" name="label" value="species" formaction="/captures/{{ c.id }}/label">Set</button>
+        <button class="pb" name="label" value="not_bird">Not a bird</button>
+        <button class="pb" name="label" value="bird_unknown">Bird, species unknown</button>
+        {% if c.manual_at %}<button class="pb" name="label" value="clear">Back to model</button>{% endif %}
+      </form>
+    </details>
     {% endif %}
     <form method="post" action="/captures/{{ c.id }}/delete" data-confirm="Sure?">
       <input type="hidden" name="next" value="{{ here }}">
@@ -215,6 +231,7 @@
     </div>
     {% endfor %}
   </div>
+  <datalist id="species-names">{% for n in species_names %}<option value="{{ n }}">{% endfor %}</datalist>
   {% else %}
   <div class="empty">
     {% if species %}
@@ -246,9 +263,9 @@
   </dialog>
 
   <div class="pager">
-    {% if page > 1 %}<a class="btn" href="/?filter={{ filter }}&page={{ page - 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">newer</a>{% endif %}
+    {% if page > 1 %}<a class="btn" href="/?filter={{ filter }}&page={{ page - 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}{% if visit is not none %}&visit={{ visit }}{% endif %}">newer</a>{% endif %}
     <span class="at">page {{ page }} / {{ pages }}</span>
-    {% if page < pages %}<a class="btn" href="/?filter={{ filter }}&page={{ page + 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}">older</a>{% endif %}
+    {% if page < pages %}<a class="btn" href="/?filter={{ filter }}&page={{ page + 1 }}{% if species %}&species={{ species | urlencode }}{% endif %}{% if visit is not none %}&visit={{ visit }}{% endif %}">older</a>{% endif %}
   </div>
 </main>
 {% endblock %}

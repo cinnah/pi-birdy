@@ -241,6 +241,18 @@ def test_list_and_count_by_species(store):
     assert store.count("non-birds", species="Blue Tit") == 0
 
 
+def test_list_and_count_by_visit(store):
+    a = add_species(store, T0, "Robin", 0.9)
+    b = add_species(store, T0 + timedelta(seconds=30), "Robin", 0.8)
+    add_species(store, T0 + timedelta(minutes=5), "Robin", 0.9)
+    vid = store.create_visit(T0, T0)
+    store.attach_to_visit(a, vid, extend=True)
+    store.attach_to_visit(b, vid, extend=True)
+    assert [x.id for x in store.list_captures("all", visit=vid)] == [b, a]
+    assert store.count("all", visit=vid) == 2
+    assert store.count("all", visit=vid + 1) == 0
+
+
 def test_last_species(store):
     assert store.last_species() is None
     add_species(store, T0, "Robin", 0.9)

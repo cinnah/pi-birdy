@@ -475,17 +475,21 @@ class Store:
             row = self._conn.execute("SELECT * FROM captures WHERE id = ?", (capture_id,)).fetchone()
         return None if row is None else _row_to_capture(row)
 
-    def _where(self, filter: str, species: str | None) -> tuple[str, list]:
+    def _where(self, filter: str, species: str | None, visit: int | None = None) -> tuple[str, list]:
         where, params = FILTERS[filter], []
         if species is not None:
             where += " AND species = ? AND is_bird = 1"
             params.append(species)
+        if visit is not None:
+            where += " AND visit_id = ?"
+            params.append(visit)
         return where, params
 
     def list_captures(
-        self, filter: str = "all", limit: int = 50, offset: int = 0, species: str | None = None
+        self, filter: str = "all", limit: int = 50, offset: int = 0, species: str | None = None,
+        visit: int | None = None,
     ) -> list[Capture]:
-        where, params = self._where(filter, species)
+        where, params = self._where(filter, species, visit)
         with self._lock:
             rows = self._conn.execute(
                 f"SELECT * FROM captures WHERE {where} ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?",
@@ -493,8 +497,8 @@ class Store:
             ).fetchall()
         return [_row_to_capture(r) for r in rows]
 
-    def count(self, filter: str = "all", species: str | None = None) -> int:
-        where, params = self._where(filter, species)
+    def count(self, filter: str = "all", species: str | None = None, visit: int | None = None) -> int:
+        where, params = self._where(filter, species, visit)
         with self._lock:
             return int(self._conn.execute(f"SELECT COUNT(*) FROM captures WHERE {where}", params).fetchone()[0])
 
