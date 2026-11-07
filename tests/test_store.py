@@ -744,3 +744,16 @@ def test_pending_alert_visits_sizes_and_clear_manual_single(store):
     store.clear_manual_single(a)
     assert store.get(a).manual_at is None and store.get(b).manual_at is not None
     assert store.get_visit(999) is None
+
+
+def test_unresolved_done_lists_classified_rows_without_final_columns(store):
+    pending = add(store, T0)
+    labelled = add(store, T0 + timedelta(minutes=1))
+    store.update_classification(labelled, True, 0.9, "Robin", 0.8)
+    a = add(store, T0 + timedelta(minutes=2))
+    b = add(store, T0 + timedelta(minutes=3))
+    for cid in (b, a):
+        store.store_verdict(cid, is_bird=True, confidence=0.7, species=None, species_confidence=None)
+    assert [c.id for c in store.unresolved_done()] == [a, b]
+    assert [c.id for c in store.unresolved_done(limit=1)] == [a]
+    assert pending not in [c.id for c in store.unresolved_done()]

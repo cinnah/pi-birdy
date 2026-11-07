@@ -523,6 +523,14 @@ class Store:
             rows = self._conn.execute(_BACKLOG_SELECT, (limit,)).fetchall()
         return [_row_to_capture(r) for r in rows]
 
+    def unresolved_done(self, limit: int = 50) -> list[Capture]:
+        """Classified rows Visits never labelled (a crash between `store_verdict` and resolve), oldest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM captures WHERE status = 'done' AND is_bird IS NULL ORDER BY id LIMIT ?", (limit,)
+            ).fetchall()
+        return [_row_to_capture(r) for r in rows]
+
     def mark_checked(self, capture_id: int) -> None:
         with self._lock, self._conn:
             self._conn.execute("UPDATE captures SET species_checked = 1, detector_checked = 1 WHERE id = ?", (capture_id,))

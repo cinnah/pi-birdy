@@ -15,6 +15,7 @@ from birdy.classifier import Classifier
 from birdy.live import LiveConfig
 from birdy.motion import NormBox, crop_box
 from birdy.store import Capture, Store
+from birdy.visits import Visits
 
 if TYPE_CHECKING:
     from birdy.notify import TelegramNotifier
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 BACKLOG_PER_SWEEP = 50
+TICK_INTERVAL = 5.0     # seconds between visit close/alert checks
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ class Pipeline:
         live: LiveConfig,
         notifier: "TelegramNotifier | None" = None,
         publisher: "Publisher | None" = None,
+        visits: Visits | None = None,
         lores_size: tuple[int, int] = (320, 240),
         maxsize: int = 50,
         sweep_interval: float = 300.0,
@@ -48,8 +51,12 @@ class Pipeline:
         self._store = store
         self._classifier = classifier
         self._live = live
-        self._notifier = notifier
+        self._notifier = notifier      # kept for inspection; Visits alerts and publishes
         self._publisher = publisher
+        # No Visits given: model-species majority voting (no bank, no embeddings needed).
+        self.visits = visits if visits is not None else Visits(
+            store, live, bank=None, species_list=None, notifier=notifier, publisher=publisher
+        )
         # The process's pinned lores size (camera keys are restart-only): motion boxes and the
         # ROI are in this frame.
         self._lores_size = lores_size
@@ -92,9 +99,10 @@ class Pipeline:
                 log.exception("mark_error failed for capture %d; left pending", capture_id)
             return
         try:
-            self._store.update_classification(
-                capture_id, pred.is_bird, pred.confidence, pred.species, pred.species_confidence,
-                det_confidence=pred.detector_confidence, det_box=pred.detector_box,
+            self._store.store_verdict(
+                capture_id, is_bird=pred.is_bird, confidence=pred.confidence,
+                species=pred.species, species_confidence=pred.species_confidence,
+                det_confidence=pred.detector_confidence, det_box=pred.detector_box, embedding=pred.embedding,
             )
         except Exception:
             log.exception("storing classification failed for capture %d", capture_id)
@@ -103,19 +111,18 @@ class Pipeline:
             except Exception:
                 log.exception("mark_error failed for capture %d; left pending", capture_id)
             return
-        log.info("capture %d: bird=%s p=%.2f", capture_id, pred.is_bird, pred.confidence)
-        if self._notifier is not None:
-            try:
-                reason = self._notifier.consider(capture_id, path, pred, captured_at)
-                if reason:
-                    log.info("alert queued for capture %d (%s)", capture_id, reason)
-            except Exception:
-                log.exception("alert decision failed for capture %d", capture_id)
-        if self._publisher is not None and pred.is_bird and pred.species:
-            try:
-                self._publisher.evaluate(self._store.get(capture_id))
-            except Exception:
-                log.exception("publish decision failed for capture %d", capture_id)
+        # Visits writes the final columns (the visit's label), re-ranks publishing, and alerts
+        # when the visit closes (see `tick`). A failure leaves the row for the unlabelled sweep.
+        final = None
+        try:
+            self.visits.photo_classified(self._store.get(capture_id), live=True)
+            final = self._store.get(capture_id)
+        except Exception:
+            log.exception("visit update failed for capture %d", capture_id)
+        if final is not None and final.species:
+            log.info("capture %d: bird=%s p=%.2f species=%s", capture_id, pred.is_bird, pred.confidence, final.species)
+        else:
+            log.info("capture %d: bird=%s p=%.2f", capture_id, pred.is_bird, pred.confidence)
 
     def sweep(self) -> None:
         for c in self._store.pending():
@@ -143,6 +150,19 @@ class Pipeline:
                 "backfill: %d rows, %d with species, %d promoted, %d renamed, %d remaining",
                 processed, with_species, promoted, renamed, remaining,
             )
+        # Rows with a verdict but no final label (Visits failed or the process died in between):
+        # resolve them now. No model runs; bounded and yields to live events like the backfill.
+        resolved = 0
+        for c in self._store.unresolved_done(limit=BACKLOG_PER_SWEEP):
+            if self._stop.is_set() or self._queue.qsize():
+                break
+            try:
+                self.visits.photo_classified(c, live=False)
+                resolved += 1
+            except Exception:
+                log.exception("resolving unlabelled capture %d failed", c.id)
+        if resolved:
+            log.info("resolved %d unlabelled rows", resolved)
 
     def _backfill(self, c: Capture) -> tuple[bool, bool, bool]:
         """Re-classify an already-classified row; returns (got_species, promoted, renamed)."""
@@ -154,23 +174,26 @@ class Pipeline:
             pred = self._classifier.classify(
                 path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad, known_bird=bool(c.is_bird)
             )
-            # Bird/non-bird: never demote; promote when the new verdict says bird (gate
-            # or detector). Confidence comes from the new verdict when it says bird, else
-            # the old one is kept. det_* always records the latest detector run.
-            promoted = (not c.is_bird) and pred.is_bird
+            # Bird/non-bird: never demote; promote when the new verdict says bird (gate or
+            # detector). Visits decides membership from model_is_bird, so the merged verdict is
+            # what gets stored. Confidence comes from the new verdict when it says bird, else the
+            # old one is kept. det_* always records the latest detector run.
             is_bird = bool(c.is_bird) or pred.is_bird
-            confidence = pred.confidence if pred.is_bird else c.confidence
-            species, species_confidence = c.species, c.species_confidence
+            confidence = pred.confidence if pred.is_bird else (c.model_confidence or c.confidence or 0.0)
+            if c.model_is_bird is None:     # a row from before the verdict/final split: final = model
+                species, species_confidence = c.species, c.species_confidence
+            else:
+                species, species_confidence = c.model_species, c.model_species_confidence
             # Species: a row the species model hasn't seen with the current model (species_checked = 0)
             # takes the new verdict, even "no species" (its old name came from another model); a seen
             # row keeps its label (the crop may have changed with the ROI; rewriting would move publish
             # slots for nothing). A promoted non-bird gets one like a new row.
-            write_species = (not c.species_checked) or promoted
+            write_species = (not c.species_checked) or ((not c.is_bird) and pred.is_bird)
             if write_species:
                 species, species_confidence = pred.species, pred.species_confidence
-            self._store.update_classification(
-                c.id, is_bird, confidence, species, species_confidence,
-                det_confidence=pred.detector_confidence, det_box=pred.detector_box,
+            self._store.store_verdict(
+                c.id, is_bird=is_bird, confidence=confidence, species=species, species_confidence=species_confidence,
+                det_confidence=pred.detector_confidence, det_box=pred.detector_box, embedding=pred.embedding,
             )
         except Exception:
             # Unlike live processing, a failure here must not flip a `done` row to `error`.
@@ -180,33 +203,22 @@ class Pipeline:
             except Exception:
                 log.exception("mark_checked failed for capture %d", c.id)
             return False, False, False
-        # Historical photos may be published too (unlike alerts, which are for live events only).
-        # `c` is the snapshot from before the write: forgetting it re-ranks the old species/day,
-        # where this row (now carrying the new species) is no longer a candidate.
-        renamed = write_species and bool(c.species) and c.species != species
-        # A renamed row's `auto` slot belonged to its old species: clear it so it never stays
-        # published under the wrong name (or none). `forced`/`hidden` are manual and survive a
-        # rename; `evaluate` re-ranks a forced row under its new species.
-        if renamed and c.published == "auto":
-            try:
-                self._store.set_published(c.id, None)
-            except Exception:
-                log.exception("clearing publish state failed for capture %d", c.id)
-        if self._publisher is not None and renamed:
-            try:
-                self._publisher.forget(c)          # the old species/day loses this row's slot
-            except Exception:
-                log.exception("publish forget failed for capture %d", c.id)
-        got_species = write_species and bool(pred.species)
-        if self._publisher is not None and got_species:
-            try:
-                self._publisher.evaluate(self._store.get(c.id))
-            except Exception:
-                log.exception("publish decision failed for capture %d", c.id)
+        # Visits writes the final columns and re-ranks publishing for every species change (old and
+        # new day; a renamed `auto` row loses its slot). Historical visits never alert.
+        try:
+            changes = self.visits.photo_classified(self._store.get(c.id), live=False)
+        except Exception:
+            log.exception("visit update failed for capture %d", c.id)   # the unlabelled sweep retries
+            changes = []
+        after = self._store.get(c.id)
+        got_species = after is not None and bool(after.species)
+        promoted = (not c.is_bird) and after is not None and bool(after.is_bird)
+        renamed = any(ch.old_species != ch.new_species for ch in changes)
         return got_species, promoted, renamed
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick
+        next_tick = time.monotonic()
         while not self._stop.is_set():
             try:
                 ev = self._queue.get(timeout=0.5)
@@ -227,3 +239,9 @@ class Pipeline:
                 except Exception:
                     log.exception("sweep failed")
                 next_sweep = time.monotonic() + self._sweep_interval
+            if time.monotonic() >= next_tick:
+                try:
+                    self.visits.tick()   # close quiet visits, alert
+                except Exception:
+                    log.exception("visit tick failed")
+                next_tick = time.monotonic() + TICK_INTERVAL
