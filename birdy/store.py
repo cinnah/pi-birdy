@@ -182,6 +182,22 @@ def _row_to_visit(row: sqlite3.Row) -> Visit:
     )
 
 
+def _majority_species(rows: list[sqlite3.Row]) -> tuple[str | None, float | None]:
+    """The most common species among the rows (ties: the higher best confidence) and its best
+    confidence; (None, None) when no row has one."""
+    best: dict[str, list] = {}
+    for r in rows:
+        s = r["species"]
+        if s:
+            entry = best.setdefault(s, [0, 0.0])
+            entry[0] += 1
+            entry[1] = max(entry[1], r["species_confidence"] or 0.0)
+    if not best:
+        return None, None
+    species = max(best, key=lambda s: (best[s][0], best[s][1]))
+    return species, best[species][1]
+
+
 def _from_blob(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, np.float16).astype(np.float32)
 
@@ -195,6 +211,7 @@ class Store:
         self.thumbs_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "birdy.db"
         self._lock = threading.Lock()
+        self.migrated_visits = False   # set by migrate_visits when this open built the visits
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -283,6 +300,73 @@ class Store:
                 (model_id,),
             )
         return int(n)
+
+    def migrate_visits(self, gap_seconds: float) -> int:
+        """One-time move to visits (guarded by `meta.visits_version = '1'`); returns the number of
+        visits built, 0 when already done.
+
+        Backs the DB up to `birdy.db.bak-visits` first, then in one `BEGIN IMMEDIATE` transaction
+        (re-checking the guard inside, since the service, `birdy purge` and `birdy publish` all open
+        the Store): copies the final verdict into `model_*` on uncorrected rows (corrected rows
+        already hold the model's verdict there); groups the birds into visits over all history in
+        `captured_at` order (a gap > `gap_seconds` starts a new one), all closed with
+        `alert = 'skipped'` so history never alerts; and queues every uncorrected bird without an
+        embedding for the species backfill (`species_checked = 0`). Rows already in a visit are
+        left where they are.
+        """
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM meta WHERE key = 'visits_version'").fetchone()
+            if row is not None and row["value"] == "1":
+                return 0
+            dst = sqlite3.connect(self.data_dir / "birdy.db.bak-visits")
+            try:
+                with dst:
+                    self._conn.backup(dst)
+            finally:
+                dst.close()
+            with self._conn:
+                self._conn.execute("BEGIN IMMEDIATE")
+                row = self._conn.execute("SELECT value FROM meta WHERE key = 'visits_version'").fetchone()
+                if row is not None and row["value"] == "1":
+                    return 0
+                self._conn.execute(
+                    "UPDATE captures SET model_is_bird = is_bird, model_confidence = confidence,"
+                    " model_species = species, model_species_confidence = species_confidence"
+                    " WHERE status = 'done' AND manual_at IS NULL AND model_is_bird IS NULL"
+                )
+                birds = self._conn.execute(
+                    "SELECT id, captured_at, species, species_confidence FROM captures"
+                    f" WHERE status = 'done' AND visit_id IS NULL AND {_BIRD_MEMBER}"
+                    " ORDER BY captured_at, id"
+                ).fetchall()
+                groups: list[list[sqlite3.Row]] = []
+                prev: datetime | None = None
+                for r in birds:
+                    t = _from_db_time(r["captured_at"])
+                    if prev is None or (t - prev).total_seconds() > gap_seconds:
+                        groups.append([])
+                    groups[-1].append(r)
+                    prev = t
+                for group in groups:
+                    species, conf = _majority_species(group)
+                    cur = self._conn.execute(
+                        "INSERT INTO visits (started_at, ended_at, closed, species, species_confidence, alert)"
+                        " VALUES (?, ?, 1, ?, ?, 'skipped')",
+                        (group[0]["captured_at"], group[-1]["captured_at"], species, conf),
+                    )
+                    self._conn.executemany(
+                        "UPDATE captures SET visit_id = ? WHERE id = ?", [(cur.lastrowid, r["id"]) for r in group]
+                    )
+                self._conn.execute(
+                    "UPDATE captures SET species_checked = 0"
+                    " WHERE status = 'done' AND is_bird = 1 AND manual_at IS NULL AND embedding IS NULL"
+                )
+                self._conn.execute(
+                    "INSERT INTO meta (key, value) VALUES ('visits_version', '1')"
+                    " ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+                )
+        self.migrated_visits = True
+        return len(groups)
 
     # --- captures ---------------------------------------------------------
 
@@ -813,8 +897,9 @@ class Store:
 
     # --- maintenance ------------------------------------------------------
 
-    def purge_non_birds(self, older_than_days: int, now: datetime | None = None) -> int:
-        """Delete non-bird and errored captures older than the cutoff (rows + files).
+    def purge_non_birds(self, older_than_days: int, now: datetime | None = None) -> tuple[int, list[int]]:
+        """Delete non-bird and errored captures older than the cutoff (rows + files); returns
+        (rows deleted, distinct visit ids those rows were in) so the caller can re-resolve them.
 
         `pending` rows are kept (the sweep will classify them); birds are never purged, and neither
         is a row with any `published` state (forced, hidden or auto: someone cares about it) or a
@@ -824,13 +909,16 @@ class Store:
         cutoff = _to_db_time(now - timedelta(days=older_than_days))
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, path, thumb_path FROM captures"
+                "SELECT id, path, thumb_path, visit_id FROM captures"
                 " WHERE (is_bird = 0 OR status = 'error') AND published IS NULL AND manual_at IS NULL AND captured_at < ?",
                 (cutoff,),
             ).fetchall()
+        visit_ids: list[int] = []
         for row in rows:
             self._delete_row_and_files(row["id"], row["path"], row["thumb_path"])
-        return len(rows)
+            if row["visit_id"] is not None and row["visit_id"] not in visit_ids:
+                visit_ids.append(row["visit_id"])
+        return len(rows), visit_ids
 
     def delete_capture(self, capture_id: int) -> Capture | None:
         """Delete one capture (row + photo + thumbnail), whatever it is; returns it, or None if unknown.

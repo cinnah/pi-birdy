@@ -55,9 +55,8 @@ class Pipeline:
         self._store = store
         self._classifier = classifier
         self._live = live
-        self._notifier = notifier      # kept for inspection; Visits alerts and publishes
-        self._publisher = publisher
-        # No Visits given: model-species majority voting (no bank, no embeddings needed).
+        # Visits alerts and publishes; `notifier`/`publisher` only feed the default one built here
+        # when none is given (model-species majority voting: no bank, no embeddings needed).
         self.visits = visits if visits is not None else Visits(
             store, live, bank=None, species_list=None, notifier=notifier, publisher=publisher
         )

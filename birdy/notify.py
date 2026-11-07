@@ -19,7 +19,6 @@ from typing import Protocol
 
 from birdy.config import Config
 from birdy.live import LiveConfig
-from birdy.store import Store
 
 log = logging.getLogger(__name__)
 
@@ -178,14 +177,12 @@ class TelegramNotifier:
     def __init__(
         self,
         live: LiveConfig,
-        store: Store,
         transport: TelegramTransport,
         policy: AlertPolicy | None = None,
         maxsize: int = 20,
         sleep: Callable[[float], object] | None = None,
     ) -> None:
         self._live = live
-        self._store = store
         self._transport = transport
         tg = live.get().telegram  # chat_id/base_url are restart-only, like the token in the transport
         self._chat_id = tg.chat_id
