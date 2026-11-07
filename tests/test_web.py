@@ -634,6 +634,7 @@ class FakePublisher:
         self.forgotten = []
         self.evaluated = []
         self.days = []
+        self.notified = 0
 
     def forget(self, capture):
         self.forgotten.append(capture.id)
@@ -643,6 +644,9 @@ class FakePublisher:
 
     def evaluate_day(self, species, when):
         self.days.append((species, when))
+
+    def notify(self):
+        self.notified += 1
 
     def set_manual(self, capture_id, state):
         self.calls.append((capture_id, state))
@@ -1001,13 +1005,15 @@ def test_label_bird_unknown_and_clear(client, store, visits):
         assert c.manual_at is None and c.manual_is_bird is None and c.species == "European Robin"
 
 
-def test_label_not_bird_through_visits(client, store, visits):
+def test_label_not_bird_through_visits(client, store, visits, publisher):
     a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    store.set_published(a, "forced")
     r = client.post(f"/captures/{a}/label", data={"label": "not_bird"}, follow_redirects=False)
     assert r.status_code == 303
     for cid in (a, b):
         c = store.get(cid)
-        assert c.is_bird is False and c.species is None and c.manual_is_bird is False
+        assert c.is_bird is False and c.species is None and c.manual_is_bird is False and c.published is None
+    assert publisher.notified >= 1          # the gallery drops the forced photo on the next sync
 
 
 def test_label_species_rejects_unknown_or_empty_name(client, store, visits):

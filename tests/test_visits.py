@@ -415,5 +415,15 @@ def test_resolve_single_clears_a_published_non_bird(store, visits):
     a = add(store, 0, bird=False); visits.photo_classified(store.get(a), live=False)
     assert store.get(a).visit_id is None
     store.set_published(a, "forced")
+    n = visits._publisher.notified
     visits.resolve_single(a)
-    assert store.get(a).published is None
+    assert store.get(a).published is None and visits._publisher.notified > n
+
+
+def test_rename_drops_auto_and_syncs(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=False)
+    store.set_published(a, "auto")
+    n = visits._publisher.notified
+    visits.correct(a, "species:European Robin")   # the fake re-rank changes nothing; the mirror must still sync
+    assert store.get(a).published is None and visits._publisher.notified > n
+    assert ("Black Redstart", T0.date()) in visits._publisher.days and ("European Robin", T0.date()) in visits._publisher.days

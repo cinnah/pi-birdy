@@ -162,13 +162,17 @@ class Visits:
                 species = c.model_species if is_bird else None
                 sp_conf = c.model_species_confidence if species else None
             changes = []
+            # final first, publish state second: a re-rank in between sees the new label, so it
+            # can't hand `auto` back to a photo that is about to lose it
+            self._store.write_final(c.id, is_bird, conf, species, sp_conf)
+            sync = False
             if c.species != species:
                 changes.append(Change(c.id, c.species, species, c.captured_at))
                 if c.published == "auto" and is_bird:      # a non-bird is cleared just below
                     self._store.set_published(c.id, None)
-            unpublished = self._unpublish_non_bird(c, is_bird, changes)
-            self._store.write_final(c.id, is_bird, conf, species, sp_conf)
-            self._publish(changes, sync=unpublished)
+                    sync = True
+            sync |= self._unpublish_non_bird(c, is_bird, changes)
+            self._publish(changes, sync=sync)
             return changes
 
     def resolve(self, visit_id: int) -> list[Change]:
@@ -191,7 +195,7 @@ class Visits:
             own_p, names = self._score_all(embs, cand)
             changes: list[Change] = []
             rerank: set[tuple[str, datetime]] = set()   # same name, new confidence: its day's ranking may move
-            unpublished = False
+            sync = False
             for p in photos:
                 probs = own_p.get(p.id)
                 if probs is not None:
@@ -211,17 +215,19 @@ class Visits:
                     sp_conf = conf
                 else:
                     sp_conf = self._p_for(probs, names, species, p)
-                if p.species != species:
-                    changes.append(Change(p.id, p.species, species, p.captured_at))
-                    if p.published == "auto" and is_bird:      # a non-bird is cleared just below
-                        self._store.set_published(p.id, None)
-                unpublished |= self._unpublish_non_bird(p, is_bird, changes)
+                # final first, publish state second (see resolve_single)
                 if (p.is_bird, p.species) != (is_bird, species) or p.species_confidence != sp_conf or p.confidence != conf:
                     if p.species == species and species is not None and p.species_confidence != sp_conf:
                         rerank.add((species, p.captured_at))
                     self._store.write_final(p.id, is_bird, conf, species, sp_conf)
+                if p.species != species:
+                    changes.append(Change(p.id, p.species, species, p.captured_at))
+                    if p.published == "auto" and is_bird:      # a non-bird is cleared just below
+                        self._store.set_published(p.id, None)
+                        sync = True
+                sync |= self._unpublish_non_bird(p, is_bird, changes)
             self._store.set_visit_result(visit_id, *self._visit_result(photos, vote_species, vote_p))
-            self._publish(changes, rerank, sync=unpublished)
+            self._publish(changes, rerank, sync=sync)
             return changes
 
     def _visit_result(self, photos: list[Capture], vote_species: str | None, vote_p: float | None) -> tuple[str | None, float | None]:
@@ -268,10 +274,11 @@ class Visits:
         """Re-rank each (species, local day) touched once: the old and new species of every change,
         plus `rerank` (same name, new confidence). A 30-photo rename is two re-ranks, not sixty.
         `sync`: a published state was cleared here, so the mirror must sync even if no re-rank
-        changes anything (a cleared `forced` photo held no slot)."""
+        changes anything (a cleared `forced` photo held no slot; a renamed photo's old slot may
+        stay empty)."""
         if self._publisher is None:
             return
-        if sync and hasattr(self._publisher, "notify"):
+        if sync:
             self._publisher.notify()
         todo: dict[tuple[str, datetime], datetime] = {}
         pairs = [(sp, ch.captured_at) for ch in changes for sp in (ch.old_species, ch.new_species)]
