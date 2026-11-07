@@ -57,6 +57,7 @@ def create_app(
     classifier: Any | None = None,
     notifier: Any | None = None,
     publisher: Any | None = None,
+    visits: Any | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
@@ -66,6 +67,9 @@ def create_app(
     `notifier` is an object with `send_test()`; normally a `TelegramNotifier`; None = alerts disabled.
 
     `publisher` has `set_manual(capture_id, state)`; None = publishing disabled.
+
+    `visits` is a `birdy.visits.Visits` (`correct`, `photo_removed`); None = no visits: the grid
+    still takes `not_bird`/`clear` corrections photo by photo, and species corrections are 503.
     """
     app = FastAPI(title="birdy")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -108,17 +112,30 @@ def create_app(
         )
         return snap
 
+    def _species_names(summary) -> list[str]:
+        """The Fix panel's datalist: the local list (most observations first), then species seen."""
+        sl = getattr(visits, "species_list", None) or getattr(classifier, "species_list", None)
+        cur = sl.current() if sl is not None else None
+        local = sorted(cur.species, key=lambda s: -(s.get("count") or 0)) if cur is not None else []
+        names = [s.get("common") or s.get("latin") for s in local] + [r.species for r in summary]
+        return list(dict.fromkeys(n for n in names if n))
+
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, filter: str = "birds", page: int = 1, species: str | None = None):
+    def index(request: Request, filter: str = "birds", page: int = 1, species: str | None = None,
+              visit: int | None = None):
         if filter not in FILTERS:
             raise HTTPException(status_code=400, detail="filter must be one of " + ", ".join(FILTERS))
         summary = store.species_summary()
         if species == "":
             species = None
-        total = store.count(filter, species=species)
+        if visit is not None:
+            # one visit's photos, whatever their label (a person may have said "not a bird" on some)
+            filter, species = "all", None
+        total = store.count(filter, species=species, visit=visit)
         pages = max(1, -(-total // PAGE_SIZE))
         page = min(max(1, page), pages)
-        captures = store.list_captures(filter, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, species=species)
+        captures = store.list_captures(filter, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, species=species,
+                                       visit=visit)
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -129,6 +146,9 @@ def create_app(
                 "pages": pages,
                 "total": total,
                 "species": species,
+                "visit": visit,
+                "sizes": store.visit_sizes(list({c.visit_id for c in captures if c.visit_id is not None})),
+                "species_names": _species_names(summary),
                 "species_rows": summary,
                 "status": status_payload(),
                 "publishing": publisher is not None,
@@ -261,6 +281,7 @@ def create_app(
                 "species_include": "\n".join(cfg.species.include),
                 "species_exclude": "\n".join(cfg.species.exclude),
                 "detector_threshold": cfg.detector.threshold,
+                "visits_gap_seconds": cfg.visits.gap_seconds,
                 "lat": "" if cfg.site.lat is None else cfg.site.lat,
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
                 "margin_minutes": cfg.daylight.margin_minutes,
@@ -437,6 +458,16 @@ def create_app(
             except Exception:  # the photo is gone either way; the next full rank catches up
                 log.exception("publish: forget failed for capture %d", c.id)
 
+    def _removed(captures) -> None:
+        """Deleted photos leave their visits: re-resolve each (an emptied visit is deleted)."""
+        if visits is None:
+            return
+        for vid in dict.fromkeys(c.visit_id for c in captures if c.visit_id is not None):
+            try:
+                visits.photo_removed(vid)
+            except Exception:  # the photo is gone either way; the visit is re-resolved on its next change
+                log.exception("visits: re-resolve failed for visit %d", vid)
+
     @app.post("/captures/{capture_id}/delete")
     async def capture_delete(capture_id: int, request: Request):
         """Delete one photo for good (row, photo, thumbnail), bird or not."""
@@ -444,28 +475,43 @@ def create_app(
         deleted = await run_in_threadpool(store.delete_capture, capture_id)
         if deleted is None:
             raise HTTPException(status_code=404, detail="unknown capture")
+        await run_in_threadpool(_removed, [deleted])
         await run_in_threadpool(_forget, [deleted])
         log.info("deleted capture %d (%s) from the web page", deleted.id, deleted.path)
         return RedirectResponse(_grid_next(form), status_code=303)
 
     @app.post("/captures/{capture_id}/label")
     async def capture_label(capture_id: int, request: Request):
-        """A person's correction: `label=not_bird` (no bird in the photo) or `clear` (back to the model)."""
+        """A person's correction of the photo's visit: `label` = `not_bird`, `bird_unknown`,
+        `species` (name in `species_name`; `species:<name>` also works) or `clear` (back to the model)."""
         form = await request.form()
         label = str(form.get("label", ""))
-        if label not in ("not_bird", "clear"):
-            raise HTTPException(status_code=400, detail="label must be not_bird or clear")
+        if label == "species" or label.startswith("species:"):
+            name = (label[len("species:"):] if label.startswith("species:") else str(form.get("species_name", ""))).strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="type a species name")
+            label = f"species:{name}"
+        elif label not in ("not_bird", "bird_unknown", "clear"):
+            raise HTTPException(status_code=400, detail="label must be not_bird, bird_unknown, species or clear")
         c = await run_in_threadpool(store.get, capture_id)
         if c is None:
             raise HTTPException(status_code=404, detail="unknown capture")
         if c.status != "done":
             raise HTTPException(status_code=409, detail="capture is not classified yet")
-        if label == "not_bird":
+        if visits is not None:
+            try:
+                # Visits.correct re-resolves the visit, moves publish slots and logs the correction
+                await run_in_threadpool(visits.correct, capture_id, label)
+            except KeyError:
+                raise HTTPException(status_code=404, detail="unknown capture") from None
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from None
+        elif label == "not_bird":
             before = await run_in_threadpool(store.mark_not_bird, capture_id)
             # Its species/day loses the photo: re-rank (the next-best takes the slot), sync soon.
             await run_in_threadpool(_forget, [before])
             log.info("capture %d marked not a bird from the web page (model said %s)", capture_id, c.species or "bird")
-        else:
+        elif label == "clear":
             restored = await run_in_threadpool(store.clear_correction, capture_id)
             if publisher is not None:
                 try:
@@ -473,6 +519,8 @@ def create_app(
                 except Exception:  # the label is restored either way; the next full rank catches up
                     log.exception("publish: evaluate failed for capture %d", capture_id)
             log.info("capture %d back to the model's verdict from the web page", capture_id)
+        else:
+            raise HTTPException(status_code=503, detail="species corrections need visits (not wired in this process)")
         return RedirectResponse(_grid_next(form), status_code=303)
 
     @app.post("/captures/delete-non-birds")
@@ -481,6 +529,7 @@ def create_app(
         form = await request.form()
         ids = [int(v) for v in form.getlist("ids") if str(v).isdigit()]
         deleted = await run_in_threadpool(store.delete_non_birds, ids)
+        await run_in_threadpool(_removed, deleted)
         await run_in_threadpool(_forget, deleted)
         log.info("deleted %d non-bird captures from the web page", len(deleted))
         return RedirectResponse(_grid_next(form), status_code=303)

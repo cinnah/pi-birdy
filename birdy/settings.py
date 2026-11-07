@@ -29,6 +29,7 @@ FIELD_KEYS = {
     "species_include": "species.include",
     "species_exclude": "species.exclude",
     "detector_threshold": "detector.threshold",
+    "visits_gap_seconds": "visits.gap_seconds",
     "lat": "site.lat",
     "lon": "site.lon",
     "margin_minutes": "daylight.margin_minutes",
@@ -55,6 +56,7 @@ class SettingsPatch:
     species_include: tuple[str, ...]
     species_exclude: tuple[str, ...]
     detector_threshold: float
+    visits_gap_seconds: int
     lat: float | None
     lon: float | None
     margin_minutes: int
@@ -106,6 +108,7 @@ def config_to_dict(config: Config) -> dict:
             "labels": str(config.detector.labels),
             "threshold": config.detector.threshold,
         },
+        "visits": {"gap_seconds": config.visits.gap_seconds},
         "retention": {"non_bird_days": config.retention.non_bird_days},
         "storage": {"data_dir": str(config.storage.data_dir)},
         "web": {"host": config.web.host, "port": config.web.port},
@@ -144,6 +147,7 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
     data["species"]["include"] = list(patch.species_include)
     data["species"]["exclude"] = list(patch.species_exclude)
     data["detector"]["threshold"] = patch.detector_threshold
+    data.setdefault("visits", {})["gap_seconds"] = patch.visits_gap_seconds
     data["site"].pop("lat", None)
     data["site"].pop("lon", None)
     # Write whichever is given; load_config rejects one-without-the-other with a clear message.
@@ -245,6 +249,7 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         species_include=_lines(form, "species_include"),
         species_exclude=_lines(form, "species_exclude"),
         detector_threshold=_num(form, "detector_threshold", float),
+        visits_gap_seconds=_num(form, "visits_gap_seconds", int),
         lat=_num(form, "lat", float, optional=True),
         lon=_num(form, "lon", float, optional=True),
         margin_minutes=_num(form, "margin_minutes", int),

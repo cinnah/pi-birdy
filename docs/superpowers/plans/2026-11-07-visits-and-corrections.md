@@ -1,6 +1,8 @@
 # Visits and Corrections Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** implemented on branch `visits`, 2026-11-07. Deviations from the spec are listed in the spec's "Implementation notes / deviations" section.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Group a bird's photos into visits, decide one species per visit from the pooled BioCLIP embedding, alert once per visit, and let a person correct a visit's label (not a bird / species unknown / a species) from the grid, with gallery slots following every change.
 
@@ -40,7 +42,7 @@ Claude-Session: https://claude.ai/code/session_01Agk9eUVj9dbThFrVMdZie7
 
 **Files:** `birdy/config.py`, `birdy.toml.example`, `birdy/settings.py`, `birdy/web/templates/settings.html`, `birdy/web/app.py` (settings values); tests `tests/test_config.py`, `tests/test_settings.py`, `tests/test_web.py`, `tests/test_watcher.py`
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 `tests/test_config.py` append:
 ```python
@@ -59,9 +61,9 @@ def test_visits_gap_roundtrip(config_path, config):
 ```
 `tests/test_web.py` `_base_form`: add `"visits_gap_seconds": "60",`; append `test_settings_page_has_visits_gap(client)` asserting `name="visits_gap_seconds"` in GET /settings. `tests/test_watcher.py::test_save_settings_then_watch_is_noop`: add `visits_gap_seconds=cur.visits.gap_seconds,`.
 
-- [ ] **Step 2: Run** `.venv/bin/pytest tests/test_config.py tests/test_settings.py -q` → fails on `cfg.visits`.
+- [x] **Step 2: Run** `.venv/bin/pytest tests/test_config.py tests/test_settings.py -q` → fails on `cfg.visits`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `config.py`: `@dataclass(frozen=True) class VisitsConfig: gap_seconds: int  # photos of one bird within this gap form a visit (live)`; `Config.visits: VisitsConfig`; parse `vis = raw.get("visits", {})`, `gap = _num(vis, "visits", "gap_seconds", 60, int)`, `_check(10 <= gap <= 600, "visits.gap_seconds must be between 10 and 600")`; constructor `visits=VisitsConfig(gap_seconds=gap)`.
 `birdy.toml.example`: after `[detector]`:
@@ -79,7 +81,7 @@ gap_seconds = 60           # photos of one bird within this gap form a visit (10
   </section>
 ```
 
-- [ ] **Step 4: Run** `.venv/bin/pytest -q` → all pass. **Step 5: Commit** "Config: [visits] gap_seconds".
+- [x] **Step 4: Run** `.venv/bin/pytest -q` → all pass. **Step 5: Commit** "Config: [visits] gap_seconds".
 
 ---
 
@@ -87,7 +89,7 @@ gap_seconds = 60           # photos of one bird within this gap form a visit (10
 
 **Files:** `birdy/store.py`; `tests/test_store.py`
 
-- [ ] **Step 1: Failing tests** (append to `tests/test_store.py`; `add`, `add_species`, `T0`, `timedelta` exist):
+- [x] **Step 1: Failing tests** (append to `tests/test_store.py`; `add`, `add_species`, `T0`, `timedelta` exist):
 
 ```python
 import numpy as np
@@ -153,9 +155,9 @@ def test_open_visits_and_members(store):
 
 Also update existing tests that relied on `mark_not_bird` copying `model_*` only on first correction: keep `mark_not_bird`/`clear_correction` working (they stay for the web until Task 8 replaces them).
 
-- [ ] **Step 2: Run** → `AttributeError: 'Store' object has no attribute 'store_verdict'` etc.
+- [x] **Step 2: Run** → `AttributeError: 'Store' object has no attribute 'store_verdict'` etc.
 
-- [ ] **Step 3: Implement** in `birdy/store.py`
+- [x] **Step 3: Implement** in `birdy/store.py`
 
 Schema additions (`SCHEMA`):
 ```sql
@@ -228,7 +230,7 @@ Methods:
 ```
 Each is one `with self._lock, self._conn:` transaction, same style as the file. `_row_to_capture` maps the new fields. `update_classification` stays as is **and additionally** copies the verdict into `model_*` (so a lone photo has both): add `model_is_bird = ?, model_confidence = ?, model_species = ?, model_species_confidence = ?` to its UPDATE with the same values. Keep `mark_not_bird`/`clear_correction` for now.
 
-- [ ] **Step 4: Run** `.venv/bin/pytest tests/test_store.py -q` → pass; full suite → pass. **Step 5: Commit** "Store: visits table, embeddings, verdict/final split, visit methods".
+- [x] **Step 4: Run** `.venv/bin/pytest tests/test_store.py -q` → pass; full suite → pass. **Step 5: Commit** "Store: visits table, embeddings, verdict/final split, visit methods".
 
 ---
 
@@ -236,7 +238,7 @@ Each is one `with self._lock, self._conn:` transaction, same style as the file. 
 
 **Files:** `birdy/species.py`, `birdy/classifier.py`; `tests/test_species.py`, `tests/test_two_stage.py`
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 `tests/test_species.py` append:
 ```python
@@ -260,9 +262,9 @@ def test_prediction_carries_the_embedding_for_birds(live):
     assert pred.embedding is None
 ```
 
-- [ ] **Step 2: Run** → attribute errors.
+- [x] **Step 2: Run** → attribute errors.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `species.py`:
 ```python
@@ -278,7 +280,7 @@ def score_candidates(bank: Bank, cand_rows: np.ndarray, emb: np.ndarray) -> list
 `BioClipSpecies`: `candidate_rows` property (returns `self._cand`), `top_with_embedding(img, k) -> (top, emb)` built on `embed` + `score_candidates`; `top` = `top_with_embedding(...)[0]`.
 `classifier.py`: `Prediction.embedding: np.ndarray | None = field(default=None, compare=False, repr=False)`; in `classify_image`, when species runs: `fn = getattr(self.species, "top_with_embedding", None)`; `top, emb = fn(img_rgb, k=5) if fn else (self.species.top(img_rgb, k=5), None)`; pass `embedding=emb`.
 
-- [ ] **Step 4: Run** `.venv/bin/pytest tests/test_species.py tests/test_two_stage.py tests/test_cli.py -q` → pass. **Step 5: Commit** "Species: score_candidates; predictions carry the BioCLIP embedding".
+- [x] **Step 4: Run** `.venv/bin/pytest tests/test_species.py tests/test_two_stage.py tests/test_cli.py -q` → pass. **Step 5: Commit** "Species: score_candidates; predictions carry the BioCLIP embedding".
 
 ---
 
@@ -286,7 +288,7 @@ def score_candidates(bank: Bank, cand_rows: np.ndarray, emb: np.ndarray) -> list
 
 **Files:** create `birdy/visits.py`; `tests/test_visits.py`
 
-- [ ] **Step 1: Failing tests** — create `tests/test_visits.py`:
+- [x] **Step 1: Failing tests** — create `tests/test_visits.py`:
 
 ```python
 from datetime import datetime, timedelta, timezone
@@ -544,9 +546,9 @@ def test_vote_falls_back_to_model_species_majority(store, visits):
 
 (`live` fixture from conftest; it has `visits.gap_seconds = 60` and `species.threshold = 0.5` by default.)
 
-- [ ] **Step 2: Run** → `ModuleNotFoundError: birdy.visits`.
+- [x] **Step 2: Run** → `ModuleNotFoundError: birdy.visits`.
 
-- [ ] **Step 3: Implement** `birdy/visits.py`:
+- [x] **Step 3: Implement** `birdy/visits.py`:
 
 ```python
 """Visits: one bird's photos within `visits.gap_seconds`, one label, one alert, one correction.
@@ -839,7 +841,7 @@ class Visits:
 
 Notes for the implementer: `Store.visits_overlapping` must return visits ordered by id so `found[0]` is the lowest id; `set_manual` must accept `at` so an inherited correction keeps the original time; `score_candidates` returns bank rows, so `_name_of_row` maps rows to names.
 
-- [ ] **Step 4: Run** `.venv/bin/pytest tests/test_visits.py -q` → pass. **Step 5: Commit** "Visits: grouping, embedding vote, resolve, tick/alerts, corrections".
+- [x] **Step 4: Run** `.venv/bin/pytest tests/test_visits.py -q` → pass. **Step 5: Commit** "Visits: grouping, embedding vote, resolve, tick/alerts, corrections".
 
 ---
 
@@ -847,10 +849,10 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
 
 **Files:** `birdy/notify.py`; `tests/test_notify.py`, `tests/test_pipeline.py` (fake signature)
 
-- [ ] **Step 1: Failing test** — in `tests/test_notify.py` change `test_first_seen_uses_store_count` into `test_consider_takes_first_seen_from_caller`: `consider(cid, path, "Robin", 0.9, when, first_seen=True)` → reason "new"; with `first_seen=False` and no watchlist → None. Update the other `consider` calls to the new positional/keyword shape `(capture_id, photo_path, species, species_confidence, captured_at, first_seen)`.
-- [ ] **Step 2: Run** → TypeError.
-- [ ] **Step 3: Implement** — signature `consider(self, capture_id, photo_path, species: str | None, species_confidence: float, captured_at, first_seen: bool, now=None)`; returns None when `not species` or alerts disabled; no store count. Update the docstring (fed by `Visits`, once per visit).
-- [ ] **Step 4: Run** `.venv/bin/pytest tests/test_notify.py -q` → pass. (Pipeline tests break until Task 7; that is expected — note it.) **Step 5: Commit** "Notify: consider() takes first_seen from the visit".
+- [x] **Step 1: Failing test** — in `tests/test_notify.py` change `test_first_seen_uses_store_count` into `test_consider_takes_first_seen_from_caller`: `consider(cid, path, "Robin", 0.9, when, first_seen=True)` → reason "new"; with `first_seen=False` and no watchlist → None. Update the other `consider` calls to the new positional/keyword shape `(capture_id, photo_path, species, species_confidence, captured_at, first_seen)`.
+- [x] **Step 2: Run** → TypeError.
+- [x] **Step 3: Implement** — signature `consider(self, capture_id, photo_path, species: str | None, species_confidence: float, captured_at, first_seen: bool, now=None)`; returns None when `not species` or alerts disabled; no store count. Update the docstring (fed by `Visits`, once per visit).
+- [x] **Step 4: Run** `.venv/bin/pytest tests/test_notify.py -q` → pass. (Pipeline tests break until Task 7; that is expected — note it.) **Step 5: Commit** "Notify: consider() takes first_seen from the visit".
 
 ---
 
@@ -858,9 +860,9 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
 
 **Files:** `birdy/publish.py`; `tests/test_publish.py`
 
-- [ ] **Step 1: Failing test** — append: `evaluate_day("Robin", when)` re-ranks that species/day (same effect as `evaluate(capture)` today; returns bool and notifies when changed); `evaluate(capture)` still works.
-- [ ] **Step 3: Implement** — `def evaluate_day(self, species: str, when: datetime) -> bool: with self._lock: changed = self._rank(species, when); if changed: self.notify(); return changed`; `evaluate(capture)` = guard + `return self.evaluate_day(capture.species, capture.captured_at)`.
-- [ ] **Step 4/5:** run, commit "Publish: evaluate_day".
+- [x] **Step 1: Failing test** — append: `evaluate_day("Robin", when)` re-ranks that species/day (same effect as `evaluate(capture)` today; returns bool and notifies when changed); `evaluate(capture)` still works.
+- [x] **Step 3: Implement** — `def evaluate_day(self, species: str, when: datetime) -> bool: with self._lock: changed = self._rank(species, when); if changed: self.notify(); return changed`; `evaluate(capture)` = guard + `return self.evaluate_day(capture.species, capture.captured_at)`.
+- [x] **Step 4/5:** run, commit "Publish: evaluate_day".
 
 ---
 
@@ -868,7 +870,7 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
 
 **Files:** `birdy/pipeline.py`; `tests/test_pipeline.py`
 
-- [ ] **Step 1: Failing tests** — in `tests/test_pipeline.py`:
+- [x] **Step 1: Failing tests** — in `tests/test_pipeline.py`:
   - `Pipeline(...)` gains `visits: Visits | None = None`; when None it builds `Visits(store, live, bank=None, species_list=None, notifier=notifier, publisher=publisher)` (model-species majority). Existing tests keep constructing `Pipeline(store, clf, live, notifier=n, publisher=pub)`.
   - `FakeNotifier.consider` takes `(capture_id, photo_path, species, species_confidence, captured_at, first_seen)` and records `(capture_id, photo_path, species, captured_at)`.
   - `FakePublisher` gains `evaluate_day(self, species, when)` appending `("day", species)` to `order` and `(species, when.date())` to a `days` list; keep `evaluate`/`forget`.
@@ -876,12 +878,12 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
   - `test_process_calls_publisher_with_stored_capture` → now asserts `pub.days == [("Robin", T0.date())]` (through `evaluate_day`).
   - The backfill tests: keep the never-demote, promotion, keep-species semantics, but the assertions on `forget`/`evaluate` become `days` assertions (old and new species' days re-ranked on a rename; `auto` cleared). Rewrite `test_backfill_rename_forgets_old_species_then_evaluates_new` → `..._reranks_old_and_new_days`.
   - New: `test_run_loop_ticks_visits` — with `sweep_interval=100`, start the pipeline, process a bird at `now − 2 min` (use a real timestamp), wait ≤ 8 s → the visit is closed (`store.open_visits() == []`).
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - `process`: `store_verdict(...)` with `embedding=pred.embedding`; then `self.visits.photo_classified(self._store.get(capture_id), live=True)`; remove the notifier and publisher calls (Visits does both).
   - `_backfill`: the never-demote/known-bird logic stays, but the write becomes `store_verdict(...)` and then `changes = self.visits.photo_classified(self._store.get(c.id), live=False)`; `promoted` = `(not c.is_bird) and store.get(c.id).is_bird`; `renamed` = any change with old ≠ new; `got_species` = final species set. Remove the direct publisher/forget code (resolve handles it).
   - `_run`: add `next_tick`; every 5 s call `self.visits.tick()` inside try/except.
   - `Pipeline.visits` public attribute.
-- [ ] **Step 4:** `.venv/bin/pytest tests/test_pipeline.py -q` → pass; full suite. **Step 5: Commit** "Pipeline: verdicts flow through Visits; visits close and alert on a 5 s tick".
+- [x] **Step 4:** `.venv/bin/pytest tests/test_pipeline.py -q` → pass; full suite. **Step 5: Commit** "Pipeline: verdicts flow through Visits; visits close and alert on a 5 s tick".
 
 ---
 
@@ -889,12 +891,12 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
 
 **Files:** `birdy/web/app.py`, `birdy/web/templates/index.html`, `birdy/web/static/osd.css`; `tests/test_web.py`
 
-- [ ] **Step 1: Failing tests** — `create_app(..., visits=None)`; the test app builds a real `Visits(store, live, bank=<3-species bank fixture>, species_list=FakeSpeciesList, notifier=None, publisher=FakePublisher)` and passes it. Tests:
+- [x] **Step 1: Failing tests** — `create_app(..., visits=None)`; the test app builds a real `Visits(store, live, bank=<3-species bank fixture>, species_list=FakeSpeciesList, notifier=None, publisher=FakePublisher)` and passes it. Tests:
   - `POST /captures/{id}/label` with `label=species:European Robin` → 303, row species "European Robin", `manual_species` set, whole visit updated; `label=bird_unknown` → species None, `manual_is_bird` True; `label=species:Dodo` → 400; `label=clear` → manual cleared; `not_bird` and 404/409 as before; the `next` rule.
   - GET `/?filter=birds` tile markup: a `<details class="fix">` with buttons `Not a bird`, `Bird, species unknown`, an `<input list="species-names">` and `Set`; a corrected tile shows `you` in the stamp and `model: Robin`; a multi-photo visit shows `visit · 2` linking to `/?visit=<id>`; `GET /?visit=<id>` lists only that visit's photos (and 400 for a non-int).
   - `<datalist id="species-names">` contains the local list names (from `visits`' species_list `current()`), most observations first, plus species seen.
   - Delete routes call `visits.photo_removed(visit_id)` (spy via a wrapper).
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - `app.py`: `visits` param; `capture_label` accepts the four labels, maps `KeyError`→404, `ValueError`→400 (message in detail), 409 unless done; calls `visits.correct` in the threadpool; logs. Delete routes: after deleting, `visits.photo_removed(c.visit_id)` for each deleted capture. Grid route: `visit: int | None = None` query → `store.list_captures(filter="all", visit=visit)` (add `visit_id = ?` to `_where`), `visit_sizes` for the page's ids passed as `sizes`, `species_names` for the datalist.
   - `index.html`: in the stamps, `{% if c.manual_at %}<span class="tag you">you</span>{% endif %}`; when `c.manual_at and c.model_species` show `model: …` (already); `visit · N` link when `sizes[c.visit_id] > 1`. Replace the old label form with the Fix panel:
     ```jinja
@@ -913,7 +915,7 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
     ```
     The route turns `label=species` + `species_name` into `species:<name>` (400 when the name is empty). One `<datalist id="species-names">` at the end of the page.
   - `osd.css`: `.fix summary` styled like `.pb`; `.fixf` wraps; `.tag.you` in amber per `DESIGN.md`'s burned-in rule (same as the `bird` tag colour).
-- [ ] **Step 4:** `.venv/bin/pytest tests/test_web.py -q`; full suite. **Step 5: Commit** "Web: Fix panel, species corrections, visit filter and badges".
+- [x] **Step 4:** `.venv/bin/pytest tests/test_web.py -q`; full suite. **Step 5: Commit** "Web: Fix panel, species corrections, visit filter and badges".
 
 ---
 
@@ -921,15 +923,15 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
 
 **Files:** `birdy/store.py` (`migrate_visits`), `birdy/retention.py`, `birdy/cli.py`; `tests/test_store.py`, `tests/test_retention.py`, `tests/test_cli.py`
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - `test_migrate_visits_builds_history(tmp_path)`: an old-format DB (create via `Store`, insert 6 photos: 3 birds at T0, T0+30 s, T0+45 s with species "Black Phoebe" (final columns set via `update_classification`), a non-bird, a corrected not-bird (`manual_at` set with `model_*` filled), a bird 10 min later); `n = store.migrate_visits(gap_seconds=60)` → returns the number of visits built (2); `data/birdy.db.bak-visits` exists; `model_species == species` on uncorrected rows and unchanged on the corrected one; the three early birds share a visit (`closed`, `alert == "skipped"`), the later one its own; `species_checked == False` on uncorrected birds (embedding backfill queued), True on the non-bird and the corrected row; `store.get_meta("visits_version") == "1"`; a second call returns 0 and changes nothing.
   - `tests/test_retention.py`: `run_once(store, days, visits=spy)` calls `visits.photo_removed(vid)` for each deleted row's visit id (`purge_non_birds` returns the deleted rows' `visit_id`s: change its return to `list[int | None]` plus count, or add a `deleted_visit_ids` out-param — pick returning `(count, visit_ids)` and update callers/tests).
   - `tests/test_cli.py`: in `test_cmd_run_passes_live_everywhere` monkeypatch `Store.migrate_visits` to record its `gap_seconds` and return 0; assert it was called with `config.visits.gap_seconds` before `Pipeline.__init__` (order list); when `migrate_visits` returns > 0 and publishing is enabled, `publisher.evaluate_all` is called (use a `FakePublisher` via monkeypatching `birdy.cli.Publisher`).
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - `Store.migrate_visits(gap_seconds) -> int`: if `get_meta("visits_version") == "1"` → 0. Else `self._conn.backup(sqlite3.connect(data_dir / "birdy.db.bak-visits"))`; `BEGIN IMMEDIATE`; re-check meta; `UPDATE captures SET model_is_bird = is_bird, model_confidence = confidence, model_species = species, model_species_confidence = species_confidence WHERE manual_at IS NULL AND status = 'done'`; walk birds (`is_bird = 1 OR manual_is_bird = 1`) in `captured_at` order, opening a new visit when the gap to the previous bird exceeds `gap_seconds`, else extending; attach; `closed = 1, alert = 'skipped'`; `UPDATE captures SET species_checked = 0 WHERE is_bird = 1 AND manual_at IS NULL AND status = 'done' AND embedding IS NULL`; `set_meta("visits_version", "1")`; commit; `self.migrated_visits = True`; return the visit count.
   - `retention.run_once(store, days, now=None, visits=None)`: `count, vids = store.purge_non_birds(...)`; for each non-None id call `visits.photo_removed`. `RetentionJob(store, live, visits=None)` passes it.
   - `cli.cmd_run`: after `_classifier` and the species-list join: `visits = Visits(store, live, bank=clf.species.bank, species_list=clf.species_list, notifier=notifier, publisher=publisher)` (guard with getattr for test doubles → `bank=None`); `n = store.migrate_visits(config.visits.gap_seconds)`; log; `Pipeline(..., visits=visits)`; `RetentionJob(store, live, visits=visits)`; `create_app(..., visits=visits)`; after `pipeline.start()`, if `getattr(store, "migrated_visits", False) and publisher is not None: publisher.evaluate_all()`.
-- [ ] **Step 4:** full suite. **Step 5: Commit** "Visits: one-time history migration; retention and CLI wiring".
+- [x] **Step 4:** full suite. **Step 5: Commit** "Visits: one-time history migration; retention and CLI wiring".
 
 ---
 
@@ -937,7 +939,7 @@ Notes for the implementer: `Store.visits_overlapping` must return visits ordered
 
 **Files:** `CLAUDE.md`, the spec
 
-- [ ] CLAUDE.md: architecture diagram gets `visits (group · vote · correct · alert)` between pipeline and store; a `birdy/visits.py` bullet (grouping, vote in embedding space, resolve priority with `KEEP_OWN`, tick every 5 s, `ALERT_AFTER`, late rule, corrections copied across the visit, deletes); the pipeline bullet (`store_verdict` writes `model_*`, final columns by `Visits.resolve`; `update_classification` = verdict + lone-photo resolve, used by tests); the notify bullet (fed by `Visits` once per visit; `first_seen` = first visit); the manual-delete / Not-a-bird bullets rewritten around the Fix panel and `POST /captures/{id}/label` labels; `[visits] gap_seconds` live; migration note (`meta.visits_version`, `birdy.db.bak-visits`, the embedding backfill after migration); the grid `?visit=` filter.
-- [ ] Spec: in "Data model → Writers", replace the `update_classification` sentence with the deviation stated at the top of this plan.
-- [ ] `.venv/bin/pytest -q` → all green. Commit "Docs: visits and corrections in CLAUDE.md".
+- [x] CLAUDE.md: architecture diagram gets `visits (group · vote · correct · alert)` between pipeline and store; a `birdy/visits.py` bullet (grouping, vote in embedding space, resolve priority with `KEEP_OWN`, tick every 5 s, `ALERT_AFTER`, late rule, corrections copied across the visit, deletes); the pipeline bullet (`store_verdict` writes `model_*`, final columns by `Visits.resolve`; `update_classification` = verdict + lone-photo resolve, used by tests); the notify bullet (fed by `Visits` once per visit; `first_seen` = first visit); the manual-delete / Not-a-bird bullets rewritten around the Fix panel and `POST /captures/{id}/label` labels; `[visits] gap_seconds` live; migration note (`meta.visits_version`, `birdy.db.bak-visits`, the embedding backfill after migration); the grid `?visit=` filter.
+- [x] Spec: in "Data model → Writers", replace the `update_classification` sentence with the deviation stated at the top of this plan.
+- [x] `.venv/bin/pytest -q` → all green. Commit "Docs: visits and corrections in CLAUDE.md".
 - [ ] Deploy (from the Mac, when the user says so): `deploy/deploy.sh`; then on the Pi `journalctl -u birdy --since "-3 min" | grep -E "visits|migrat|backfill|alert|rror"` → expect `visits: built N visits over history`, a `species model`-style line about embeddings queued, backfill lines with `renamed`, no tracebacks; `/?filter=birds` shows `visit · N` badges and the Fix panel.

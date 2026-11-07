@@ -22,6 +22,7 @@ from birdy.publish import Publisher
 from birdy.species import BioClipSpecies, load_bank
 from birdy.species_list import SpeciesList
 from birdy.store import Store
+from birdy.visits import Visits
 
 log = logging.getLogger("birdy")
 
@@ -142,17 +143,29 @@ def cmd_run(config: Config, config_path: Path) -> int:
                 apply_candidates()   # so /species shows the right candidate count before the first bird
             except Exception:
                 log.exception("applying the species candidates failed; retried on the next bird")
+    built = store.migrate_visits(config.visits.gap_seconds)
+    if built:
+        queued = store.count_classification_backlog()
+        # The backfill takes 50 rows per 5-min sweep at ~3.5 s each: whichever bound is longer.
+        eta_min = max(queued * 3.5 / 60, -(-queued // 50) * 5)
+        log.info("visits: built %d visits over history; %d photos queued for embeddings (~%d min)",
+                 built, queued, round(eta_min))
     notifier = None
     if config.telegram.enabled:
-        notifier = TelegramNotifier(live, store, HttpTelegramTransport(config.telegram.bot_token))
+        notifier = TelegramNotifier(live, HttpTelegramTransport(config.telegram.bot_token))
         notifier.start()
     publisher = None
     if config.publish.enabled:
         publisher = Publisher(live, store, config.storage.data_dir / "publish")
         publisher.start()
-    pipeline = Pipeline(store, clf, live, notifier=notifier, publisher=publisher, lores_size=config.camera.lores_size)
+    # Getattr: test doubles have no species model; Visits then votes by the stored model species.
+    bank = getattr(getattr(clf, "species", None), "bank", None)
+    visits = Visits(store, live, bank=bank, species_list=species_list, notifier=notifier, publisher=publisher)
+    pipeline = Pipeline(store, clf, live, lores_size=config.camera.lores_size, visits=visits)
     pipeline.start()
-    retention = RetentionJob(store, live)
+    if store.migrated_visits and publisher is not None:
+        publisher.evaluate_all()   # the migration re-grouped history; re-rank every day once
+    retention = RetentionJob(store, live, visits=visits)
     retention.start()
     watcher = ConfigWatcher(config_path, live)
     watcher.start()
@@ -160,6 +173,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     app = create_app(
         store, state, live, config_path,
         queue_depth=pipeline.queue_depth, classifier=clf, notifier=notifier, publisher=publisher,
+        visits=visits,
     )
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
     web_thread = threading.Thread(
@@ -292,6 +306,9 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
 
 
 def cmd_purge(config: Config) -> int:
+    """Run the retention job once, without `Visits` (no classifier is built here). Acceptable: only
+    non-birds are purged, which never vote in their visit; a visit they leave without a bird is never
+    revisited, but it no longer counts for the first-visit check (`count_visits_with_species`)."""
     from birdy.retention import run_once
 
     store = Store(config.storage.data_dir)

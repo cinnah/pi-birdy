@@ -158,8 +158,15 @@ class Publisher:
         """Re-rank the species/day of `capture`; returns True if any published state changed."""
         if capture is None or not (capture.is_bird and capture.species and capture.status == "done"):
             return False
+        return self.evaluate_day(capture.species, capture.captured_at)
+
+    def evaluate_day(self, species: str, when: datetime) -> bool:
+        """Re-rank one species on the local day of `when`; ranks unconditionally — callers guard.
+
+        Returns True if any published state changed.
+        """
         with self._lock:
-            changed = self._rank(capture.species, capture.captured_at)
+            changed = self._rank(species, when)
         if changed:
             self.notify()
         return changed
@@ -211,8 +218,7 @@ class Publisher:
         if capture is None:
             return
         if capture.is_bird and capture.species and capture.status == "done":
-            with self._lock:
-                self._rank(capture.species, capture.captured_at)
+            self.evaluate_day(capture.species, capture.captured_at)
         self.notify()
 
     def notify(self) -> None:

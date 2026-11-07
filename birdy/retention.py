@@ -5,17 +5,29 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from birdy.live import LiveConfig
 from birdy.store import Store
+
+if TYPE_CHECKING:
+    from birdy.visits import Visits
 
 log = logging.getLogger(__name__)
 
 LOW_DISK_BYTES = 1024 * 1024 * 1024  # 1 GB
 
 
-def run_once(store: Store, non_bird_days: int, now: datetime | None = None) -> int:
-    deleted = store.purge_non_birds(older_than_days=non_bird_days, now=now)
+def run_once(store: Store, non_bird_days: int, now: datetime | None = None, visits: Visits | None = None) -> int:
+    """Purge old non-birds; each visit that lost a photo is re-resolved through `visits` (dropped
+    when empty). Without `visits` (the one-shot `birdy purge`) those visits are left as they are."""
+    deleted, visit_ids = store.purge_non_birds(older_than_days=non_bird_days, now=now)
+    if visits is not None:
+        for vid in visit_ids:
+            try:
+                visits.photo_removed(vid)
+            except Exception:
+                log.exception("retention: re-resolving visit %d failed", vid)
     free = store.disk_free_bytes()
     log.info("retention: deleted %d non-bird captures; disk free %.1f GB", deleted, free / 1e9)
     if free < LOW_DISK_BYTES:
@@ -24,8 +36,9 @@ def run_once(store: Store, non_bird_days: int, now: datetime | None = None) -> i
 
 
 class RetentionJob:
-    def __init__(self, store: Store, live: LiveConfig, interval: float = 3600.0) -> None:
+    def __init__(self, store: Store, live: LiveConfig, interval: float = 3600.0, visits: Visits | None = None) -> None:
         self._store = store
+        self._visits = visits
         self._live = live
         self._interval = interval
         self._stop = threading.Event()
@@ -41,6 +54,6 @@ class RetentionJob:
     def _run(self) -> None:
         while not self._stop.wait(self._interval):
             try:
-                run_once(self._store, self._live.get().retention.non_bird_days)
+                run_once(self._store, self._live.get().retention.non_bird_days, visits=self._visits)
             except Exception:
                 log.exception("retention run failed")

@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import pytest
 
-from birdy.classifier import Prediction
 from birdy.notify import (
     Alert, AlertPolicy, HttpTelegramTransport, TelegramError, TelegramNotifier, TelegramSettings,
     caption_for, fetch_chat_ids,
@@ -194,23 +193,21 @@ def wait_until(pred, timeout=3.0):
     return False
 
 
-def test_consider_ignores_non_birds_unknown_species_and_disabled(live, config, store):
-    n = TelegramNotifier(live, store, FakeTransport())
-    pred = Prediction(True, 0.9, "Blue Tit", 0.8)
-    assert n.consider(1, Path("x"), pred, NOW) is None  # telegram disabled in the default config
+def test_consider_ignores_unknown_species_and_disabled(live, config, store):
+    n = TelegramNotifier(live, FakeTransport())
+    assert n.consider(1, Path("x"), "Blue Tit", 0.8, NOW, True) is None  # telegram disabled in the default config
     live.replace(enabled_config(config))
-    assert n.consider(1, Path("x"), Prediction(False, 0.1, "Blue Tit", 0.8), NOW) is None
-    assert n.consider(1, Path("x"), Prediction(True, 0.9, None, None), NOW) is None
+    assert n.consider(1, Path("x"), None, 0.0, NOW, True) is None
 
 
 def test_consider_queues_and_worker_sends_photo(live, config, store):
     live.replace(enabled_config(config))
     cid, path = add_bird(store, "Blue Tit")
     t = FakeTransport()
-    n = TelegramNotifier(live, store, t)
+    n = TelegramNotifier(live, t)
     n.start()
     try:
-        assert n.consider(cid, path, Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW) == "new"  # first ever Blue Tit
+        assert n.consider(cid, path, "Blue Tit", 0.8, NOW, True, now=NOW) == "new"  # first ever Blue Tit
         assert wait_until(lambda: t.photos)
         chat, photo, caption = t.photos[0]
         assert chat == "42" and photo == path
@@ -220,22 +217,20 @@ def test_consider_queues_and_worker_sends_photo(live, config, store):
         n.stop()
 
 
-def test_first_seen_uses_store_count(live, config, store):
+def test_consider_takes_first_seen_from_caller(live, config, store):
     live.replace(enabled_config(config, watchlist=()))
-    cid1, p1 = add_bird(store, "Robin")
-    n = TelegramNotifier(live, store, FakeTransport())
-    assert n.consider(cid1, p1, Prediction(True, 0.9, "Robin", 0.8), NOW, now=NOW) == "new"
-    cid2, p2 = add_bird(store, "Robin", NOW + timedelta(minutes=1))
-    assert n.consider(cid2, p2, Prediction(True, 0.9, "Robin", 0.8), NOW, now=NOW + timedelta(hours=2)) is None
+    n = TelegramNotifier(live, FakeTransport())
+    assert n.consider(1, Path("a"), "Robin", 0.9, NOW, first_seen=True, now=NOW) == "new"
+    assert n.consider(2, Path("b"), "Robin", 0.9, NOW, first_seen=False, now=NOW + timedelta(hours=2)) is None
 
 
 def test_missing_photo_falls_back_to_text(live, config, store):
     live.replace(enabled_config(config))
     t = FakeTransport(missing_photo=True)
-    n = TelegramNotifier(live, store, t)
+    n = TelegramNotifier(live, t)
     n.start()
     try:
-        n.consider(1, Path("gone.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        n.consider(1, Path("gone.jpg"), "Blue Tit", 0.8, NOW, False, now=NOW)
         assert wait_until(lambda: t.texts)
         assert t.texts[0][1].startswith("🐦 Blue Tit")
     finally:
@@ -246,11 +241,11 @@ def test_retries_then_drops(live, config, store, caplog):
     live.replace(enabled_config(config))
     sleeps = []
     t = FakeTransport(fail_times=4)
-    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n = TelegramNotifier(live, t, sleep=sleeps.append)
     n.start()
     try:
         with caplog.at_level(logging.WARNING):
-            n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+            n.consider(1, Path("x.jpg"), "Blue Tit", 0.8, NOW, False, now=NOW)
             assert wait_until(lambda: "alert dropped" in caplog.text)
         assert sleeps == [5.0, 15.0, 45.0]
         assert t.photos == []
@@ -263,11 +258,11 @@ def test_permanent_errors_are_not_retried(live, config, store, caplog, status):
     live.replace(enabled_config(config))
     sleeps = []
     t = FakeTransport(fail_times=4, fail_status=status)
-    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n = TelegramNotifier(live, t, sleep=sleeps.append)
     n.start()
     try:
         with caplog.at_level(logging.WARNING):
-            n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+            n.consider(1, Path("x.jpg"), "Blue Tit", 0.8, NOW, False, now=NOW)
             assert wait_until(lambda: "alert dropped" in caplog.text)
         assert sleeps == []
         assert t.fail_times == 3  # exactly one attempt
@@ -279,10 +274,10 @@ def test_retry_succeeds_on_second_attempt(live, config, store):
     live.replace(enabled_config(config))
     sleeps = []
     t = FakeTransport(fail_times=1)
-    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n = TelegramNotifier(live, t, sleep=sleeps.append)
     n.start()
     try:
-        n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        n.consider(1, Path("x.jpg"), "Blue Tit", 0.8, NOW, False, now=NOW)
         assert wait_until(lambda: t.photos)
         assert sleeps == [5.0]
     finally:
@@ -291,10 +286,10 @@ def test_retry_succeeds_on_second_attempt(live, config, store):
 
 def test_queue_full_drops_with_warning(live, config, store, caplog):
     live.replace(enabled_config(config, cooldown_minutes=0))
-    n = TelegramNotifier(live, store, FakeTransport(), maxsize=1)  # not started: nothing drains
+    n = TelegramNotifier(live, FakeTransport(), maxsize=1)  # not started: nothing drains
     with caplog.at_level(logging.WARNING):
-        assert n.consider(1, Path("a"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW) == "watchlist"
-        assert n.consider(2, Path("b"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW) is None
+        assert n.consider(1, Path("a"), "Blue Tit", 0.8, NOW, False, now=NOW) == "watchlist"
+        assert n.consider(2, Path("b"), "Blue Tit", 0.8, NOW, False, now=NOW) is None
     assert "queue full" in caplog.text
 
 
@@ -309,11 +304,11 @@ def test_worker_survives_transport_crash(live, config, store):
             super().send_photo(chat_id, photo, caption)
 
     t = Crashy()
-    n = TelegramNotifier(live, store, t)
+    n = TelegramNotifier(live, t)
     n.start()
     try:
-        n.consider(1, Path("a"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
-        n.consider(2, Path("b"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        n.consider(1, Path("a"), "Blue Tit", 0.8, NOW, False, now=NOW)
+        n.consider(2, Path("b"), "Blue Tit", 0.8, NOW, False, now=NOW)
         assert wait_until(lambda: len(t.photos) == 2)
     finally:
         n.stop()
@@ -322,7 +317,7 @@ def test_worker_survives_transport_crash(live, config, store):
 def test_send_test_uses_site_name_and_propagates_errors(live, config, store):
     live.replace(enabled_config(config))
     t = FakeTransport()
-    n = TelegramNotifier(live, store, t)
+    n = TelegramNotifier(live, t)
     n.send_test()
     assert t.texts == [("42", f"birdy test alert from {config.site.name}")]
 
@@ -331,7 +326,7 @@ def test_send_test_uses_site_name_and_propagates_errors(live, config, store):
             raise TelegramError("Unauthorized", 401)
 
     with pytest.raises(TelegramError):
-        TelegramNotifier(live, store, Bad()).send_test()
+        TelegramNotifier(live, Bad()).send_test()
 
 
 # --- review follow-ups: every transport failure is a TelegramError ------------
@@ -413,10 +408,10 @@ def test_text_fallback_failure_retries(live, config, store):
             super().send_text(chat_id, text)
 
     t = TextFlaky()
-    n = TelegramNotifier(live, store, t, sleep=sleeps.append)
+    n = TelegramNotifier(live, t, sleep=sleeps.append)
     n.start()
     try:
-        n.consider(1, Path("gone.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+        n.consider(1, Path("gone.jpg"), "Blue Tit", 0.8, NOW, False, now=NOW)
         assert wait_until(lambda: t.texts)
         assert sleeps == [5.0] and t.photos == []
     finally:
@@ -426,9 +421,9 @@ def test_text_fallback_failure_retries(live, config, store):
 def test_stop_interrupts_retry_sleep(live, config, store):
     live.replace(enabled_config(config))
     t = FakeTransport(fail_times=1)
-    n = TelegramNotifier(live, store, t)  # default sleep: Event.wait, so stop() cuts the 5 s backoff short
+    n = TelegramNotifier(live, t)  # default sleep: Event.wait, so stop() cuts the 5 s backoff short
     n.start()
-    n.consider(1, Path("x.jpg"), Prediction(True, 0.9, "Blue Tit", 0.8), NOW, now=NOW)
+    n.consider(1, Path("x.jpg"), "Blue Tit", 0.8, NOW, False, now=NOW)
     t0 = time.monotonic()
     n.stop()
     assert time.monotonic() - t0 < 1.0

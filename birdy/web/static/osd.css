@@ -189,8 +189,24 @@ select {
   font: 500 11px/1.3 var(--mono); font-stretch: 81%; letter-spacing: 0.03em; text-transform: uppercase;
   white-space: nowrap;
 }
-.stamp .bird { color: var(--osd-amber); font-weight: 700; }
+.stamp .bird, .stamp .you { color: var(--osd-amber); font-weight: 700; }
 .stamp .no { color: #a3aaa5; }
+.stamp a.visit { color: var(--osd); flex: none; }
+
+/* the tile's Fix panel: a burned-in bar like the publish row (fixed OSD colours in both lights) */
+.fix { flex: 1 1 auto; }
+.fix[open] { flex-basis: 100%; }
+.fix > summary { display: flex; align-items: center; justify-content: center; list-style: none; }
+.fix > summary::-webkit-details-marker { display: none; }
+.fix[open] > summary { background: var(--osd); color: var(--osd-bar); }
+.fix .fixf { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; }
+.fix .fixf input {
+  flex: 1 1 60%; min-width: 0; min-height: 28px; padding: 0 6px;
+  border: 1px solid #4a504b; border-radius: 0; background: var(--osd-bar); color: var(--osd); caret-color: var(--osd-amber);
+  font: 500 12px/1.3 var(--mono); font-stretch: 87.5%; letter-spacing: 0; text-transform: none;
+}
+.fix .fixf input::placeholder { color: #a3aaa5; }
+.fix .fixf input:focus { border-color: var(--osd); outline: none; box-shadow: inset 0 0 0 1px var(--osd); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

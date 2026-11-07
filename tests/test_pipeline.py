@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import cv2
@@ -42,7 +42,15 @@ def store(tmp_path):
 
 
 def add(store, i):
-    when = T0.replace(minute=i)
+    return add_at(store, T0.replace(minute=i))
+
+
+def recent():
+    """A whole-second time 2 min ago: its visit is quiet (gap 60 s) but not too late to alert."""
+    return (datetime.now().astimezone() - timedelta(minutes=2)).replace(microsecond=0)
+
+
+def add_at(store, when):
     abs_path, rel = store.photo_path_for(when)
     cv2.imwrite(str(abs_path), np.zeros((60, 80, 3), np.uint8))
     cid = store.add_capture(when, rel, 100)
@@ -116,7 +124,7 @@ def test_periodic_sweep_runs(store, live):
 
 
 def test_store_error_does_not_kill_worker(store, live, monkeypatch):
-    real_update = store.update_classification
+    real_update = store.store_verdict
     calls = {"n": 0}
 
     def flaky_update(*args, **kwargs):
@@ -125,7 +133,7 @@ def test_store_error_does_not_kill_worker(store, live, monkeypatch):
             raise RuntimeError("db write failed")
         return real_update(*args, **kwargs)
 
-    monkeypatch.setattr(store, "update_classification", flaky_update)
+    monkeypatch.setattr(store, "store_verdict", flaky_update)
     p = Pipeline(store, FakeClassifier(), live)
     p.start()
     try:
@@ -332,26 +340,30 @@ class FakeNotifier:
         self.calls = []
         self.raise_exc = raise_exc
 
-    def consider(self, capture_id, photo_path, pred, captured_at):
-        self.calls.append((capture_id, photo_path, pred.species, captured_at))
+    def consider(self, capture_id, photo_path, species, species_confidence, captured_at, first_seen):
+        self.calls.append((capture_id, photo_path, species, captured_at))
         if self.raise_exc:
             raise self.raise_exc
         return "watchlist"
 
 
-def test_live_process_notifies(store, live):
+def test_live_process_does_not_alert_until_the_visit_closes(store, live):
     n = FakeNotifier()
     p = Pipeline(store, SpeciesFake(), live, notifier=n)
     ev = add(store, 0)
     p.process(ev.capture_id, ev.path, ev.captured_at)
-    assert n.calls == [(ev.capture_id, ev.path, "Robin", ev.captured_at)]
+    assert n.calls == []
     assert store.get(ev.capture_id).status == "done"
+    p.visits.tick(T0 + timedelta(seconds=61))
+    assert len(n.calls) == 1
+    assert n.calls[0][0] == ev.capture_id and n.calls[0][2] == "Robin"
 
 
 def test_notifier_exception_does_not_mark_error(store, live):
     p = Pipeline(store, SpeciesFake(), live, notifier=FakeNotifier(raise_exc=RuntimeError("boom")))
     ev = add(store, 0)
     p.process(ev.capture_id, ev.path, ev.captured_at)
+    p.visits.tick(T0 + timedelta(seconds=61))
     assert store.get(ev.capture_id).status == "done"
 
 
@@ -362,17 +374,18 @@ def test_backfill_never_notifies(store, live):
     unchecked(store, [ev.capture_id])
     p = Pipeline(store, SpeciesFake(), live, notifier=n)
     p.sweep()
+    p.visits.tick(T0 + timedelta(hours=1))
     assert store.get(ev.capture_id).species == "Robin" and n.calls == []
 
 
 def test_queued_event_passes_captured_at(store, live):
     n = FakeNotifier()
-    p = Pipeline(store, SpeciesFake(), live, notifier=n)
+    p = Pipeline(store, SpeciesFake(), live, notifier=n, tick_interval=0.1)
     p.start()
     try:
-        ev = add(store, 0)
+        ev = add_at(store, recent())
         p.submit(ev)
-        assert wait_until(lambda: n.calls)
+        assert wait_until(lambda: n.calls, timeout=3)     # the worker's tick closes the visit
         assert n.calls[0][3] == ev.captured_at
     finally:
         p.stop()
@@ -384,6 +397,7 @@ class FakePublisher:
         self.evaluated = []
         self.forgotten: list[int] = []
         self.order: list[str] = []
+        self.days: list = []
 
     def evaluate(self, capture):
         self.evaluated.append(capture)
@@ -396,14 +410,22 @@ class FakePublisher:
         self.forgotten.append(c.id)
         self.order.append("forget")
 
+    def evaluate_day(self, species, when):
+        self.order.append(("day", species))
+        self.days.append((species, when.astimezone().date()))
+        if self.raise_exc:
+            raise self.raise_exc
+        return True
+
 
 def test_process_calls_publisher_with_stored_capture(store, live):
     pub = FakePublisher()
     p = Pipeline(store, SpeciesFake(), live, publisher=pub)
     ev = add(store, 0)
     p.process(ev.capture_id, ev.path, ev.captured_at)
-    assert [c.id for c in pub.evaluated] == [ev.capture_id]
-    assert pub.evaluated[0].species == "Robin" and pub.evaluated[0].status == "done"
+    assert pub.days == [("Robin", T0.date())]
+    c = store.get(ev.capture_id)
+    assert c.species == "Robin" and c.status == "done"
 
 
 def test_publisher_error_does_not_mark_row_error(store, live, caplog):
@@ -413,7 +435,7 @@ def test_publisher_error_does_not_mark_row_error(store, live, caplog):
     with caplog.at_level(logging.ERROR):
         p.process(ev.capture_id, ev.path, ev.captured_at)
     assert store.get(ev.capture_id).status == "done"
-    assert "publish decision failed" in caplog.text
+    assert "publish re-rank failed" in caplog.text
 
 
 def test_backfill_calls_publisher(store, live):
@@ -423,8 +445,8 @@ def test_backfill_calls_publisher(store, live):
     store.update_classification(ev.capture_id, True, 0.9, None, None)
     unchecked(store, [ev.capture_id])
     p.sweep()
-    assert [c.id for c in pub.evaluated] == [ev.capture_id]
-    assert pub.evaluated[0].species == "Robin"
+    assert pub.days == [("Robin", T0.date())]
+    assert store.get(ev.capture_id).species == "Robin"
 
 
 def test_backfill_without_species_does_not_call_publisher(store, live):
@@ -434,7 +456,7 @@ def test_backfill_without_species_does_not_call_publisher(store, live):
     store.update_classification(ev.capture_id, True, 0.9, None, None)
     unchecked(store, [ev.capture_id])
     p.sweep()
-    assert pub.evaluated == []
+    assert pub.days == []
     assert store.classification_backlog() == []
 
 
@@ -443,7 +465,7 @@ def test_process_skips_publisher_without_species(store, live):
     p = Pipeline(store, FakeClassifier(), live, publisher=pub)
     ev = add(store, 0)
     p.process(ev.capture_id, ev.path, ev.captured_at)
-    assert pub.evaluated == []
+    assert pub.days == []
     assert store.get(ev.capture_id).status == "done"
 
 
@@ -455,7 +477,7 @@ def test_backfill_publisher_error_keeps_row_done_and_checked(store, live, caplog
     unchecked(store, [ev.capture_id])
     with caplog.at_level(logging.ERROR):
         p.sweep()
-    assert "publish decision failed" in caplog.text
+    assert "publish re-rank failed" in caplog.text
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.species_checked is True and c.species == "Robin"
     assert store.classification_backlog() == []
@@ -468,7 +490,7 @@ def test_failed_backfill_does_not_call_publisher(store, live):
     store.update_classification(ev.capture_id, True, 0.9, None, None)
     unchecked(store, [ev.capture_id])
     p.sweep()
-    assert pub.evaluated == []
+    assert pub.days == []
     c = store.get(ev.capture_id)
     assert c.status == "done" and c.species_checked is True
     assert store.classification_backlog() == []
@@ -613,7 +635,7 @@ def test_backfill_keeps_a_seen_rows_species_even_if_the_rerun_differs(store, liv
     Pipeline(store, ReturnsFake(pred), live, publisher=pub).sweep()
     c = store.get(ev.capture_id)
     assert c.species == "Robin" and c.species_confidence == 0.8
-    assert pub.evaluated == []
+    assert c.model_species == "Robin" and pub.days == []
     assert store.classification_backlog() == []
 
 
@@ -626,7 +648,7 @@ def test_backfill_writes_species_for_unseen_rows(store, live):
     Pipeline(store, ReturnsFake(pred), live, publisher=pub).sweep()
     c = store.get(ev.capture_id)
     assert c.species == "Robin" and c.species_confidence == 0.8
-    assert [x.id for x in pub.evaluated] == [ev.capture_id]
+    assert pub.days == [("Robin", T0.date())]
     assert store.classification_backlog() == []
 
 
@@ -660,13 +682,16 @@ def test_backfill_promotion_with_species_evaluates_publisher_and_never_notifies(
         detector_confidence=0.55, detector_box=(0.1, 0.2, 0.3, 0.4),
     )
     n, pub = FakeNotifier(), FakePublisher()
-    Pipeline(store, ReturnsFake(pred), live, notifier=n, publisher=pub).sweep()
-    assert [c.id for c in pub.evaluated] == [ev.capture_id]
+    p = Pipeline(store, ReturnsFake(pred), live, notifier=n, publisher=pub)
+    p.sweep()
+    p.visits.tick(T0 + timedelta(hours=1))
+    assert pub.days == [("Robin", T0.date())]
     assert n.calls == []
-    assert store.get(ev.capture_id).is_bird is True
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.species == "Robin"
 
 
-def test_backfill_rename_forgets_old_species_then_evaluates_new(store, live):
+def test_backfill_rename_reranks_old_and_new_days(store, live):
     ev = add(store, 0)
     store.update_classification(ev.capture_id, True, 0.9, "Black Phoebe", 0.8)
     unchecked(store, [ev.capture_id])                      # species pass pending (new model)
@@ -674,8 +699,7 @@ def test_backfill_rename_forgets_old_species_then_evaluates_new(store, live):
     Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Black Redstart", species_confidence=0.95)), live, publisher=pub).sweep()
     c = store.get(ev.capture_id)
     assert c.species == "Black Redstart" and c.species_confidence == 0.95
-    assert pub.forgotten == [ev.capture_id] and [x.id for x in pub.evaluated] == [ev.capture_id]
-    assert pub.order == ["forget", "evaluate"]
+    assert pub.days == [("Black Phoebe", T0.date()), ("Black Redstart", T0.date())]
 
 
 def test_backfill_rename_to_nothing_forgets_old_species(store, live):
@@ -686,7 +710,7 @@ def test_backfill_rename_to_nothing_forgets_old_species(store, live):
     Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9)), live, publisher=pub).sweep()
     c = store.get(ev.capture_id)
     assert c.species is None and c.species_confidence is None
-    assert pub.forgotten == [ev.capture_id] and pub.evaluated == []
+    assert pub.days == [("Black Phoebe", T0.date())]
 
 
 def test_backfill_same_species_does_not_forget(store, live):
@@ -695,8 +719,10 @@ def test_backfill_same_species_does_not_forget(store, live):
     unchecked(store, [ev.capture_id])
     pub = FakePublisher()
     Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Robin", species_confidence=0.85)), live, publisher=pub).sweep()
-    assert pub.forgotten == [] and [x.id for x in pub.evaluated] == [ev.capture_id]
-    assert store.get(ev.capture_id).species_confidence == 0.85
+    # Same name, new confidence: that day is re-ranked once.
+    assert pub.days == [("Robin", T0.date())]
+    c = store.get(ev.capture_id)
+    assert c.species == "Robin" and c.species_confidence == 0.85
 
 
 def test_backfill_detector_pass_keeps_species_and_does_not_forget(store, live):
@@ -705,7 +731,7 @@ def test_backfill_detector_pass_keeps_species_and_does_not_forget(store, live):
     detector_unchecked(store, [ev.capture_id])             # species_checked stays 1
     pub = FakePublisher()
     Pipeline(store, ReturnsFake(Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7)), live, publisher=pub).sweep()
-    assert store.get(ev.capture_id).species == "Robin" and pub.forgotten == [] and pub.evaluated == []
+    assert store.get(ev.capture_id).species == "Robin" and pub.days == []
 
 
 def real_publisher(store, live, **kw):
@@ -737,3 +763,47 @@ def test_backfill_rename_hands_the_old_slot_to_the_next_best_photo(store, live):
     ca, cb = store.get(a.capture_id), store.get(b.capture_id)
     assert cb.species == "Black Phoebe" and cb.published == "auto"
     assert ca.species == "Black Redstart" and ca.published == "auto"
+
+
+def test_run_loop_ticks_visits(store, live):
+    p = Pipeline(store, SpeciesFake(), live, sweep_interval=100, tick_interval=0.1)
+    p.start()
+    try:
+        ev = add_at(store, recent())
+        assert p.submit(ev)
+        assert wait_until(lambda: store.get(ev.capture_id).status == "done")
+        assert store.get(ev.capture_id).visit_id is not None
+        assert wait_until(lambda: store.open_visits() == [], timeout=3)
+    finally:
+        p.stop()
+
+
+def test_sweep_resolves_unlabelled_done_rows(store, live, caplog):
+    ev = add(store, 0)
+    store.store_verdict(ev.capture_id, is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8)
+    assert store.get(ev.capture_id).is_bird is None
+    clf = FakeClassifier()
+    with caplog.at_level(logging.INFO):
+        Pipeline(store, clf, live).sweep()
+    c = store.get(ev.capture_id)
+    assert c.is_bird is True and c.species == "Robin" and c.visit_id is not None
+    assert clf.calls == []                       # no model runs: the stored verdict is resolved
+    assert store.unresolved_done() == []
+    assert "resolved 1 unlabelled rows" in caplog.text
+
+
+def test_detector_only_backfill_keeps_the_stored_embedding(store, live):
+    ev = add(store, 0)
+    old = np.array([1.0, 0.0, 0.0, 0.0], np.float32)
+    store.store_verdict(ev.capture_id, is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8, embedding=old)
+    Pipeline(store, FakeClassifier(), live).sweep()            # resolves the row (unlabelled sweep)
+    detector_unchecked(store, [ev.capture_id])                 # species_checked stays 1
+    new = np.array([0.0, 1.0, 0.0, 0.0], np.float32)
+    pred = Prediction(is_bird=True, confidence=0.9, species="Blackbird", species_confidence=0.7, embedding=new)
+    Pipeline(store, ReturnsFake(pred), live).sweep()
+    assert np.allclose(store.embeddings([ev.capture_id])[ev.capture_id], old)
+    c = store.get(ev.capture_id)
+    assert c.species == "Robin" and store.classification_backlog() == []
+    unchecked(store, [ev.capture_id])                          # a species pass does take the new one
+    Pipeline(store, ReturnsFake(pred), live).sweep()
+    assert np.allclose(store.embeddings([ev.capture_id])[ev.capture_id], new)

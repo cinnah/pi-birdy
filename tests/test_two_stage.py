@@ -38,6 +38,9 @@ class FakeSpecies:
             raise self.raise_exc
         return [(BLUE_TIT, self.p), (SpeciesLabel("Parus major", "Great Tit"), self.p / 2)][:k]
 
+    def top_with_embedding(self, img, k=5):
+        return self.top(img, k), np.ones(8, np.float32) / np.sqrt(8)
+
 
 class FakeDetector:
     def __init__(self, score=0.0, raise_exc=None):
@@ -284,3 +287,10 @@ def test_candidate_refresh_failure_means_no_species(live, caplog):
     lst.candidates = lambda species_cfg: frozenset({11})   # fixed: retried, since the key was never cached
     pred, _ = clf.classify_image(IMG)
     assert pred.species == "Eurasian Blue Tit" and clf.species.candidate_sets == [[11]]
+
+
+def test_prediction_carries_the_embedding_for_birds(live):
+    pred, _ = two_stage(live, 0.9, 0.8).classify_image(IMG)
+    assert pred.embedding is not None and pred.embedding.shape == (8,)
+    pred, _ = two_stage(live, 0.1, 0.8, p_det=0.1).classify_image(IMG)
+    assert pred.embedding is None

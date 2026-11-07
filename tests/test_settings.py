@@ -19,6 +19,7 @@ def default_patch(config, **overrides) -> SettingsPatch:
         species_include=config.species.include,
         species_exclude=config.species.exclude,
         detector_threshold=config.detector.threshold,
+        visits_gap_seconds=config.visits.gap_seconds,
         lat=config.site.lat,
         lon=config.site.lon,
         margin_minutes=config.daylight.margin_minutes,
@@ -101,6 +102,7 @@ FORM = {
     "species_include": "",
     "species_exclude": "",
     "detector_threshold": "0.2",
+    "visits_gap_seconds": "60",
     "lat": "",
     "lon": "",
     "margin_minutes": "30",
@@ -191,6 +193,9 @@ exclude = ["Rock Pigeon"]
 model = "models/other_detector.tflite"
 labels = "models/other_coco_labels.txt"
 threshold = 0.35
+
+[visits]
+gap_seconds = 90
 
 [retention]
 non_bird_days = 14
@@ -404,3 +409,8 @@ def test_save_drops_legacy_rescue_key_and_writes_new_species_keys(tmp_path):
     assert "rescue_threshold" not in text
     assert "bank" in text
     assert load_config(path).species.region_radius_km == 50
+
+
+def test_visits_gap_roundtrip(config_path, config):
+    new = save_settings(config_path, config, default_patch(config, visits_gap_seconds=120))
+    assert new.visits.gap_seconds == 120 and load_config(config_path).visits.gap_seconds == 120

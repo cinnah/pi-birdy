@@ -134,6 +134,7 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         species_threshold=cur.species.threshold,
         species_include=cur.species.include, species_exclude=cur.species.exclude,
         detector_threshold=cur.detector.threshold,
+        visits_gap_seconds=cur.visits.gap_seconds,
         lat=cur.site.lat,
         lon=cur.site.lon,
         margin_minutes=cur.daylight.margin_minutes,

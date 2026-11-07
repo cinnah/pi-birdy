@@ -49,6 +49,9 @@ model = "models/efficientdet_lite0_320_ptq.tflite"   # COCO object detector; res
 labels = "models/coco_labels.txt"                     # one name per line, line index = class id; restart-only
 threshold = 0.2            # a "bird" detection at or above this makes the photo a bird, whatever the gate said; applies without a restart
 
+[visits]
+gap_seconds = 60           # photos of one bird within this gap form a visit (10–600); applies without a restart
+
 [retention]
 non_bird_days = 7          # non-bird photos older than this are deleted hourly
 

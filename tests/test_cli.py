@@ -256,11 +256,23 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     monkeypatch.setattr("birdy.store.Store.reset_species_for_model", lambda self, mid: calls.append(mid) or 0)
     real_init = pipeline.Pipeline.__init__
 
-    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None, lores_size=(320, 240)):
+    migrations = []
+
+    def migrate_visits(self, gap_seconds):
+        order.append("migrate")
+        migrations.append(gap_seconds)
+        return 0
+
+    monkeypatch.setattr("birdy.store.Store.migrate_visits", migrate_visits)
+
+    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None, lores_size=(320, 240), visits=None):
+        order.append("pipeline-init")
         seen["pipeline_classifier"] = classifier
-        seen["pipeline_notifier"] = notifier
+        seen["pipeline_obj"] = self
+        seen["pipeline_visits"] = visits
         seen["pipeline_lores_size"] = lores_size
-        return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher, lores_size=lores_size)
+        return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher,
+                         lores_size=lores_size, visits=visits)
 
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
     real_start = pipeline.Pipeline.start
@@ -277,6 +289,7 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     def create_app(*a, **kw):
         seen["web_classifier"] = kw.get("classifier")
         seen["web_notifier"] = kw.get("notifier", "missing")
+        seen["web_visits"] = kw.get("visits")
         return real_create_app(*a, **kw)
 
     monkeypatch.setattr(web_app, "create_app", create_app)
@@ -300,7 +313,9 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     assert clf.species_list.started == [(config.site.lat, config.site.lon, config.species.region_radius_km)]
     assert clf.species_list.stopped is True
     # The first list fetch is joined (and the candidates applied) before the first sweep.
-    assert order[:3] == ["list-stop", "apply-candidates", "pipeline-start"], order
+    # The history migration runs after that and before the pipeline exists.
+    assert order[:5] == ["list-stop", "apply-candidates", "migrate", "pipeline-init", "pipeline-start"], order
+    assert migrations == [config.visits.gap_seconds]
     assert calls == ["test/1"]
     assert seen["status_http"] == 200
     assert b"motion_score" in seen["status_body"]
@@ -314,8 +329,11 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     # The pipeline crops with the camera's lores size, not a hard-coded default.
     assert seen["pipeline_lores_size"] == config.camera.lores_size
     # Alerts are off in the default config: no notifier anywhere.
-    assert seen["pipeline_notifier"] is None
+    assert seen["pipeline_obj"].visits._notifier is None
     assert seen["web_notifier"] is None
+    # One Visits for the pipeline, the web app (and retention).
+    assert seen["pipeline_visits"] is not None and seen["pipeline_obj"].visits is seen["pipeline_visits"]
+    assert seen["web_visits"] is seen["pipeline_visits"]
 
 
 def test_telegram_chat_id_prints_ids(capsys, config, monkeypatch):
@@ -360,7 +378,7 @@ def test_cmd_run_builds_notifier_when_enabled(config_path, monkeypatch):
     built = {}
 
     class FakeNotifier:
-        def __init__(self, live, store, transport):
+        def __init__(self, live, transport):
             built["transport"] = transport
             built["self"] = self
 
@@ -382,7 +400,7 @@ def test_cmd_run_builds_notifier_when_enabled(config_path, monkeypatch):
     cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
     assert cli.cmd_run(cfg, config_path) == 0
     assert built["transport"] == ("transport", "T") and built["started"] and built["stopped"]
-    assert seen["notifier"] is built["self"] and seen["pipeline"]._notifier is built["self"]
+    assert seen["notifier"] is built["self"] and seen["pipeline"].visits._notifier is built["self"]
 
 
 def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
@@ -409,6 +427,9 @@ def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
             built["stopped"] = True
             order.append("publisher.stop")
 
+        def evaluate_all(self):   # a fresh DB is migrated too (0 visits): history is re-ranked once
+            return 0
+
     monkeypatch.setattr(cli, "Publisher", FakePublisher)
     import birdy.pipeline as pipeline_mod
     from birdy.store import Store
@@ -426,8 +447,51 @@ def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
     cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
     assert cli.cmd_run(cfg, config_path) == 0
     assert built["mirror_dir"] == cfg.storage.data_dir / "publish" and built["started"] and built["stopped"]
-    assert seen["publisher"] is built["self"] and seen["pipeline"]._publisher is built["self"]
+    assert seen["publisher"] is built["self"] and seen["pipeline"].visits._publisher is built["self"]
     assert order == ["pipeline.stop", "publisher.stop", "store.close"]
+
+
+def test_cmd_run_reranks_after_the_visits_migration(config_path, monkeypatch):
+    import dataclasses
+
+    from birdy import cli
+    from birdy.config import load_config
+
+    cfg = load_config(config_path)
+    cfg = dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, enabled=True, host="h"))
+    calls = []
+
+    class FakePublisher:
+        def __init__(self, live, store, mirror_dir):
+            pass
+
+        def start(self):
+            calls.append("start")
+
+        def stop(self, timeout=10.0):
+            calls.append("stop")
+
+        def evaluate_all(self):
+            calls.append("evaluate_all")
+            return 0
+
+        def evaluate_day(self, species, when):
+            return False
+
+        def notify(self):
+            pass
+
+    def migrate_visits(self, gap_seconds):
+        self.migrated_visits = True
+        return 2
+
+    monkeypatch.setattr(cli, "Publisher", FakePublisher)
+    monkeypatch.setattr("birdy.store.Store.migrate_visits", migrate_visits)
+    monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
+    monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: None)
+    cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
+    assert cli.cmd_run(cfg, config_path) == 0
+    assert calls.count("evaluate_all") == 1 and calls.index("start") < calls.index("evaluate_all")
 
 
 def test_cmd_run_no_publisher_when_disabled(config_path, monkeypatch):
@@ -447,7 +511,7 @@ def test_cmd_run_no_publisher_when_disabled(config_path, monkeypatch):
     monkeypatch.setattr(webapp, "create_app", lambda *a, **k: seen.update(publisher=k.get("publisher")) or real_create_app(*a, **k))
     cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
     assert cli.cmd_run(cfg, config_path) == 0
-    assert seen["publisher"] is None and seen["pipeline"]._publisher is None
+    assert seen["publisher"] is None and seen["pipeline"].visits._publisher is None
 
 
 def test_publish_command_runs_once(tmp_path, monkeypatch, capsys):

@@ -73,6 +73,11 @@ class DetectorConfig:
 
 
 @dataclass(frozen=True)
+class VisitsConfig:
+    gap_seconds: int          # photos of one bird within this gap form a visit (live)
+
+
+@dataclass(frozen=True)
 class RetentionConfig:
     non_bird_days: int
 
@@ -120,6 +125,7 @@ class Config:
     classifier: ClassifierConfig
     species: SpeciesConfig
     detector: DetectorConfig
+    visits: VisitsConfig
     retention: RetentionConfig
     storage: StorageConfig
     web: WebConfig
@@ -282,6 +288,10 @@ def load_config(path: Path) -> Config:
     detector_threshold = _num(det, "detector", "threshold", 0.2, float)
     _check(0.0 <= detector_threshold <= 1.0, "detector.threshold must be between 0 and 1")
 
+    vis = raw.get("visits", {})
+    gap = _num(vis, "visits", "gap_seconds", 60, int)
+    _check(10 <= gap <= 600, "visits.gap_seconds must be between 10 and 600")
+
     ret = raw.get("retention", {})
     non_bird_days = _num(ret, "retention", "non_bird_days", 7, int)
     _check(non_bird_days >= 1, "retention.non_bird_days must be >= 1")
@@ -356,6 +366,7 @@ def load_config(path: Path) -> Config:
             labels=_path(base, det, "detector", "labels", "models/coco_labels.txt"),
             threshold=detector_threshold,
         ),
+        visits=VisitsConfig(gap_seconds=gap),
         retention=RetentionConfig(non_bird_days=non_bird_days),
         storage=StorageConfig(data_dir=_path(base, sto, "storage", "data_dir", "data")),
         web=WebConfig(host=str(web.get("host", "0.0.0.0")), port=port),

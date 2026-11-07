@@ -11,9 +11,10 @@ from fastapi.testclient import TestClient
 from birdy.classifier import Prediction
 from birdy.config import load_config
 from birdy.notify import TelegramError
-from birdy.species import SpeciesLabel
+from birdy.species import SpeciesLabel, load_bank
 from birdy.state import RuntimeState
 from birdy.store import Store
+from birdy.visits import Visits
 from birdy.web.app import create_app
 
 T0 = datetime(2026, 10, 3, 10, 0, tzinfo=timezone.utc)
@@ -98,9 +99,38 @@ def notifier():
     return FakeNotifier()
 
 
+def _bank(tmp_path):
+    # unit vectors: row 0 = Black Redstart, row 1 = European Robin, row 2 = Eurasian Hoopoe
+    p = tmp_path / "bank.npz"
+    np.savez(p, ids=np.array([1, 2, 3], np.int32), latin=np.array(["Phoenicurus ochruros", "Erithacus rubecula", "Upupa epops"]),
+             common=np.array(["Black Redstart", "European Robin", "Eurasian Hoopoe"]), emb=np.eye(3, 4, dtype=np.float16),
+             logit_scale=np.float32(100.0), model=np.str_("x"), prompt=np.str_("p"))
+    return load_bank(p)
+
+
+class FakeVisitsList:
+    """The species list `Visits` holds: whole bank as candidates, a 2-species local list."""
+    version = 1
+
+    def candidates(self, cfg):
+        return None
+
+    def current(self):
+        from birdy.species_list import LocalList
+        return LocalList(datetime.now(timezone.utc), 38.8, -9.39, 50, [
+            {"id": 2, "latin": "Erithacus rubecula", "common": "European Robin", "count": 4},
+            {"id": 1, "latin": "Phoenicurus ochruros", "common": "Black Redstart", "count": 9},
+        ])
+
+
 @pytest.fixture
-def client(store, state, live, config_path, classifier, notifier):
-    return TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=notifier))
+def visits(store, live, tmp_path, publisher):
+    return Visits(store, live, bank=_bank(tmp_path), species_list=FakeVisitsList(), notifier=None, publisher=publisher)
+
+
+@pytest.fixture
+def client(store, state, live, config_path, classifier, notifier, visits):
+    return TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=notifier, visits=visits))
 
 
 def add(store, i, is_bird):
@@ -216,6 +246,7 @@ def _base_form():
         "species_include": "",
         "species_exclude": "",
         "detector_threshold": "0.2",
+        "visits_gap_seconds": "60",
         "lat": "",
         "lon": "",
         "margin_minutes": "30",
@@ -602,12 +633,20 @@ class FakePublisher:
         self.calls = []
         self.forgotten = []
         self.evaluated = []
+        self.days = []
+        self.notified = 0
 
     def forget(self, capture):
         self.forgotten.append(capture.id)
 
     def evaluate(self, capture):
         self.evaluated.append(capture.id)
+
+    def evaluate_day(self, species, when):
+        self.days.append((species, when))
+
+    def notify(self):
+        self.notified += 1
 
     def set_manual(self, capture_id, state):
         self.calls.append((capture_id, state))
@@ -819,8 +858,9 @@ def test_not_a_bird_button_on_bird_tiles_only(client, store):
     bird = add(store, 0, True)
     junk = add(store, 1, False)
     html = client.get("/?filter=all").text
-    assert f'action="/captures/{bird.id}/label"' in html
-    assert f'action="/captures/{junk.id}/label"' not in html
+    assert ">Not a bird<" in _tile(html, bird.id)
+    junk_tile = _tile(html, junk.id)
+    assert f'action="/captures/{junk.id}/label"' in junk_tile and ">Not a bird<" not in junk_tile
 
 
 def test_mark_not_bird_and_back(pclient, store, publisher):
@@ -832,7 +872,7 @@ def test_mark_not_bird_and_back(pclient, store, publisher):
     assert c.is_bird is False and c.species is None and c.published is None
     assert publisher.forgotten == [a.id]            # its species/day is re-ranked, the gallery syncs
     html = pclient.get("/?filter=non-birds").text
-    assert "you: no bird" in html and "Back to model" in html and "model: Robin" in html
+    assert 'class="tag you">you<' in html and ">no bird<" in html and "Back to model" in html and "model: Robin" in html
     r = pclient.post(f"/captures/{a.id}/label", data={"label": "clear"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/"
     c = store.get(a.id)
@@ -909,3 +949,185 @@ def test_classify_upload_non_bird_shows_species_skipped(store, state, live, conf
     data = (Path(__file__).parent / "fixtures" / "cat.jpg").read_bytes()
     r = c.post("/classify", files={"image": ("c.jpg", data, "image/jpeg")})
     assert r.status_code == 200 and "species: skipped (not a bird)" in r.text and "species guesses" not in r.text
+
+
+def test_settings_page_has_visits_gap(client):
+    r = client.get("/settings").text
+    assert 'name="visits_gap_seconds"' in r and 'value="60"' in r
+
+
+# --- corrections, Fix panel, visits -------------------------------------------------
+
+def _e(i):
+    return np.eye(4, dtype=np.float32)[i]
+
+
+def vadd(store, visits, seconds, *, bird=True, row=1, species="European Robin", p=0.7):
+    """A classified photo through Visits (row 1 = European Robin in the test bank)."""
+    when = T0 + timedelta(seconds=seconds)
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), np.full((60, 80, 3), 90, np.uint8))
+    cid = store.add_capture(when, rel, 100)
+    store.store_verdict(cid, is_bird=bird, confidence=0.9 if bird else 0.1, species=species if bird else None,
+                        species_confidence=p if bird else None, embedding=_e(row) if bird else None)
+    visits.photo_classified(store.get(cid), live=False)
+    return cid
+
+
+def test_label_species_corrects_the_whole_visit(client, store, visits):
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    vid = store.get(a).visit_id
+    assert vid is not None and store.get(b).visit_id == vid and store.get(a).species == "European Robin"
+    r = client.post(f"/captures/{a}/label",
+                    data={"label": "species", "species_name": "black redstart", "next": "/?filter=birds&page=2"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=birds&page=2"
+    for cid in (a, b):
+        c = store.get(cid)
+        assert c.species == "Black Redstart" and c.manual_species == "Black Redstart" and c.manual_at is not None
+    # the spec's own form works too
+    r = client.post(f"/captures/{b}/label", data={"label": "species:Eurasian Hoopoe"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert store.get(a).species == "Eurasian Hoopoe"
+
+
+def test_label_bird_unknown_and_clear(client, store, visits):
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    r = client.post(f"/captures/{a}/label", data={"label": "bird_unknown"}, follow_redirects=False)
+    assert r.status_code == 303
+    for cid in (a, b):
+        c = store.get(cid)
+        assert c.is_bird is True and c.species is None and c.manual_is_bird is True
+    r = client.post(f"/captures/{b}/label", data={"label": "clear", "next": "//evil"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    for cid in (a, b):
+        c = store.get(cid)
+        assert c.manual_at is None and c.manual_is_bird is None and c.species == "European Robin"
+
+
+def test_label_not_bird_through_visits(client, store, visits, publisher):
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    store.set_published(a, "forced")
+    r = client.post(f"/captures/{a}/label", data={"label": "not_bird"}, follow_redirects=False)
+    assert r.status_code == 303
+    for cid in (a, b):
+        c = store.get(cid)
+        assert c.is_bird is False and c.species is None and c.manual_is_bird is False and c.published is None
+    assert publisher.notified >= 1          # the gallery drops the forced photo on the next sync
+
+
+def test_label_species_rejects_unknown_or_empty_name(client, store, visits):
+    a = vadd(store, visits, 0)
+    r = client.post(f"/captures/{a}/label", data={"label": "species", "species_name": "Dodo"})
+    assert r.status_code == 400 and "Dodo" in r.json()["detail"]
+    assert client.post(f"/captures/{a}/label", data={"label": "species", "species_name": "  "}).status_code == 400
+    assert client.post(f"/captures/{a}/label", data={"label": "species:"}).status_code == 400
+    assert store.get(a).manual_at is None
+    assert client.post("/captures/999/label", data={"label": "species", "species_name": "Black Redstart"}).status_code == 404
+
+
+def test_label_without_visits_falls_back(store, state, live, config_path):
+    c = TestClient(create_app(store, state, live, config_path))
+    a = add(store, 0, True)
+    assert c.post(f"/captures/{a.id}/label", data={"label": "species", "species_name": "Black Redstart"}).status_code == 503
+    assert c.post(f"/captures/{a.id}/label", data={"label": "bird_unknown"}).status_code == 503
+    assert store.get(a.id).manual_at is None
+    assert c.post(f"/captures/{a.id}/label", data={"label": "not_bird"}, follow_redirects=False).status_code == 303
+    assert store.get(a.id).is_bird is False
+    assert c.post(f"/captures/{a.id}/label", data={"label": "clear"}, follow_redirects=False).status_code == 303
+    assert store.get(a.id).is_bird is True
+
+
+def _tile(html, cid):
+    """The markup of one grid tile (from its photo link to the next tile)."""
+    start = html.index(f'action="/captures/{cid}/delete"')
+    start = html.rindex('<div class="tile', 0, start)
+    end = html.find('<div class="tile', start + 1)
+    return html[start:end if end != -1 else len(html)]
+
+
+def test_fix_panel_per_tile_state(client, store, visits):
+    bird = vadd(store, visits, 0)
+    junk = vadd(store, visits, 600, bird=False)
+    fixed = vadd(store, visits, 1200)
+    client.post(f"/captures/{fixed}/label", data={"label": "species", "species_name": "Black Redstart"})
+    html = client.get("/?filter=all").text
+    t = _tile(html, bird)
+    assert '<details class="fix"><summary class="pb">Fix</summary>' in t
+    assert ">Not a bird<" in t and ">Bird, species unknown<" in t and ">Set<" in t
+    assert 'name="species_name" list="species-names"' in t and "Back to model" not in t
+    assert 'class="tag you"' not in t and "model:" not in t
+    t = _tile(html, junk)          # a bird the model missed can be fixed too
+    assert 'class="fix"' in t and ">Bird, species unknown<" in t and 'name="species_name"' in t and ">Set<" in t
+    assert ">Not a bird<" not in t and "Back to model" not in t
+    t = _tile(html, fixed)
+    assert "Back to model" in t and 'class="tag you">you<' in t and "model: European Robin 70%" in t
+    assert ">Black Redstart<" in t
+
+
+def test_visit_link_and_filter(client, store, visits):
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    lone = vadd(store, visits, 600)
+    vid = store.get(a).visit_id
+    html = client.get("/").text
+    assert f'<a class="visit" href="/?visit={vid}">visit · 2</a>' in _tile(html, a)
+    assert 'class="visit"' not in _tile(html, lone)
+    client.post(f"/captures/{b}/label", data={"label": "not_bird"})   # still in the visit, now a non-bird
+    html = client.get(f"/?visit={vid}").text
+    assert f'action="/captures/{a}/delete"' in html and f'action="/captures/{b}/delete"' in html
+    assert f'action="/captures/{lone}/delete"' not in html
+    assert "<b>2</b> photos in visit" in html
+    assert client.get("/?visit=abc").status_code == 422
+
+
+def test_visit_pager_keeps_the_visit(client, store, visits, monkeypatch):
+    monkeypatch.setattr("birdy.web.app.PAGE_SIZE", 1)
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    vadd(store, visits, 600)
+    vid = store.get(a).visit_id
+    html = client.get(f"/?visit={vid}").text
+    assert f'href="/?filter=all&page=2&visit={vid}"' in html and f'action="/captures/{b}/delete"' in html
+    html = client.get(f"/?visit={vid}&page=2").text
+    assert f'action="/captures/{a}/delete"' in html and f'href="/?filter=all&page=1&visit={vid}"' in html
+
+
+def test_non_bird_corrected_to_a_bird(client, store, visits):
+    junk = vadd(store, visits, 0, bird=False)
+    assert store.get(junk).visit_id is None
+    r = client.post(f"/captures/{junk}/label", data={"label": "bird_unknown", "next": "/?filter=all"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=all"
+    c = store.get(junk)
+    assert c.is_bird is True and c.species is None and c.visit_id is not None
+    other = vadd(store, visits, 600, bird=False)
+    client.post(f"/captures/{other}/label", data={"label": "species", "species_name": "Eurasian Hoopoe"})
+    c = store.get(other)
+    assert c.is_bird is True and c.species == "Eurasian Hoopoe" and c.visit_id is not None
+    assert "Eurasian Hoopoe" in _tile(client.get("/").text, other)
+
+
+def test_species_datalist(client, store, visits):
+    add(store, 0, True)          # seen: "Robin"
+    vadd(store, visits, 600)     # seen: "European Robin" (also on the local list)
+    html = client.get("/").text
+    m = re.search(r'<datalist id="species-names">(.*?)</datalist>', html)
+    assert m is not None and html.count('id="species-names"') == 1
+    assert re.findall(r'<option value="([^"]+)">', m.group(1)) == ["Black Redstart", "European Robin", "Robin"]
+
+
+def test_delete_routes_re_resolve_the_visit(client, store, visits):
+    calls = []
+    orig = visits.photo_removed
+    visits.photo_removed = lambda vid: (calls.append(vid), orig(vid))
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    vid = store.get(a).visit_id
+    lone = add(store, 30, True)      # no visit: no hook
+    r = client.post(f"/captures/{a}/delete", follow_redirects=False)
+    assert r.status_code == 303 and calls == [vid] and store.get_visit(vid) is not None
+    client.post(f"/captures/{lone.id}/delete")
+    assert calls == [vid]
+    c, d = vadd(store, visits, 3600), vadd(store, visits, 3620)
+    vid2 = store.get(c).visit_id
+    client.post(f"/captures/{c}/label", data={"label": "not_bird"})
+    r = client.post("/captures/delete-non-birds", data={"ids": [str(c), str(d), str(b)]}, follow_redirects=False)
+    assert r.status_code == 303 and calls == [vid, vid2]            # one call per visit, birds untouched
+    assert store.get(b) is not None and store.get_visit(vid2) is None

@@ -99,9 +99,9 @@ def test_purge_deletes_only_old_non_birds(store):
     store.update_classification(new_junk, False, 0.1, None, None)
     junk = store.get(old_junk)
 
-    deleted = store.purge_non_birds(older_than_days=7, now=T0)
+    deleted, visit_ids = store.purge_non_birds(older_than_days=7, now=T0)
 
-    assert deleted == 1
+    assert deleted == 1 and visit_ids == []
     assert store.get(old_junk) is None
     assert not (store.photos_dir / junk.path).exists()
     assert not (store.thumbs_dir / junk.thumb_path).exists()
@@ -148,7 +148,7 @@ def test_purge_keeps_pending_and_deletes_old_error_rows(store):
     recent_error = add(store, T0 - timedelta(days=1))
     store.mark_error(recent_error)
 
-    assert store.purge_non_birds(older_than_days=7, now=T0) == 1
+    assert store.purge_non_birds(older_than_days=7, now=T0) == (1, [])
     assert store.get(pending).status == "pending"
     assert store.get(errored) is None
     assert store.get(recent_error).status == "error"
@@ -239,6 +239,18 @@ def test_list_and_count_by_species(store):
     assert store.count("all", species="Robin") == 1
     assert store.count("birds", species="Blue Tit") == 1
     assert store.count("non-birds", species="Blue Tit") == 0
+
+
+def test_list_and_count_by_visit(store):
+    a = add_species(store, T0, "Robin", 0.9)
+    b = add_species(store, T0 + timedelta(seconds=30), "Robin", 0.8)
+    add_species(store, T0 + timedelta(minutes=5), "Robin", 0.9)
+    vid = store.create_visit(T0, T0)
+    store.attach_to_visit(a, vid, extend=True)
+    store.attach_to_visit(b, vid, extend=True)
+    assert [x.id for x in store.list_captures("all", visit=vid)] == [b, a]
+    assert store.count("all", visit=vid) == 2
+    assert store.count("all", visit=vid + 1) == 0
 
 
 def test_last_species(store):
@@ -444,7 +456,7 @@ def test_purge_keeps_rows_with_any_published_state(store):
         store.update_classification(cid, False, 0.1, None, None)
     store.set_published(forced, "forced")
 
-    assert store.purge_non_birds(older_than_days=7, now=T0) == 1
+    assert store.purge_non_birds(older_than_days=7, now=T0) == (1, [])
     assert store.get(forced).published == "forced"
     assert store.get(plain) is None
 
@@ -538,7 +550,7 @@ def test_corrected_photos_are_kept_by_retention_and_skipped_by_backfill(store):
     store.mark_not_bird(cid)
     with store._lock, store._conn:
         store._conn.execute("UPDATE captures SET species_checked = 0 WHERE id = ?", (cid,))
-    assert store.purge_non_birds(older_than_days=7, now=T0) == 0
+    assert store.purge_non_birds(older_than_days=7, now=T0) == (0, [])
     assert store.get(cid) is not None
     assert store.classification_backlog() == [] and store.count_classification_backlog() == 0
 
@@ -616,3 +628,263 @@ def test_reset_species_counts_birds_in_the_backlog(store):
     store.reset_species_for_model("m1")
     assert [c.id for c in store.classification_backlog()] == [bird]
     assert store.count_classification_backlog() == 1
+
+
+def test_store_verdict_writes_model_columns_only(store):
+    cid = add(store, T0)
+    emb = np.full(768, 0.036, np.float32)
+    store.store_verdict(cid, is_bird=True, confidence=0.7, species="Robin", species_confidence=0.9,
+                        det_confidence=0.6, det_box=(0.1, 0.2, 0.3, 0.4), embedding=emb)
+    c = store.get(cid)
+    assert c.status == "done" and c.species_checked and c.model_is_bird is True and c.model_confidence == 0.7
+    assert c.model_species == "Robin" and c.model_species_confidence == 0.9 and c.det_confidence == 0.6
+    assert c.is_bird is None and c.species is None            # final columns untouched
+    assert c.has_embedding and np.allclose(store.embeddings([cid])[cid], emb, atol=1e-3)
+    store.store_verdict(cid, is_bird=False, confidence=0.1, species=None, species_confidence=None, embedding=None)
+    assert cid in store.embeddings([cid])                      # a None embedding keeps the stored one
+
+
+def test_embeddings_returns_only_rows_with_a_blob(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=1)); c = add(store, T0 + timedelta(seconds=2))
+    store.store_verdict(a, is_bird=True, confidence=0.7, species=None, species_confidence=None,
+                        embedding=np.full(768, 0.5, np.float32))
+    store.store_verdict(b, is_bird=True, confidence=0.7, species=None, species_confidence=None)
+    out = store.embeddings([a, b, c, 999])
+    assert set(out) == {a} and out[a].dtype == np.float32 and out[a].shape == (768,)
+    assert store.embeddings([]) == {}
+
+
+def test_update_classification_also_writes_model_columns(store):
+    cid = add(store, T0)
+    store.update_classification(cid, True, 0.9, "Robin", 0.8)
+    c = store.get(cid)
+    assert (c.model_is_bird, c.model_confidence, c.model_species, c.model_species_confidence) == (True, 0.9, "Robin", 0.8)
+
+
+def test_write_final(store):
+    cid = add(store, T0)
+    store.write_final(cid, is_bird=True, confidence=0.7, species="Robin", species_confidence=0.8)
+    c = store.get(cid)
+    assert (c.is_bird, c.confidence, c.species, c.species_confidence) == (True, 0.7, "Robin", 0.8)
+
+
+def test_visit_crud(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=30)); c = add(store, T0 + timedelta(minutes=10))
+    v1 = store.create_visit(T0, T0, alert="pending")
+    store.attach_to_visit(a, v1); store.attach_to_visit(b, v1, extend=True)
+    v = store.get_visit(v1)
+    assert v.started_at == T0 and v.ended_at == T0 + timedelta(seconds=30) and v.closed is False and v.alert == "pending"
+    assert [x.id for x in store.visit_photos(v1)] == [a, b]
+    assert store.get(a).visit_id == v1
+    v2 = store.create_visit(store.get(c).captured_at, store.get(c).captured_at, alert="skipped"); store.attach_to_visit(c, v2)
+    assert [x.id for x in store.visits_overlapping(T0 - timedelta(seconds=60), T0 + timedelta(seconds=90))] == [v1]
+    assert [x.id for x in store.visits_overlapping(T0 + timedelta(minutes=9), T0 + timedelta(minutes=11))] == [v2]
+    store.merge_visits(v1, [v2])
+    assert store.get_visit(v2) is None and store.get(c).visit_id == v1 and store.get_visit(v1).ended_at == store.get(c).captured_at
+    store.set_visit_result(v1, "Robin", 0.9); store.close_visit(v1); store.set_visit_alert(v1, "sent")
+    v = store.get_visit(v1)
+    assert (v.species, v.species_confidence, v.closed, v.alert) == ("Robin", 0.9, True, "sent")
+    assert store.open_visits() == []
+    assert store.count_visits_with_species("Robin") == 0          # no bird member yet
+    store.store_verdict(a, is_bird=True, confidence=0.8, species="Robin", species_confidence=0.9)
+    assert store.count_visits_with_species("Robin") == 1
+    store.delete_visit(v1)
+    assert store.get_visit(v1) is None and store.get(a).visit_id is None
+
+
+def test_merge_into_unknown_visit_raises(store):
+    a = add(store, T0)
+    v = store.create_visit(T0, T0); store.attach_to_visit(a, v)
+    with pytest.raises(KeyError):
+        store.merge_visits(v + 1, [v])
+    assert store.get_visit(v) is not None and store.get(a).visit_id == v
+
+
+def test_merge_sets_alert_in_the_same_call(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=30))
+    v1 = store.create_visit(T0, T0, alert="pending"); v2 = store.create_visit(T0 + timedelta(seconds=30), T0 + timedelta(seconds=30), alert="sent")
+    store.attach_to_visit(a, v1); store.attach_to_visit(b, v2)
+    with pytest.raises(ValueError):
+        store.merge_visits(v1, [v2], alert="bogus")
+    assert store.get_visit(v2) is not None
+    store.merge_visits(v1, [v2], alert="sent")
+    assert store.get_visit(v2) is None and store.get_visit(v1).alert == "sent" and store.get(b).visit_id == v1
+
+
+def test_set_manual_visit_and_detach(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=5)); c = add(store, T0 + timedelta(minutes=5))
+    v = store.create_visit(T0, T0 + timedelta(seconds=5)); store.attach_to_visit(a, v); store.attach_to_visit(b, v)
+    at = T0 + timedelta(hours=1)
+    store.set_manual_visit(v, is_bird=True, species="Robin", at=at)
+    assert all(store.get(x).manual_species == "Robin" and store.get(x).manual_at == at for x in (a, b))
+    assert store.get(c).manual_at is None
+    store.detach_from_visit(b)
+    assert store.get(b).visit_id is None and [x.id for x in store.visit_photos(v)] == [a]
+
+
+def test_bird_members_ignore_the_final_column(store):
+    a = add(store, T0)
+    v = store.create_visit(T0, T0); store.attach_to_visit(a, v)
+    store.store_verdict(a, is_bird=False, confidence=0.1, species=None, species_confidence=None)
+    store.write_final(a, True, 0.9, "Robin", 0.9)        # a final bird the model calls a non-bird
+    assert store.bird_members(v) == []
+
+
+def test_open_visits_and_members(store):
+    a = add(store, T0)
+    v = store.create_visit(T0, T0, alert="pending"); store.attach_to_visit(a, v)
+    assert [x.id for x in store.open_visits()] == [v]
+    store.store_verdict(a, is_bird=True, confidence=0.9, species=None, species_confidence=None)
+    store.write_final(a, True, 0.9, None, None)
+    assert store.bird_members(v) == [a]
+    store.set_manual(a, is_bird=False, species=None)
+    assert store.bird_members(v) == [] and store.get(a).manual_is_bird is False and store.get(a).manual_at is not None
+    store.set_manual(a, is_bird=True, species="Robin")
+    assert store.get(a).manual_species == "Robin" and store.bird_members(v) == [a]
+    store.clear_manual(v)
+    assert store.get(a).manual_at is None and store.get(a).manual_species is None
+
+
+def test_visit_sizes_and_clear_manual_single(store):
+    a = add(store, T0); b = add(store, T0 + timedelta(seconds=5)); c = add(store, T0 + timedelta(minutes=5))
+    v1 = store.create_visit(T0 + timedelta(seconds=5), T0 + timedelta(seconds=5))
+    v2 = store.create_visit(T0, T0, alert="sent")
+    v3 = store.create_visit(T0 - timedelta(minutes=1), T0)
+    store.attach_to_visit(a, v1, extend=True); store.attach_to_visit(b, v1); store.attach_to_visit(c, v2)
+    assert store.get_visit(v1).started_at == T0                 # extend widens backwards too
+    assert store.visit_sizes([v1, v2, v3]) == {v1: 2, v2: 1} and store.visit_sizes([]) == {}
+    store.set_manual(a, is_bird=False, species=None); store.set_manual(b, is_bird=False, species=None)
+    store.clear_manual_single(a)
+    assert store.get(a).manual_at is None and store.get(b).manual_at is not None
+    assert store.get_visit(999) is None
+
+
+def test_unresolved_done_lists_classified_rows_without_final_columns(store):
+    pending = add(store, T0)
+    labelled = add(store, T0 + timedelta(minutes=1))
+    store.update_classification(labelled, True, 0.9, "Robin", 0.8)
+    a = add(store, T0 + timedelta(minutes=2))
+    b = add(store, T0 + timedelta(minutes=3))
+    for cid in (b, a):
+        store.store_verdict(cid, is_bird=True, confidence=0.7, species=None, species_confidence=None)
+    assert [c.id for c in store.unresolved_done()] == [a, b]
+    assert [c.id for c in store.unresolved_done(limit=1)] == [a]
+    assert pending not in [c.id for c in store.unresolved_done()]
+
+
+def test_migrate_visits_builds_history(tmp_path):
+    data = tmp_path / "data"
+    store = Store(data)
+    b1 = add_species(store, T0, "Black Phoebe", 0.8)
+    b2 = add_species(store, T0 + timedelta(seconds=30), "Black Phoebe", 0.7)
+    b3 = add_species(store, T0 + timedelta(seconds=45), "Black Phoebe", 0.9)
+    nonbird = add_species(store, T0 + timedelta(seconds=50), None, None, is_bird=False)
+    corrected = add_species(store, T0 + timedelta(seconds=55), "Robin", 0.6)
+    store.mark_not_bird(corrected)
+    # 100 s after the start but 55 s after b3: the gap chains from the previous bird, not the visit start.
+    b4 = add_species(store, T0 + timedelta(seconds=100), "Robin", 0.95)
+    late = add_species(store, T0 + timedelta(minutes=10), "House Sparrow", 0.5)
+    # An old-format DB: uncorrected rows have no model_* yet (only a correction filled them).
+    with store._lock, store._conn:
+        store._conn.execute(
+            "UPDATE captures SET model_is_bird = NULL, model_confidence = NULL, model_species = NULL,"
+            " model_species_confidence = NULL WHERE manual_at IS NULL"
+        )
+    assert store.get(b1).model_species is None and store.migrated_visits is False
+
+    assert store.migrate_visits(gap_seconds=60) == 2
+    assert store.migrated_visits is True
+    bak = data / "birdy.db.bak-visits"
+    assert bak.exists()
+    conn = sqlite3.connect(bak)
+    try:   # taken before any write
+        assert conn.execute("SELECT COUNT(*) FROM captures").fetchone()[0] == 7
+        assert conn.execute("SELECT model_species FROM captures WHERE id = ?", (b1,)).fetchone()[0] is None
+        assert conn.execute("SELECT COUNT(*) FROM meta WHERE key = 'visits_version'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM visits").fetchone()[0] == 0
+    finally:
+        conn.close()
+    for cid in (b1, b2, b3, b4, late, nonbird):
+        c = store.get(cid)
+        assert (c.model_is_bird, c.model_confidence, c.model_species, c.model_species_confidence) == (
+            c.is_bird, c.confidence, c.species, c.species_confidence)
+    fixed = store.get(corrected)
+    assert fixed.model_is_bird is True and fixed.model_species == "Robin" and fixed.model_species_confidence == 0.6
+    assert fixed.is_bird is False and fixed.species is None
+
+    early = {store.get(cid).visit_id for cid in (b1, b2, b3, b4)}
+    assert len(early) == 1 and None not in early
+    v = store.get_visit(early.pop())
+    assert v.closed and v.alert == "skipped" and v.species == "Black Phoebe" and v.species_confidence == 0.9
+    assert v.started_at == store.get(b1).captured_at and v.ended_at == store.get(b4).captured_at
+    lone = store.get_visit(store.get(late).visit_id)
+    assert lone.id != v.id and lone.closed and lone.alert == "skipped" and lone.species == "House Sparrow"
+    assert store.get(nonbird).visit_id is None and store.get(corrected).visit_id is None
+    assert [c.id for c in store.visit_photos(v.id)] == [b1, b2, b3, b4]
+
+    # Uncorrected birds have no embedding: queued for the backfill; the rest are untouched.
+    assert all(store.get(cid).species_checked is False for cid in (b1, b2, b3, b4, late))
+    assert store.get(nonbird).species_checked is True and store.get(corrected).species_checked is True
+    assert store.get_meta("visits_version") == "1"
+
+    def snapshot():
+        with store._lock:
+            return (
+                [tuple(r) for r in store._conn.execute("SELECT * FROM captures ORDER BY id")],
+                [tuple(r) for r in store._conn.execute("SELECT * FROM visits ORDER BY id")],
+            )
+
+    before = snapshot()
+    assert store.migrate_visits(gap_seconds=60) == 0
+    assert snapshot() == before
+    store.close()
+    again = Store(data)
+    assert again.migrate_visits(gap_seconds=60) == 0 and again.migrated_visits is False
+    again.close()
+
+
+def test_migrate_visits_majority_species_and_existing_visits(store):
+    a = add_species(store, T0, "Robin", 0.4)
+    b = add_species(store, T0 + timedelta(seconds=10), "Black Phoebe", 0.9)
+    c = add_species(store, T0 + timedelta(seconds=20), "Robin", 0.5)
+    d = add_species(store, T0 + timedelta(seconds=30), None, None)          # a bird with no species
+    kept = add_species(store, T0 + timedelta(hours=1), "Wren", 0.7)
+    vid = store.create_visit(T0 + timedelta(hours=1), T0 + timedelta(hours=1))
+    store.attach_to_visit(kept, vid)
+    assert store.migrate_visits(gap_seconds=60) == 1
+    v = store.get_visit(store.get(a).visit_id)
+    assert v.species == "Robin" and v.species_confidence == 0.5
+    assert {store.get(x).visit_id for x in (a, b, c, d)} == {v.id}
+    assert store.get(kept).visit_id == vid and store.get_visit(vid).alert == "pending"   # left alone
+
+
+def test_migrate_visits_rolls_back_on_failure(store, monkeypatch):
+    b = add_species(store, T0, "Black Phoebe", 0.8)
+    with store._lock, store._conn:
+        store._conn.execute("UPDATE captures SET model_is_bird = NULL, model_confidence = NULL,"
+                            " model_species = NULL, model_species_confidence = NULL")
+
+    def boom(rows):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("birdy.store._majority_species", boom)
+    with pytest.raises(RuntimeError):
+        store.migrate_visits(gap_seconds=60)
+    assert store.get_meta("visits_version") is None and store.migrated_visits is False
+    with store._lock:
+        assert store._conn.execute("SELECT COUNT(*) FROM visits").fetchone()[0] == 0
+    c = store.get(b)
+    assert c.model_is_bird is None and c.model_species is None and c.visit_id is None and c.species_checked is True
+    monkeypatch.undo()
+    assert store.migrate_visits(gap_seconds=60) == 1
+    assert store.get(b).model_species == "Black Phoebe" and store.get_meta("visits_version") == "1"
+
+
+def test_count_visits_with_species_ignores_visits_without_a_bird(store):
+    a = add_species(store, T0, "Robin", 0.9)
+    vid = store.create_visit(T0, T0)
+    store.attach_to_visit(a, vid)
+    store.set_visit_result(vid, "Robin", 0.9)
+    assert store.count_visits_with_species("Robin") == 1
+    store.delete_capture(a)                 # its only member is gone; the visit row lingers
+    assert store.get_visit(vid) is not None and store.count_visits_with_species("Robin") == 0

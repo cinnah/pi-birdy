@@ -272,6 +272,12 @@
   </section>
 
   <section class="group">
+    <header><h2 class="head">Visits</h2><p>Photos of one bird become one record</p></header>
+    {{ num("visits_gap_seconds", "visits.gap_seconds", "Visit gap",
+           "Photos less than this far apart are the same bird visit: one species, one alert, one correction.", 10, 600, 5, "s") }}
+  </section>
+
+  <section class="group">
     <header><h2 class="head">Daylight</h2><p>When the camera is awake</p></header>
     <div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
       <label for="lat">Location</label>
