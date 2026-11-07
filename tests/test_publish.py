@@ -587,3 +587,18 @@ def test_forget_deleted_capture_frees_its_slot(live, store, config):
     pub.forget(deleted)                     # the next-best photo takes the freed slot
     assert store.get(b.id).published == "auto"
     pub.forget(None)                        # nothing to do, no error
+
+
+def test_evaluate_day_reranks_by_name_and_time(live, store, config):
+    pub = make(live, store, config, per_species_per_day=1)
+    a = bird(store, T0, "Robin", 0.9)
+    b = bird(store, T0 + timedelta(minutes=1), "Robin", 0.7)
+    assert pub.evaluate_day("Robin", T0 + timedelta(hours=2)) is True
+    assert (store.get(a.id).published, store.get(b.id).published) == ("auto", None)
+    assert pub._wake.is_set()
+    assert pub.evaluate_day("Robin", T0) is False
+    assert pub.evaluate_day("Nobody", T0) is False
+    c = bird(store, T0 + timedelta(minutes=2), "Robin", 0.95)
+    assert pub.evaluate(c) is True          # evaluate goes through evaluate_day
+    assert [store.get(x.id).published for x in (a, b, c)] == [None, None, "auto"]
+    assert pub.evaluate(c) is pub.evaluate_day(c.species, c.captured_at) is False
