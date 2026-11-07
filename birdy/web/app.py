@@ -114,7 +114,7 @@ def create_app(
 
     def _species_names(summary) -> list[str]:
         """The Fix panel's datalist: the local list (most observations first), then species seen."""
-        sl = getattr(visits, "_list", None) or getattr(classifier, "species_list", None)
+        sl = getattr(visits, "species_list", None) or getattr(classifier, "species_list", None)
         cur = sl.current() if sl is not None else None
         local = sorted(cur.species, key=lambda s: -(s.get("count") or 0)) if cur is not None else []
         names = [s.get("common") or s.get("latin") for s in local] + [r.species for r in summary]

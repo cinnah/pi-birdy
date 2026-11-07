@@ -210,14 +210,14 @@
     </form>
     {% endif %}
     <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
-    {% if c.status == 'done' and (c.is_bird or c.manual_at) %}
+    {% if c.status == 'done' %}
     <details class="fix"><summary class="pb">Fix</summary>
       {# the species field comes first: Enter in it submits the form's first button #}
       <form method="post" action="/captures/{{ c.id }}/label" class="fixf">
         <input type="hidden" name="next" value="{{ here }}">
         <input name="species_name" list="species-names" placeholder="species…" aria-label="Species name" autocomplete="off">
-        <button class="pb" name="label" value="species" formaction="/captures/{{ c.id }}/label">Set</button>
-        <button class="pb" name="label" value="not_bird">Not a bird</button>
+        <button class="pb" name="label" value="species">Set</button>
+        {% if c.is_bird %}<button class="pb" name="label" value="not_bird">Not a bird</button>{% endif %}
         <button class="pb" name="label" value="bird_unknown">Bird, species unknown</button>
         {% if c.manual_at %}<button class="pb" name="label" value="clear">Back to model</button>{% endif %}
       </form>

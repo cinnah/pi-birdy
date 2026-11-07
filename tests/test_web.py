@@ -854,8 +854,9 @@ def test_not_a_bird_button_on_bird_tiles_only(client, store):
     bird = add(store, 0, True)
     junk = add(store, 1, False)
     html = client.get("/?filter=all").text
-    assert f'action="/captures/{bird.id}/label"' in html
-    assert f'action="/captures/{junk.id}/label"' not in html
+    assert ">Not a bird<" in _tile(html, bird.id)
+    junk_tile = _tile(html, junk.id)
+    assert f'action="/captures/{junk.id}/label"' in junk_tile and ">Not a bird<" not in junk_tile
 
 
 def test_mark_not_bird_and_back(pclient, store, publisher):
@@ -1050,7 +1051,9 @@ def test_fix_panel_per_tile_state(client, store, visits):
     assert ">Not a bird<" in t and ">Bird, species unknown<" in t and ">Set<" in t
     assert 'name="species_name" list="species-names"' in t and "Back to model" not in t
     assert 'class="tag you"' not in t and "model:" not in t
-    assert 'class="fix"' not in _tile(html, junk)
+    t = _tile(html, junk)          # a bird the model missed can be fixed too
+    assert 'class="fix"' in t and ">Bird, species unknown<" in t and 'name="species_name"' in t and ">Set<" in t
+    assert ">Not a bird<" not in t and "Back to model" not in t
     t = _tile(html, fixed)
     assert "Back to model" in t and 'class="tag you">you<' in t and "model: European Robin 70%" in t
     assert ">Black Redstart<" in t
@@ -1069,6 +1072,31 @@ def test_visit_link_and_filter(client, store, visits):
     assert f'action="/captures/{lone}/delete"' not in html
     assert "<b>2</b> photos in visit" in html
     assert client.get("/?visit=abc").status_code == 422
+
+
+def test_visit_pager_keeps_the_visit(client, store, visits, monkeypatch):
+    monkeypatch.setattr("birdy.web.app.PAGE_SIZE", 1)
+    a, b = vadd(store, visits, 0), vadd(store, visits, 20)
+    vadd(store, visits, 600)
+    vid = store.get(a).visit_id
+    html = client.get(f"/?visit={vid}").text
+    assert f'href="/?filter=all&page=2&visit={vid}"' in html and f'action="/captures/{b}/delete"' in html
+    html = client.get(f"/?visit={vid}&page=2").text
+    assert f'action="/captures/{a}/delete"' in html and f'href="/?filter=all&page=1&visit={vid}"' in html
+
+
+def test_non_bird_corrected_to_a_bird(client, store, visits):
+    junk = vadd(store, visits, 0, bird=False)
+    assert store.get(junk).visit_id is None
+    r = client.post(f"/captures/{junk}/label", data={"label": "bird_unknown", "next": "/?filter=all"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/?filter=all"
+    c = store.get(junk)
+    assert c.is_bird is True and c.species is None and c.visit_id is not None
+    other = vadd(store, visits, 600, bird=False)
+    client.post(f"/captures/{other}/label", data={"label": "species", "species_name": "Eurasian Hoopoe"})
+    c = store.get(other)
+    assert c.is_bird is True and c.species == "Eurasian Hoopoe" and c.visit_id is not None
+    assert "Eurasian Hoopoe" in _tile(client.get("/").text, other)
 
 
 def test_species_datalist(client, store, visits):

@@ -40,8 +40,9 @@ class FakeNotifier:
 
 
 class FakePublisher:
-    def __init__(self): self.days = []
+    def __init__(self): self.days = []; self.notified = 0
     def evaluate_day(self, species, when): self.days.append((species, when.date()))
+    def notify(self): self.notified += 1
 
 
 @pytest.fixture
@@ -378,3 +379,41 @@ def test_rename_reranks_each_species_day_once_not_per_photo(store, live):
     changes = v.photo_classified(store.get(ids[-1]), live=False)
     assert len(changes) == 3 and all(store.get(cid).species == "Hoopoe" for cid in ids)
     assert pub.days == [("Robin", T0.date()), ("Hoopoe", T0.date())]
+
+
+# --- publish states on corrections -------------------------------------------------
+
+def test_not_bird_clears_forced_and_hidden_and_re_ranks(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=False)
+    b = add(store, 20, emb=e(0)); visits.photo_classified(store.get(b), live=False)
+    store.set_published(a, "forced"); store.set_published(b, "hidden")
+    visits._publisher.days.clear()
+    visits.correct(a, "not_bird")
+    assert store.get(a).published is None and store.get(b).published is None
+    assert ("Black Redstart", T0.date()) in visits._publisher.days and visits._publisher.notified >= 1
+
+
+def test_not_bird_clears_forced_on_an_unnamed_photo(store, visits):
+    a = add(store, 0, bird=False); visits.photo_classified(store.get(a), live=False)
+    visits.correct(a, "bird_unknown")
+    store.set_published(a, "forced")              # forced with no species
+    n = visits._publisher.notified
+    visits.correct(a, "not_bird")
+    assert store.get(a).published is None and visits._publisher.notified > n
+
+
+def test_species_correction_keeps_forced_and_hidden(store, visits):
+    a = add(store, 0, emb=e(0)); visits.photo_classified(store.get(a), live=False)
+    b = add(store, 20, emb=e(0)); visits.photo_classified(store.get(b), live=False)
+    store.set_published(a, "forced"); store.set_published(b, "hidden")
+    visits.correct(a, "species:European Robin")
+    assert store.get(a).published == "forced" and store.get(b).published == "hidden"
+    assert store.get(a).species == "European Robin"
+
+
+def test_resolve_single_clears_a_published_non_bird(store, visits):
+    a = add(store, 0, bird=False); visits.photo_classified(store.get(a), live=False)
+    assert store.get(a).visit_id is None
+    store.set_published(a, "forced")
+    visits.resolve_single(a)
+    assert store.get(a).published is None
