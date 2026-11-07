@@ -261,6 +261,7 @@ def create_app(
                 "species_include": "\n".join(cfg.species.include),
                 "species_exclude": "\n".join(cfg.species.exclude),
                 "detector_threshold": cfg.detector.threshold,
+                "visits_gap_seconds": cfg.visits.gap_seconds,
                 "lat": "" if cfg.site.lat is None else cfg.site.lat,
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
                 "margin_minutes": cfg.daylight.margin_minutes,

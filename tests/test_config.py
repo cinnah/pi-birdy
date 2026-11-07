@@ -346,3 +346,11 @@ def test_detector_defaults(tmp_path):
 def test_detector_threshold_range(tmp_path):
     with pytest.raises(ConfigError, match="detector.threshold"):
         load_config(write(tmp_path, MINIMAL + "\n[detector]\nthreshold = 1.5\n"))
+
+
+def test_visits_defaults_and_range(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL))
+    assert cfg.visits.gap_seconds == 60
+    for bad in ("gap_seconds = 5", "gap_seconds = 601", 'gap_seconds = "x"'):
+        with pytest.raises(ConfigError, match="visits.gap_seconds"):
+            load_config(write(tmp_path, MINIMAL + f"\n[visits]\n{bad}\n"))

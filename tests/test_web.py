@@ -216,6 +216,7 @@ def _base_form():
         "species_include": "",
         "species_exclude": "",
         "detector_threshold": "0.2",
+        "visits_gap_seconds": "60",
         "lat": "",
         "lon": "",
         "margin_minutes": "30",
@@ -909,3 +910,8 @@ def test_classify_upload_non_bird_shows_species_skipped(store, state, live, conf
     data = (Path(__file__).parent / "fixtures" / "cat.jpg").read_bytes()
     r = c.post("/classify", files={"image": ("c.jpg", data, "image/jpeg")})
     assert r.status_code == 200 and "species: skipped (not a bird)" in r.text and "species guesses" not in r.text
+
+
+def test_settings_page_has_visits_gap(client):
+    r = client.get("/settings").text
+    assert 'name="visits_gap_seconds"' in r and 'value="60"' in r
