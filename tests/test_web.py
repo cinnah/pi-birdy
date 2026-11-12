@@ -222,7 +222,7 @@ def test_page_zero_on_empty_store(client):
 def test_status_line_shows_local_time(client, store):
     add(store, 0, True)
     r = client.get("/")
-    assert T0.astimezone().strftime("%Y-%m-%d %H:%M:%S") in r.text
+    assert T0.astimezone().strftime("%d/%m/%Y %H:%M:%S") in r.text
 
 
 def test_pending_tile_renders(client, store):

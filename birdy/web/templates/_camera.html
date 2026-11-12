@@ -3,7 +3,7 @@
 <form method="post" action="/camera" class="camera">
   <input type="hidden" name="next" value="{{ camera_next }}">
   <span class="cam-state">camera <b class="{{ 'off' if cam_off else 'on' }}">{{ 'off' if cam_off else 'on' }}</b></span>
-  {% if status.override %}<span class="cam-hold">switched {{ status.override }} by hand{% if status.override_until %} · until {{ (status.override_until | local_time)[5:16] }}{% endif %}</span>
+  {% if status.override %}<span class="cam-hold">switched {{ status.override }} by hand{% if status.override_until %} · until {{ status.override_until | local_time("minute") }}{% endif %}</span>
   {% elif status.state == 'daylight_paused' %}<span class="cam-hold">night pause · on schedule</span>{% endif %}
   {% if cam_off %}<button class="btn sm" name="mode" value="on">Turn on</button>
   {% else %}<button class="btn sm" name="mode" value="off">Turn off</button>

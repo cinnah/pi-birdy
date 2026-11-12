@@ -33,8 +33,17 @@ PAGE_SIZE = 50
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
-def _local_time(dt: datetime | str | None) -> str:
-    """Render a datetime (or its ISO string) in the Pi's local time.
+_TIME_FORMATS = {
+    "full": "%d/%m/%Y %H:%M:%S",
+    "short": "%d/%m %H:%M:%S",
+    "minute": "%d/%m %H:%M",
+}
+
+
+def _local_time(dt: datetime | str | None, fmt: str = "full") -> str:
+    """Render a datetime (or its ISO string) in the Pi's local time, European
+    day-first (``12/11/2026 11:11:07``; ``short`` drops the year, ``minute`` the
+    seconds too).
 
     Naive datetimes are assumed to be UTC, matching how the store records times.
     None renders as a dash.
@@ -45,7 +54,7 @@ def _local_time(dt: datetime | str | None) -> str:
         dt = datetime.fromisoformat(dt)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    return dt.astimezone().strftime(_TIME_FORMATS[fmt])
 
 
 def create_app(

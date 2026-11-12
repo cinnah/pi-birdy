@@ -35,7 +35,7 @@
   const pad = n => String(n).padStart(2, '0');
   function tick() {
     const d = new Date();
-    clock.textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    clock.textContent = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
   // One /status poll per page; pages listen for 'birdy:status' instead of polling again.
   async function poll() {

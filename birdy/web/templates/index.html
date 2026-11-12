@@ -170,12 +170,12 @@
   {% endif %}
   <div class="grid">
     {% for c in captures %}
-    {% set t = c.captured_at | local_time %}
+    {% set t = c.captured_at | local_time("short") %}
     <div class="tile{{ ' junk' if c.is_bird == false else '' }}">
     <a class="photo" href="/photos/{{ c.path }}"{% if c.thumb_path %} data-thumb="/thumbs/{{ c.thumb_path }}"{% endif %}>
       {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="{{ c.species or ('bird' if c.is_bird else 'capture') }} at {{ t }}" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
       <div class="stamp">
-        <span>{{ t[5:] }}</span>
+        <span>{{ t }}</span>
         <span>{% if c.manual_at %}<span class="tag you">you</span> {% endif %}
         {%- if c.is_bird is none %}<span class="tag">{{ c.status }}</span>
         {%- elif c.manual_is_bird == false %}<span class="tag no">no bird</span>
