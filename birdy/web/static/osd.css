@@ -194,7 +194,8 @@ select {
 .stamp a.visit { color: var(--osd); flex: none; }
 
 /* the tile's Fix panel: a burned-in bar like the publish row (fixed OSD colours in both lights) */
-.fix { flex: 1 1 auto; }
+/* min-width 0: the panel's long buttons wrap instead of widening the tile on a phone */
+.fix { flex: 1 1 auto; min-width: 0; }
 .fix[open] { flex-basis: 100%; }
 .fix > summary { display: flex; align-items: center; justify-content: center; list-style: none; }
 .fix > summary::-webkit-details-marker { display: none; }
@@ -207,6 +208,13 @@ select {
 }
 .fix .fixf input::placeholder { color: #a3aaa5; }
 .fix .fixf input:focus { border-color: var(--osd); outline: none; box-shadow: inset 0 0 0 1px var(--osd); }
+.fix .fixf .pb { white-space: normal; line-height: 1.2; padding: 4px 6px; }
+/* Set sits beside the field; the other labels get a full row each */
+.fix .fixf .pb ~ .pb { flex-basis: 100%; }
+@media (max-width: 640px) {
+  /* under 16px iOS Safari zooms the page when the field takes focus */
+  .fix .fixf input { min-height: 36px; font-size: 16px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
