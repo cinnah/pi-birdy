@@ -81,6 +81,13 @@ RSYNC_TIMEOUT = 1800.0  # seconds; wall-clock cap on the whole run (--timeout=12
 Runner = Callable[[list[str]], int]
 
 
+def _nonempty(path: Path) -> bool:
+    try:
+        return path.stat().st_size > 0
+    except FileNotFoundError:
+        return False
+
+
 class _UnreadableOriginal(Exception):
     """The full-res JPEG cannot be decoded (zero-byte power-cut leftover, deleted by hand)."""
 
@@ -319,12 +326,13 @@ class Publisher:
         """Web-sized JPEG (longest side <= WEB_MAX_SIDE, never upscaled) plus the store's thumb, copied as is.
 
         Both live at `rel` under photos/ and thumbs/: the thumb's mirror path equals `web_path` by
-        construction (the store mirrors thumb paths on photo paths too). Missing files are (re)made.
+        construction (the store mirrors thumb paths on photo paths too). Missing or empty files are
+        (re)made: an empty one is what a power cut left before `_write_mirror_file` fsynced.
         """
         photo = self.photos_dir / rel
         thumb = self.thumbs_dir / rel
         src_thumb = None if c.thumb_path is None else self._store.thumbs_dir / c.thumb_path
-        if not photo.exists():
+        if not _nonempty(photo):
             img = cv2.imread(str(self._store.photos_dir / rel))
             if img is None:
                 raise _UnreadableOriginal(rel)
@@ -333,7 +341,7 @@ class Publisher:
             if scale < 1:
                 img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
             self._write_mirror_file(photo, lambda tmp: cv2.imwrite(str(tmp), img, [cv2.IMWRITE_JPEG_QUALITY, WEB_JPEG_QUALITY]))
-        if not thumb.exists() and src_thumb is not None and src_thumb.exists():
+        if not _nonempty(thumb) and src_thumb is not None and src_thumb.exists():
             self._write_mirror_file(thumb, lambda tmp: shutil.copyfile(src_thumb, tmp))
 
     @staticmethod
@@ -342,12 +350,16 @@ class Publisher:
         (which returns False after writing some bytes), a failed copy or a power cut never leaves a
         truncated file at `target` that a later run would accept. The temp name keeps the .jpg suffix
         so OpenCV picks the JPEG encoder; a leftover temp is removed by the `*.jpg` sweep anyway.
+        The temp is fsynced before the rename: without it ext4 can commit the rename of a new file
+        before its data, and a power cut leaves a 0-byte file (seen 2026-11-11).
         """
         tmp = target.with_name(target.stem + ".tmp.jpg")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             if write(tmp) is False:  # cv2.imwrite reports failure by its return value, not an exception
                 raise _MirrorWriteError(f"write {target} failed")
+            with open(tmp, "rb") as f:
+                os.fsync(f.fileno())
             os.replace(tmp, target)
         except OSError as e:
             raise _MirrorWriteError(str(e)) from e

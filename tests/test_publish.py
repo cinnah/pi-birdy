@@ -3,6 +3,7 @@
 import dataclasses
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -338,6 +339,31 @@ def test_run_once_recopies_missing_thumb_and_prunes_empty_dirs(live, store, conf
     pub.set_manual(a.id, "hidden")
     pub.run_once()
     assert not any(pub.photos_dir.iterdir()) and not any(pub.thumbs_dir.iterdir())
+
+
+def test_run_once_remakes_empty_mirror_files(live, store, config):
+    # a power cut before the data reached the disk leaves 0-byte files behind a completed rename
+    pub = make(live, store, config)
+    a = bird(store, T0, "Robin", 0.9)
+    pub.evaluate(a)
+    pub.run_once()
+    (pub.photos_dir / a.path).write_bytes(b"")
+    (pub.thumbs_dir / a.path).write_bytes(b"")
+    pub.run_once()
+    img = cv2.imread(str(pub.photos_dir / a.path))
+    assert img is not None and max(img.shape[:2]) == 1600
+    assert (pub.thumbs_dir / a.path).stat().st_size > 0
+
+
+def test_write_mirror_file_fsyncs_before_rename(tmp_path, monkeypatch):
+    calls = []
+    real_fsync, real_replace = os.fsync, os.replace
+    monkeypatch.setattr(os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(os, "replace", lambda a, b: (calls.append("replace"), real_replace(a, b))[1])
+    target = tmp_path / "x.jpg"
+    Publisher._write_mirror_file(target, lambda tmp: tmp.write_bytes(b"jpeg"))
+    assert target.read_bytes() == b"jpeg"
+    assert calls == ["fsync", "replace"]
 
 
 def test_run_once_rsync_failure_logs_and_returns_false(live, store, config, caplog):
