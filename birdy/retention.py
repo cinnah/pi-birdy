@@ -20,7 +20,8 @@ LOW_DISK_BYTES = 1024 * 1024 * 1024  # 1 GB
 
 def run_once(store: Store, non_bird_days: int, now: datetime | None = None, visits: Visits | None = None) -> int:
     """Purge old non-birds; each visit that lost a photo is re-resolved through `visits` (dropped
-    when empty). Without `visits` (the one-shot `birdy purge`) those visits are left as they are."""
+    when empty). Without `visits` (the one-shot `birdy purge`) those visits are left as they are.
+    Also drops DSLR frames no bird was found in after the same number of days (the capture stays)."""
     deleted, visit_ids = store.purge_non_birds(older_than_days=non_bird_days, now=now)
     if visits is not None:
         for vid in visit_ids:
@@ -28,8 +29,9 @@ def run_once(store: Store, non_bird_days: int, now: datetime | None = None, visi
                 visits.photo_removed(vid)
             except Exception:
                 log.exception("retention: re-resolving visit %d failed", vid)
+    frames = store.purge_dslr_unused(older_than_days=non_bird_days, now=now)
     free = store.disk_free_bytes()
-    log.info("retention: deleted %d non-bird captures; disk free %.1f GB", deleted, free / 1e9)
+    log.info("retention: deleted %d non-bird captures, %d unused 50D frames; disk free %.1f GB", deleted, frames, free / 1e9)
     if free < LOW_DISK_BYTES:
         log.warning("low disk: %.0f MB free", free / 1e6)
     return deleted

@@ -120,3 +120,20 @@ def test_job_passes_visits(store, live):
     finally:
         job.stop()
     assert spy.removed == [vid]
+
+
+def test_run_once_drops_unused_dslr_frames(store, caplog):
+    now = datetime(2026, 11, 24, 12, 0).astimezone()
+    when = now - timedelta(days=10)
+    abs_path, rel = store.photo_path_for(when)
+    cv2.imwrite(str(abs_path), np.zeros((6, 8, 3), np.uint8))
+    cid = store.add_capture(when, rel, 1)
+    eos = str(rel).replace(".jpg", "_eos.jpg")
+    cv2.imwrite(str(store.photos_dir / eos), np.zeros((6, 8, 3), np.uint8))
+    store.store_verdict(cid, is_bird=True, confidence=0.9, species=None, species_confidence=None, dslr_path=eos)
+    store.write_final(cid, True, 0.9, None, None)
+    with caplog.at_level(logging.INFO, logger="birdy.retention"):
+        run_once(store, 7, now=now)
+    c = store.get(cid)
+    assert c is not None and c.dslr_path is None and not (store.photos_dir / eos).exists()
+    assert "1 unused 50D frames" in caplog.text
