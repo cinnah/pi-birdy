@@ -40,7 +40,7 @@ class DslrError(Exception): ...
 
 @dataclass(frozen=True)
 class DslrStatus:
-    state: str            # 'ready' | 'not_connected' | 'error' | 'cap_reached'
+    state: str            # 'ready' | 'not_connected' | 'error' | 'cap_reached' | 'unknown' (before the first check)
     shots_today: int
     last_error: str | None
 
@@ -135,7 +135,7 @@ New `captures` columns (added by the existing `ALTER TABLE` loop):
 
 Each of these switches from `c.path` to `c.photo`:
 
-- **Grid and lightbox** (`web/app.py`, templates): tile link, lightbox image. A promoted tile shows a muted `50D` stamp and a `pi` link to the Pi photo; a row with an unused DSLR frame shows a `50D` link to it.
+- **Grid and lightbox** (`web/app.py`, templates): tile link, lightbox image. A promoted tile shows a muted `50D` stamp and a **Pi photo** link to the Pi photo; a row with an unused DSLR frame shows a **50D frame** link to it.
 - **Model view** (`/captures/{id}/crop.jpg`) and `birdy classify --capture`: for a promoted row they show the DSLR species crop (crop kind `dslr`); otherwise unchanged.
 - **Publisher** (`publish.py`): the mirror copy is made from `c.photo` and `web_path` is that relative path. The ≤ 1600 px downscale already applies.
 - **Telegram** (`visits.py` → `notify.py`): the alert sends `c.photo`. Telegram's `sendPhoto` rejects files over 10 MB or with width + height over 10,000, so when the file is over 8 MB or its sides sum to more than 10,000 the notifier sends a ≤ 2560 px JPEG-85 copy made in memory.
@@ -155,7 +155,7 @@ The region exists because the detector resizes its input to 320×320: a bird tha
 ## CLI — `birdy dslr`
 
 - `birdy dslr info` prints the `info()` values and warns when `capturetarget` is not `Internal RAM`, `autopoweroff` is not `0`, or `focusmode` is not `Manual`.
-- `birdy dslr shot [--out FILE]` takes one frame (it counts against the daily cap), saves it (default `data/dslr-test.jpg`) plus a copy with the region drawn (`…-region.jpg`), and prints the capture time, the frame size and the detector's result inside the region. This is the tool for aiming, focusing and choosing `region`.
+- `birdy dslr shot [--out FILE]` takes one frame (refused when the daily cap is reached; test frames are not counted, since the cap counts stored captures), saves it (default `data/dslr-test.jpg`) plus a copy with the region drawn (`…-region.jpg`), and prints the capture time, the frame size and the detector's result inside the region. This is the tool for aiming, focusing and choosing `region`.
 
 Both work while the service runs.
 

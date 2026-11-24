@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 sudo apt-get update
-sudo apt-get install -y python3-picamera2 python3-opencv python3-numpy python3-venv rsync
+sudo apt-get install -y python3-picamera2 python3-opencv python3-numpy python3-venv rsync gphoto2
 
 # --system-site-packages: picamera2 and cv2 come from apt, not pip.
 [ -d .venv ] || python3 -m venv --system-site-packages .venv
