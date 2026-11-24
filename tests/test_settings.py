@@ -29,6 +29,8 @@ def default_patch(config, **overrides) -> SettingsPatch:
         cooldown_minutes=config.telegram.cooldown_minutes,
         publish_min_confidence=config.publish.min_confidence,
         per_species_per_day=config.publish.per_species_per_day,
+        dslr_region=config.dslr.region,
+        dslr_daily_cap=config.dslr.daily_cap,
     )
     base.update(overrides)
     return SettingsPatch(**base)
@@ -112,6 +114,8 @@ FORM = {
     "cooldown_minutes": "30",
     "publish_min_confidence": "0.6",
     "per_species_per_day": "3",
+    "dslr_region": "0, 0, 1, 1",
+    "dslr_daily_cap": "200",
 }
 
 
@@ -225,6 +229,11 @@ site_id = "site-2"
 ssh_key = "keys/publish"
 min_confidence = 0.8
 per_species_per_day = 7
+
+[dslr]
+enabled = true
+region = [0.25, 0.1, 0.5, 0.6]
+daily_cap = 50
 """
 
 
@@ -414,3 +423,22 @@ def test_save_drops_legacy_rescue_key_and_writes_new_species_keys(tmp_path):
 def test_visits_gap_roundtrip(config_path, config):
     new = save_settings(config_path, config, default_patch(config, visits_gap_seconds=120))
     assert new.visits.gap_seconds == 120 and load_config(config_path).visits.gap_seconds == 120
+
+
+def test_dslr_fields_parse_and_save(config_path, config):
+    patch = parse_settings_form({**FORM, "dslr_region": "0.2, 0.1 0.5,0.6", "dslr_daily_cap": "40"})
+    assert patch.dslr_region == (0.2, 0.1, 0.5, 0.6) and patch.dslr_daily_cap == 40
+    new = save_settings(config_path, config, patch)
+    assert new.dslr.region == (0.2, 0.1, 0.5, 0.6) and new.dslr.daily_cap == 40 and new.dslr.enabled is False
+
+
+@pytest.mark.parametrize("value", ["", "0.2, 0.1, 0.5", "a, b, c, d"])
+def test_dslr_region_form_errors(value):
+    with pytest.raises(ConfigError, match="dslr.region must be four numbers"):
+        parse_settings_form({**FORM, "dslr_region": value})
+
+
+def test_dslr_region_out_of_frame_is_rejected_on_save(config_path, config):
+    patch = parse_settings_form({**FORM, "dslr_region": "0.8, 0, 0.5, 1"})
+    with pytest.raises(ConfigError, match="dslr.region must lie inside the frame"):
+        save_settings(config_path, config, patch)

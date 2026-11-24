@@ -354,3 +354,31 @@ def test_visits_defaults_and_range(tmp_path):
     for bad in ("gap_seconds = 5", "gap_seconds = 601", 'gap_seconds = "x"'):
         with pytest.raises(ConfigError, match="visits.gap_seconds"):
             load_config(write(tmp_path, MINIMAL + f"\n[visits]\n{bad}\n"))
+
+
+def test_dslr_defaults(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL))
+    assert cfg.dslr.enabled is False
+    assert cfg.dslr.region == (0.0, 0.0, 1.0, 1.0)
+    assert cfg.dslr.daily_cap == 200
+
+
+def test_dslr_values(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + "\n[dslr]\nenabled = true\nregion = [0.2, 0.1, 0.5, 0.6]\ndaily_cap = 50\n"))
+    assert cfg.dslr.enabled is True and cfg.dslr.region == (0.2, 0.1, 0.5, 0.6) and cfg.dslr.daily_cap == 50
+
+
+@pytest.mark.parametrize("line", [
+    "region = [0.2, 0.1, 0.5]",          # three values
+    "region = [0.6, 0.1, 0.5, 0.6]",     # x + w > 1
+    "region = [0.2, 0.1, 0.0, 0.6]",     # zero width
+    "region = [-0.1, 0.1, 0.5, 0.6]",    # negative
+    'region = "all"',
+    "daily_cap = 0",
+    "daily_cap = 2001",
+    "daily_cap = 1.5",
+    'enabled = "yes"',
+])
+def test_dslr_rejects(tmp_path, line):
+    with pytest.raises(ConfigError, match="dslr\\."):
+        load_config(write(tmp_path, MINIMAL + f"\n[dslr]\n{line}\n"))

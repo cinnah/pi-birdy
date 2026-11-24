@@ -256,6 +256,8 @@ def _base_form():
         "cooldown_minutes": "30",
         "publish_min_confidence": "0.6",
         "per_species_per_day": "3",
+        "dslr_region": "0, 0, 1, 1",
+        "dslr_daily_cap": "200",
     }
 
 
@@ -1131,3 +1133,14 @@ def test_delete_routes_re_resolve_the_visit(client, store, visits):
     r = client.post("/captures/delete-non-birds", data={"ids": [str(c), str(d), str(b)]}, follow_redirects=False)
     assert r.status_code == 303 and calls == [vid, vid2]            # one call per visit, birds untouched
     assert store.get(b) is not None and store.get_visit(vid2) is None
+
+
+def test_settings_page_has_dslr_fields(client):
+    html = client.get("/settings").text
+    assert 'name="dslr_region"' in html and 'name="dslr_daily_cap"' in html
+
+
+def test_settings_post_saves_dslr(client, live):
+    r = post_settings(client, dslr_region="0.1, 0.2, 0.3, 0.4", dslr_daily_cap="25")
+    assert r.status_code in (200, 303)
+    assert live.get().dslr.region == (0.1, 0.2, 0.3, 0.4) and live.get().dslr.daily_cap == 25

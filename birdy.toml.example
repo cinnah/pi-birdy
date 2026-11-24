@@ -84,3 +84,13 @@ ssh_key = "~/.ssh/birdy_publish"  # restart-only; private key (install.sh genera
                                   # a relative path is relative to this file
 min_confidence = 0.6              # live; species confidence needed to be auto-published (0-1)
 per_species_per_day = 3           # live; best N photos per species per local day (1-20)
+
+[dslr]
+# A second camera: a Canon EOS 50D (or another gphoto2 camera) on USB, at the same window.
+# The Pi camera still detects motion and decides "bird"; the DSLR then fires once, and its
+# frame becomes the capture's photo when a bird is found in it. Needs `gphoto2` (install.sh).
+enabled = false                   # restart-only
+region = [0.0, 0.0, 1.0, 1.0]     # live; x, y, w, h (fractions of the DSLR frame) searched for the bird.
+                                  # Frame the feeder tightly: a bird should be >= ~10 % of the region's width.
+                                  # `birdy dslr shot` saves a test frame with this region drawn.
+daily_cap = 200                   # live; DSLR shots per local day (1-2000), a guard for the shutter

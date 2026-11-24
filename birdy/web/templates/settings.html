@@ -334,6 +334,18 @@
   </section>
 
   <section class="group">
+    <header><h2 class="head">50D</h2><p>The second camera, fired once per bird</p></header>
+    <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
+      <label for="dslr_region">Feeder region</label>
+      <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
+      {{ explain("The part of the 50D frame searched for the bird: x, y, width, height as fractions of the frame. Frame the feeder tightly; check it with birdy dslr shot.", "dslr.region") }}
+    </div>
+    {% if error_field == 'dslr_region' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    {{ num("dslr_daily_cap", "dslr.daily_cap", "Shots per day, at most",
+           "The 50D stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "shots") }}
+  </section>
+
+  <section class="group">
     <header><h2 class="head">System</h2><p>Read once at startup. To change these, edit birdy.toml on the Pi and restart.</p></header>
     <dl class="sys">
     {% for k, val in readonly.items() %}<div><dt>{{ k }}</dt><dd>{{ val }}</dd></div>{% endfor %}

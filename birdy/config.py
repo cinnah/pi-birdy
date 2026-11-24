@@ -117,6 +117,13 @@ class PublishConfig:
 
 
 @dataclass(frozen=True)
+class DslrConfig:
+    enabled: bool                               # restart-only; the second camera (gphoto2 over USB)
+    region: tuple[float, float, float, float]   # live; x, y, w, h fractions of the DSLR frame the detector searches
+    daily_cap: int                              # live; maximum DSLR shots per local day
+
+
+@dataclass(frozen=True)
 class Config:
     site: SiteConfig
     camera: CameraConfig
@@ -131,6 +138,7 @@ class Config:
     web: WebConfig
     telegram: TelegramConfig
     publish: PublishConfig
+    dslr: DslrConfig
 
 
 def _size(v: Any, name: str) -> tuple[int, int]:
@@ -150,6 +158,18 @@ def _roi(v: Any) -> tuple[Point, ...]:
             raise ConfigError("motion.roi points must be [x, y] integers")
         pts.append((p[0], p[1]))
     return tuple(pts)
+
+
+def _region(v: Any, name: str) -> tuple[float, float, float, float]:
+    if not (isinstance(v, list) and len(v) == 4
+            and all(isinstance(i, (int, float)) and not isinstance(i, bool) for i in v)):
+        raise ConfigError(f"{name} must be [x, y, w, h] as fractions of the frame")
+    x, y, w, h = (float(i) for i in v)
+    ok = all(math.isfinite(i) for i in (x, y, w, h)) and x >= 0 and y >= 0 and w > 0 and h > 0 \
+        and x + w <= 1 + 1e-9 and y + h <= 1 + 1e-9
+    if not ok:
+        raise ConfigError(f"{name} must lie inside the frame: values 0..1, w and h > 0, x + w <= 1, y + h <= 1")
+    return (x, y, w, h)
 
 
 def _check(cond: bool, msg: str) -> None:
@@ -336,6 +356,12 @@ def load_config(path: Path) -> Config:
         _check(_plain_ssh_name(pub_user), "publish.user must be a plain user name")
         _check(pub_remote.startswith("/"), "publish.remote_dir must be an absolute path")
 
+    ds = raw.get("dslr", {})
+    dslr_enabled = _bool(ds, "dslr", "enabled", False)
+    dslr_region = _region(ds.get("region", [0.0, 0.0, 1.0, 1.0]), "dslr.region")
+    dslr_cap = _num(ds, "dslr", "daily_cap", 200, int)
+    _check(1 <= dslr_cap <= 2000, "dslr.daily_cap must be between 1 and 2000")
+
     return Config(
         site=SiteConfig(name=str(site["name"]), lat=lat, lon=lon),
         camera=CameraConfig(main_size=main_size, lores_size=lores_size, jpeg_quality=jpeg_quality),
@@ -378,4 +404,5 @@ def load_config(path: Path) -> Config:
             enabled=pub_enabled, host=pub_host, user=pub_user, remote_dir=pub_remote, site_id=pub_site,
             ssh_key=pub_key, min_confidence=pub_min, per_species_per_day=pub_n,
         ),
+        dslr=DslrConfig(enabled=dslr_enabled, region=dslr_region, daily_cap=dslr_cap),
     )

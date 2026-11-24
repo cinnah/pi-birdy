@@ -300,6 +300,8 @@ def create_app(
                 "cooldown_minutes": cfg.telegram.cooldown_minutes,
                 "publish_min_confidence": cfg.publish.min_confidence,
                 "per_species_per_day": cfg.publish.per_species_per_day,
+                "dslr_region": ", ".join(f"{x:g}" for x in cfg.dslr.region),
+                "dslr_daily_cap": cfg.dslr.daily_cap,
             }
         )
         roi = values.get("roi", "")
@@ -336,6 +338,7 @@ def create_app(
                 "publish.user": cfg.publish.user,
                 "publish.remote_dir": cfg.publish.remote_dir,
                 "publish.site_id": cfg.publish.site_id,
+                "dslr.enabled": cfg.dslr.enabled,
             },
             "species_seen": [r.species for r in store.species_summary()],
             "species_list": _species_list_state(),

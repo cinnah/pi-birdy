@@ -23,6 +23,7 @@ def _restart_only(cfg: Config) -> tuple:
         cfg.detector.model, cfg.detector.labels,
         cfg.telegram.enabled, cfg.telegram.bot_token, cfg.telegram.chat_id, cfg.telegram.base_url,
         p.enabled, p.host, p.user, p.remote_dir, p.site_id, p.ssh_key,
+        cfg.dslr.enabled,
     )
 
 
@@ -58,7 +59,7 @@ class ConfigWatcher:
         if cfg == self._live.get():
             return False  # e.g. the settings page just wrote it
         if _restart_only(cfg) != _restart_only(self._live.get()):
-            log.warning("%s: camera/web/storage/model/telegram/publish settings changed; restart birdy to apply them", self._path)
+            log.warning("%s: camera/web/storage/model/telegram/publish/dslr settings changed; restart birdy to apply them", self._path)
         self._live.replace(cfg)
         log.info("settings reloaded from %s (v%d)", self._path, self._live.version)
         return True
