@@ -192,7 +192,8 @@
 
 {% block body %}
 <form method="post" action="/settings/test-alert" id="test-alert"></form>
-<div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}</div>
+<div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}
+{%- if status.dslr %}<p class="hint">50D: {{ {'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] }} · {{ status.dslr.shots_today }} shots today</p>{% endif %}</div>
 {% if error_message or test_result %}
 <div class="msgs">
   {% if error_message %}<div class="msg bad" role="alert">{{ error_message }}</div>{% endif %}

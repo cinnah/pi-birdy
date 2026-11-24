@@ -1179,3 +1179,20 @@ def test_crop_jpg_of_a_promoted_capture_is_the_dslr_species_crop(client, store):
     assert r.status_code == 200
     img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
     assert img.shape[:2] == (480, 480)        # 2 x (0.2 * 1200)
+
+
+class _StatusDslr:
+    def status(self):
+        from birdy.dslr import DslrStatus
+        return DslrStatus(state="ready", shots_today=4, last_error=None)
+
+
+def test_status_and_settings_show_the_dslr(store, state, live, config_path):
+    c = TestClient(create_app(store, state, live, config_path, dslr=_StatusDslr()))
+    assert c.get("/status").json()["dslr"] == {"state": "ready", "shots_today": 4}
+    assert "50D: ready · 4 shots today" in c.get("/settings").text
+
+
+def test_status_has_no_dslr_when_disabled(client):
+    assert "dslr" not in client.get("/status").json()
+    assert "50D:" not in client.get("/settings").text

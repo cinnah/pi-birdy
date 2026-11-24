@@ -68,6 +68,7 @@ def create_app(
     notifier: Any | None = None,
     publisher: Any | None = None,
     visits: Any | None = None,
+    dslr: Any | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
@@ -80,6 +81,8 @@ def create_app(
 
     `visits` is a `birdy.visits.Visits` (`correct`, `photo_removed`); None = no visits: the grid
     still takes `not_bird`/`clear` corrections photo by photo, and species corrections are 503.
+
+    `dslr` has `status()`; normally a `birdy.dslr.Dslr`; None = no second camera.
     """
     app = FastAPI(title="birdy")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -128,6 +131,9 @@ def create_app(
             last_species=None if ls is None else ls[0],
             min_area=live.get().motion.min_area,
         )
+        if dslr is not None:
+            st = dslr.status()
+            snap["dslr"] = {"state": st.state, "shots_today": st.shots_today}
         return snap
 
     def _species_names(summary) -> list[str]:

@@ -7,6 +7,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
@@ -265,14 +266,16 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
 
     monkeypatch.setattr("birdy.store.Store.migrate_visits", migrate_visits)
 
-    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None, lores_size=(320, 240), visits=None):
+    def pipeline_init(self, store, classifier, live, notifier=None, publisher=None, lores_size=(320, 240), visits=None,
+                      dslr=None):
         order.append("pipeline-init")
         seen["pipeline_classifier"] = classifier
         seen["pipeline_obj"] = self
         seen["pipeline_visits"] = visits
         seen["pipeline_lores_size"] = lores_size
+        seen["pipeline_dslr"] = dslr
         return real_init(self, store, classifier, live, notifier=notifier, publisher=publisher,
-                         lores_size=lores_size, visits=visits)
+                         lores_size=lores_size, visits=visits, dslr=dslr)
 
     monkeypatch.setattr(pipeline.Pipeline, "__init__", record("pipeline", pipeline_init, 2))
     real_start = pipeline.Pipeline.start
@@ -328,6 +331,7 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     assert seen["web_classifier"] is clf
     # The pipeline crops with the camera's lores size, not a hard-coded default.
     assert seen["pipeline_lores_size"] == config.camera.lores_size
+    assert seen["pipeline_dslr"] is None          # dslr.enabled defaults to false: no Dslr is built
     # Alerts are off in the default config: no notifier anywhere.
     assert seen["pipeline_obj"].visits._notifier is None
     assert seen["web_notifier"] is None
@@ -629,6 +633,14 @@ def test_classify_capture_uses_stored_crop(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert "roi crop" in proc.stdout
 
+    eos = str(rel).replace(".jpg", "_eos.jpg")
+    cv2.imwrite(str(store.photos_dir / eos), cv2.imread(str(bird)))
+    store.store_verdict(without, is_bird=True, confidence=0.9, species=None, species_confidence=None,
+                        dslr_path=eos, dslr_box=(0.25, 0.25, 0.5, 0.5))
+    proc = _run_cli("--config", str(cfg), "classify", "--capture", str(without))
+    assert proc.returncode == 0, proc.stderr
+    assert "dslr crop" in proc.stdout
+
     proc = _run_cli("--config", str(cfg), "classify", "--capture", "999")
     assert proc.returncode == 1
 
@@ -754,3 +766,56 @@ def test_cmd_species_list_without_location_exits_1(capsys, config):
     from birdy import cli
     assert cli.cmd_species_list(config, refresh=False) == 1
     assert "site.lat" in capsys.readouterr().err
+
+
+class _FakeDslr:
+    def __init__(self, *a, **k): pass
+
+    def info(self, keys=None):
+        return {"capturetarget": "Memory card", "imageformat": "Large Fine JPEG", "autopoweroff": "30",
+                "focusmode": "Manual", "autoexposuremode": "TV", "iso": "Auto", "shuttercounter": "22764"}
+
+    def capture(self, dest):
+        cv2.imwrite(str(dest), np.zeros((800, 1200, 3), np.uint8))
+        return 1.25
+
+
+class _FakeDetector:
+    def __init__(self, *a, **k): pass
+
+    def best_bird(self, img):
+        return None
+
+
+def test_dslr_info_prints_values_and_warnings(config_path, monkeypatch, capsys):
+    from birdy import cli
+    monkeypatch.setattr("birdy.cli.Dslr", _FakeDslr)
+    assert cli.main(["--config", str(config_path), "dslr", "info"]) == 0
+    out = capsys.readouterr().out
+    assert "shuttercounter: 22764" in out
+    assert "warning: capturetarget is 'Memory card'" in out and "warning: autopoweroff is '30'" in out
+    assert "warning: focusmode" not in out
+
+
+def test_dslr_shot_saves_the_frame_and_the_region_copy(config_path, tmp_path, monkeypatch, capsys):
+    from birdy import cli
+    monkeypatch.setattr("birdy.cli.Dslr", _FakeDslr)
+    monkeypatch.setattr("birdy.cli.BirdDetector", _FakeDetector)
+    out_file = tmp_path / "shot.jpg"
+    assert cli.main(["--config", str(config_path), "dslr", "shot", "--out", str(out_file)]) == 0
+    assert out_file.exists() and (tmp_path / "shot-region.jpg").exists()
+    out = capsys.readouterr().out
+    assert "1200x800" in out and "1.25 s" in out and "no bird" in out
+
+
+def test_dslr_error_is_reported(config_path, monkeypatch, capsys):
+    from birdy import cli
+    from birdy.dslr import DslrError
+
+    class Broken(_FakeDslr):
+        def info(self, keys=None):
+            raise DslrError("No camera found.")
+
+    monkeypatch.setattr("birdy.cli.Dslr", Broken)
+    assert cli.main(["--config", str(config_path), "dslr", "info"]) == 1
+    assert "No camera found." in capsys.readouterr().err

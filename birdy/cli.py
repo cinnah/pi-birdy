@@ -1,4 +1,4 @@
-"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id | publish | species-list."""
+"""Command line entry point: birdy run | roi | classify | purge | telegram-chat-id | publish | species-list | dslr."""
 
 from __future__ import annotations
 
@@ -12,9 +12,12 @@ import time
 import tomllib
 from pathlib import Path
 
+import cv2
+
 from birdy.classifier import CropLoader, ImageNetBirdClassifier, TwoStageClassifier
 from birdy.config import Config, ConfigError, load_config
 from birdy.detector import BirdDetector
+from birdy.dslr import Dslr, DslrError, region_crop, species_crop
 from birdy.live import LiveConfig
 from birdy.motion import crop_box
 from birdy.notify import HttpTelegramTransport, TelegramError, TelegramNotifier, fetch_chat_ids
@@ -51,6 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sl = sub.add_parser("species-list", help="print the local species list from iNaturalist; --refresh fetches it now")
     sl.add_argument("--refresh", action="store_true")
+    ds = sub.add_parser("dslr", help="the second camera: print its settings, or take a test frame")
+    ds.add_argument("action", choices=("info", "shot"))
+    ds.add_argument("--out", default=None, help="shot: where to save the frame (default data/dslr-test.jpg)")
     return p
 
 
@@ -158,10 +164,18 @@ def cmd_run(config: Config, config_path: Path) -> int:
     if config.publish.enabled:
         publisher = Publisher(live, store, config.storage.data_dir / "publish")
         publisher.start()
+    dslr = None
+    if config.dslr.enabled:
+        dslr = Dslr(store, live)
+        try:
+            info = dslr.info()
+            log.info("50D connected: %s", ", ".join(f"{k}={v}" for k, v in info.items()))
+        except DslrError:
+            pass   # logged by Dslr; captures fall back to the Pi photo until it answers
     # Getattr: test doubles have no species model; Visits then votes by the stored model species.
     bank = getattr(getattr(clf, "species", None), "bank", None)
     visits = Visits(store, live, bank=bank, species_list=species_list, notifier=notifier, publisher=publisher)
-    pipeline = Pipeline(store, clf, live, lores_size=config.camera.lores_size, visits=visits)
+    pipeline = Pipeline(store, clf, live, lores_size=config.camera.lores_size, visits=visits, dslr=dslr)
     pipeline.start()
     if store.migrated_visits and publisher is not None:
         publisher.evaluate_all()   # the migration re-grouped history; re-rank every day once
@@ -173,7 +187,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     app = create_app(
         store, state, live, config_path,
         queue_depth=pipeline.queue_depth, classifier=clf, notifier=notifier, publisher=publisher,
-        visits=visits,
+        visits=visits, dslr=dslr,
     )
     server = uvicorn.Server(uvicorn.Config(app, host=config.web.host, port=config.web.port, log_level="warning"))
     web_thread = threading.Thread(
@@ -186,9 +200,9 @@ def cmd_run(config: Config, config_path: Path) -> int:
         signal.signal(sig, lambda *_: stop.set())
 
     log.info(
-        "birdy starting: site=%s daylight_gate=%s alerts=%s publish=%s web=%s:%d",
+        "birdy starting: site=%s daylight_gate=%s alerts=%s publish=%s dslr=%s web=%s:%d",
         config.site.name, config.site.lat is not None, config.telegram.enabled, config.publish.enabled,
-        config.web.host, config.web.port,
+        config.dslr.enabled, config.web.host, config.web.port,
     )
     try:
         # If the port is taken, uvicorn sys.exit(1)s inside its thread; without this
@@ -220,7 +234,6 @@ def cmd_run(config: Config, config_path: Path) -> int:
 
 
 def cmd_roi(config: Config, out: str) -> int:
-    import cv2
     import numpy as np
 
     from birdy.capture import grab_lores_frame
@@ -246,13 +259,14 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
     """Classify one image and print both models' views.
 
     With `--capture`, the stored photo is cropped exactly as the pipeline crops it (motion
-    crop, else the ROI crop). `clf.gate.predict` / `top_k_image` / `clf.detector.detect` bypass
+    crop, else the ROI crop; for a capture promoted to its DSLR frame, the species crop of that frame). `clf.gate.predict` / `top_k_image` / `clf.detector.detect` bypass
     the classifier's lock: fine for this one-shot CLI, never do that in the service.
     """
     if (image is None) == (capture_id is None):
         print("classify: give an image file or --capture <id>", file=sys.stderr)
         return 2
     bbox, pad = None, None
+    dslr_img = None
     if capture_id is not None:
         store = Store(config.storage.data_dir)
         c = store.get(capture_id)
@@ -260,16 +274,24 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
             print(f"no capture {capture_id}", file=sys.stderr)
             return 1
         path = store.photos_dir / c.path
-        crop = crop_box(c.motion_box, config.motion.roi, config.camera.lores_size)
-        bbox, pad = crop.bbox, crop.pad
-        b = crop.bbox
-        print(f"capture {c.id} {c.path}: {crop.kind} crop x={b.x} y={b.y} w={b.w} h={b.h} (lores px)")
+        if c.dslr_box is not None:
+            frame = cv2.imread(str(store.photos_dir / c.dslr_path))
+            if frame is None:
+                print(f"cannot read {c.dslr_path}", file=sys.stderr)
+                return 1
+            dslr_img = species_crop(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), c.dslr_box)
+            print(f"capture {c.id} {c.dslr_path}: dslr crop {dslr_img.shape[1]}x{dslr_img.shape[0]} px around the bird")
+        else:
+            crop = crop_box(c.motion_box, config.motion.roi, config.camera.lores_size)
+            bbox, pad = crop.bbox, crop.pad
+            b = crop.bbox
+            print(f"capture {c.id} {c.path}: {crop.kind} crop x={b.x} y={b.y} w={b.w} h={b.h} (lores px)")
     else:
         path = Path(image)
     live = LiveConfig(config)
     clf = _classifier(config, live)
     try:
-        img = CropLoader(config.camera.lores_size).load(path, bbox, pad)
+        img = dslr_img if dslr_img is not None else CropLoader(config.camera.lores_size).load(path, bbox, pad)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -303,6 +325,55 @@ def cmd_classify(config: Config, image: str | None, capture_id: int | None = Non
     else:
         print("species: skipped (not a bird)")
     return 0
+
+
+_DSLR_EXPECTED = {"capturetarget": "Internal RAM", "autopoweroff": "0", "focusmode": "Manual"}
+
+
+def cmd_dslr(config: Config, action: str, out: str | None = None) -> int:
+    """`info`: the camera's settings, with a warning for each one birdy needs different.
+    `shot`: one test frame, a copy with `dslr.region` drawn, and what the detector finds in the
+    region. Works while the service runs (when both reach for the camera at once, one fails)."""
+    store = Store(config.storage.data_dir)
+    try:
+        dslr = Dslr(store, LiveConfig(config))
+        try:
+            if action == "info":
+                values = dslr.info()
+                for k, v in values.items():
+                    print(f"{k}: {v}")
+                for k, want in _DSLR_EXPECTED.items():
+                    if k in values and values[k] != want:
+                        print(f"warning: {k} is '{values[k]}', birdy expects '{want}'")
+                return 0
+            dest = Path(out) if out else config.storage.data_dir / "dslr-test.jpg"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            took = dslr.capture(dest)
+        except DslrError as e:
+            print(f"50D: {e}", file=sys.stderr)
+            return 1
+        frame = cv2.imread(str(dest))
+        if frame is None:
+            print(f"50D: {dest} could not be decoded", file=sys.stderr)
+            return 1
+        h, w = frame.shape[:2]
+        x, y, rw, rh = config.dslr.region
+        marked = frame.copy()
+        cv2.rectangle(marked, (int(x * w), int(y * h)), (int((x + rw) * w), int((y + rh) * h)), (0, 176, 255), max(2, w // 400))
+        region_file = dest.with_name(f"{dest.stem}-region{dest.suffix}")
+        cv2.imwrite(str(region_file), marked)
+        print(f"saved {dest} ({w}x{h}) in {took:.2f} s; region drawn in {region_file}")
+        region_rgb = cv2.cvtColor(region_crop(frame, config.dslr.region), cv2.COLOR_BGR2RGB)
+        det = BirdDetector(config.detector.model, config.detector.labels).best_bird(region_rgb)
+        if det is None:
+            print(f"detector in region {list(config.dslr.region)}: no bird")
+        else:
+            bx, by, bw, bh = det.box
+            print(f"detector in region {list(config.dslr.region)}: bird {det.score:.3f} "
+                  f"box x={bx:.2f} y={by:.2f} w={bw:.2f} h={bh:.2f} ({bw * 100:.0f} % of the region's width)")
+        return 0
+    finally:
+        store.close()
 
 
 def cmd_purge(config: Config) -> int:
@@ -432,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_publish(config, args.rerank)
     if args.command == "species-list":
         return cmd_species_list(config, args.refresh)
+    if args.command == "dslr":
+        return cmd_dslr(config, args.action, args.out)
     return 2
 
 
