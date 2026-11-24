@@ -233,9 +233,12 @@ class Pipeline:
             # known_bird: a stored bird (final or model verdict) always gets a species run, so a
             # stricter gate can't strip its name.
             known = bool(c.is_bird or c.model_is_bird)
-            pred = self._classifier.classify(
-                path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad, known_bird=known
-            )
+            if c.dslr_box is not None and hasattr(self._classifier, "verdict"):
+                pred = self._reclassify_promoted(c, path, crop, cfg, known)
+            else:
+                pred = self._classifier.classify(
+                    path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad, known_bird=known
+                )
             # Bird/non-bird: never demote; promote when the new verdict says bird (gate or
             # detector). Visits decides membership from model_is_bird, so the merged verdict is
             # what gets stored. Confidence comes from the new verdict when it says bird, else the
@@ -281,6 +284,19 @@ class Pipeline:
         promoted = (not c.is_bird) and after is not None and bool(after.is_bird)
         renamed = any(ch.capture_id == c.id and ch.old_species for ch in changes)
         return got_species, promoted, renamed
+
+    def _reclassify_promoted(self, c: Capture, path: Path, crop, cfg, known: bool):
+        """A row whose main photo is the DSLR frame: bird/non-bird is re-checked on the Pi crop,
+        the species comes from the stored DSLR crop (the Pi crop when that file is unreadable)."""
+        clf = self._classifier
+        crop_rgb = clf.load_crop(path, crop.bbox, crop.pad)
+        v = clf.verdict(crop_rgb, cfg.classifier.threshold)
+        if not (v.is_bird or known):
+            return clf.prediction(v, [], None)
+        bgr = cv2.imread(str(self._store.photos_dir / c.dslr_path))
+        img = crop_rgb if bgr is None else species_crop(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), c.dslr_box)
+        top, emb = clf.name(img)
+        return clf.prediction(v, top, emb)
 
     def _run(self) -> None:
         next_sweep = time.monotonic()  # sweep backlog left pending by a restart on the first tick

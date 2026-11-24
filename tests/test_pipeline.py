@@ -931,3 +931,33 @@ def test_without_a_dslr_the_pipeline_calls_classify_only(store, live):
     ev = add_at(store, fresh())
     Pipeline(store, clf, live).process(ev.capture_id, ev.path, ev.captured_at)
     assert clf.calls == [ev.path] and store.get(ev.capture_id).dslr_path is None
+
+
+def test_backfill_of_a_promoted_row_names_from_the_dslr_crop_and_never_fires(store, live):
+    clf, dslr = StagedClassifier(), FakeDslr()
+    ev = add_at(store, fresh())
+    p = Pipeline(store, clf, live, dslr=dslr)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    assert store.get(ev.capture_id).dslr_box is not None
+    # A species-model swap puts the row back in the backlog.
+    with store._lock, store._conn:
+        store._conn.execute("UPDATE captures SET species_checked = 0 WHERE id = ?", (ev.capture_id,))
+    clf.named.clear()
+    p.sweep()
+    assert clf.named == [(480, 480)]          # the DSLR species crop again, not the Pi crop
+    assert len(dslr.shots) == 1               # the backfill never fires the camera
+    assert store.get(ev.capture_id).photo == store.get(ev.capture_id).dslr_path
+
+
+def test_backfill_of_a_promoted_row_falls_back_to_the_pi_crop_when_the_dslr_file_is_gone(store, live):
+    clf = StagedClassifier()
+    ev = add_at(store, fresh())
+    p = Pipeline(store, clf, live, dslr=FakeDslr())
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    c = store.get(ev.capture_id)
+    (store.photos_dir / c.dslr_path).unlink()
+    with store._lock, store._conn:
+        store._conn.execute("UPDATE captures SET species_checked = 0 WHERE id = ?", (ev.capture_id,))
+    clf.named.clear()
+    p.sweep()
+    assert clf.named == [(48, 64)] and store.get(ev.capture_id).status == "done"
