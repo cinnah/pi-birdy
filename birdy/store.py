@@ -107,6 +107,15 @@ class Capture:
     model_confidence: float | None = None
     manual_species: str | None = None
     has_embedding: bool = False      # the species model's image embedding is stored
+    # The DSLR frame taken for this capture (relative to photos/), and the bird's box in it as
+    # fractions (x, y, w, h) of that frame. A box means the frame is the capture's main photo.
+    dslr_path: str | None = None
+    dslr_box: tuple[float, float, float, float] | None = None
+
+    @property
+    def photo(self) -> str:
+        """The photo to show, publish and alert with: the DSLR frame when a bird was found in it, else the Pi photo."""
+        return self.dslr_path if self.dslr_path is not None and self.dslr_box is not None else self.path
 
 
 @dataclass(frozen=True)
@@ -167,6 +176,8 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         model_confidence=row["model_confidence"],
         manual_species=row["manual_species"],
         has_embedding=row["embedding"] is not None,
+        dslr_path=row["dslr_path"],
+        dslr_box=None if row["dslr_x"] is None else (row["dslr_x"], row["dslr_y"], row["dslr_w"], row["dslr_h"]),
     )
 
 
@@ -246,6 +257,11 @@ class Store:
                 ("visit_id", "INTEGER"),
                 # The species model's L2-normalised image embedding, 768 x float16.
                 ("embedding", "BLOB"),
+                ("dslr_path", "TEXT"),
+                ("dslr_x", "REAL"),
+                ("dslr_y", "REAL"),
+                ("dslr_w", "REAL"),
+                ("dslr_h", "REAL"),
             ):
                 if name not in cols:
                     try:
@@ -443,11 +459,18 @@ class Store:
         det_confidence: float = 0.0,
         det_box: tuple[float, float, float, float] | None = None,
         embedding: np.ndarray | None = None,
+        dslr_path: str | None = None,
+        dslr_box: tuple[float, float, float, float] | None = None,
     ) -> None:
         """The classifier's verdict for a photo (model_*); the final columns are written by Visits.
-        A None embedding keeps the stored one."""
+        A None embedding keeps the stored one. `dslr_path` records a DSLR frame taken for this
+        capture (None = leave the DSLR columns as they are); with a `dslr_box` the frame becomes the
+        main photo and the thumbnail is remade from it."""
         bx = (None, None, None, None) if det_box is None else det_box
         blob = None if embedding is None else np.asarray(embedding, np.float16).tobytes()
+        # Outside the lock: decoding a 15 MP frame takes a moment.
+        new_thumb = self._make_thumbnail(Path(dslr_path)) if dslr_path is not None and dslr_box is not None else None
+        old_thumb = None
         with self._lock, self._conn:
             self._conn.execute(
                 "UPDATE captures SET model_is_bird = ?, model_confidence = ?, model_species = ?, model_species_confidence = ?,"
@@ -456,6 +479,18 @@ class Store:
                 " WHERE id = ?",
                 (int(is_bird), confidence, species, species_confidence, det_confidence, *bx, blob, capture_id),
             )
+            if dslr_path is not None:
+                dx = (None, None, None, None) if dslr_box is None else dslr_box
+                self._conn.execute(
+                    "UPDATE captures SET dslr_path = ?, dslr_x = ?, dslr_y = ?, dslr_w = ?, dslr_h = ? WHERE id = ?",
+                    (str(dslr_path), *dx, capture_id),
+                )
+                if new_thumb is not None:
+                    row = self._conn.execute("SELECT thumb_path FROM captures WHERE id = ?", (capture_id,)).fetchone()
+                    old_thumb = None if row is None else row["thumb_path"]
+                    self._conn.execute("UPDATE captures SET thumb_path = ? WHERE id = ?", (str(new_thumb), capture_id))
+        if old_thumb and old_thumb != str(new_thumb):
+            (self.thumbs_dir / old_thumb).unlink(missing_ok=True)
 
     def embeddings(self, capture_ids: list[int]) -> dict[int, np.ndarray]:
         """{id: float32 embedding} for those of `capture_ids` that have one."""
@@ -599,6 +634,13 @@ class Store:
         with self._lock:
             return int(self._conn.execute("SELECT COUNT(*) FROM captures WHERE status = 'pending'").fetchone()[0])
 
+    def count_dslr_shots(self, since: datetime) -> int:
+        """Captures with a DSLR frame taken at or after `since` (the daily shutter cap)."""
+        with self._lock:
+            return int(self._conn.execute(
+                "SELECT COUNT(*) FROM captures WHERE dslr_path IS NOT NULL AND captured_at >= ?", (_to_db_time(since),)
+            ).fetchone()[0])
+
     def last_capture_at(self) -> datetime | None:
         with self._lock:
             row = self._conn.execute("SELECT MAX(captured_at) AS t FROM captures").fetchone()
@@ -636,7 +678,8 @@ class Store:
             out = []
             for g in groups:
                 best = self._conn.execute(
-                    "SELECT id, path, thumb_path FROM captures WHERE species = ? AND is_bird = 1"
+                    "SELECT id, CASE WHEN dslr_x IS NOT NULL THEN dslr_path ELSE path END AS photo, thumb_path"
+                    " FROM captures WHERE species = ? AND is_bird = 1"
                     " ORDER BY species_confidence DESC, captured_at DESC LIMIT 1",
                     (g["species"],),
                 ).fetchone()
@@ -647,7 +690,7 @@ class Store:
                         first_seen=_from_db_time(g["first_seen"]),
                         last_seen=_from_db_time(g["last_seen"]),
                         best_capture_id=int(best["id"]),
-                        best_path=best["path"],
+                        best_path=best["photo"],
                         best_thumb_path=best["thumb_path"],
                     )
                 )
@@ -911,16 +954,31 @@ class Store:
         cutoff = _to_db_time(now - timedelta(days=older_than_days))
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, path, thumb_path, visit_id FROM captures"
+                "SELECT id, path, thumb_path, visit_id, dslr_path FROM captures"
                 " WHERE (is_bird = 0 OR status = 'error') AND published IS NULL AND manual_at IS NULL AND captured_at < ?",
                 (cutoff,),
             ).fetchall()
         visit_ids: list[int] = []
         for row in rows:
-            self._delete_row_and_files(row["id"], row["path"], row["thumb_path"])
+            self._delete_row_and_files(row["id"], row["path"], row["thumb_path"], row["dslr_path"])
             if row["visit_id"] is not None and row["visit_id"] not in visit_ids:
                 visit_ids.append(row["visit_id"])
         return len(rows), visit_ids
+
+    def purge_dslr_unused(self, older_than_days: int, now: datetime | None = None) -> int:
+        """Delete DSLR frames no bird was found in, older than the cutoff; the capture and its Pi
+        photo stay. Returns the number of files dropped."""
+        now = now or datetime.now(timezone.utc)
+        cutoff = _to_db_time(now - timedelta(days=older_than_days))
+        with self._lock, self._conn:
+            rows = self._conn.execute(
+                "SELECT id, dslr_path FROM captures WHERE dslr_path IS NOT NULL AND dslr_x IS NULL AND captured_at < ?",
+                (cutoff,),
+            ).fetchall()
+            self._conn.executemany("UPDATE captures SET dslr_path = NULL WHERE id = ?", [(r["id"],) for r in rows])
+        for r in rows:
+            (self.photos_dir / r["dslr_path"]).unlink(missing_ok=True)
+        return len(rows)
 
     def delete_capture(self, capture_id: int) -> Capture | None:
         """Delete one capture (row + photo + thumbnail), whatever it is; returns it, or None if unknown.
@@ -930,7 +988,7 @@ class Store:
         c = self.get(capture_id)
         if c is None:
             return None
-        self._delete_row_and_files(c.id, c.path, c.thumb_path)
+        self._delete_row_and_files(c.id, c.path, c.thumb_path, c.dslr_path)
         return c
 
     def delete_non_birds(self, capture_ids: list[int]) -> list[Capture]:
@@ -942,17 +1000,21 @@ class Store:
         for cid in capture_ids:
             c = self.get(cid)
             if c is not None and (c.is_bird is False or c.status == "error"):
-                self._delete_row_and_files(c.id, c.path, c.thumb_path)
+                self._delete_row_and_files(c.id, c.path, c.thumb_path, c.dslr_path)
                 out.append(c)
         return out
 
-    def _delete_row_and_files(self, capture_id: int, path: str, thumb_path: str | None) -> None:
+    def _delete_row_and_files(self, capture_id: int, path: str, thumb_path: str | None, dslr_path: str | None = None) -> None:
         # Row first: an orphan file is harmless, a row without its file is a broken tile.
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM captures WHERE id = ?", (capture_id,))
-        for p in (self.photos_dir / path, self.thumbs_dir / thumb_path if thumb_path else None):
-            if p is not None:
-                p.unlink(missing_ok=True)
+        files = [self.photos_dir / path, self.thumbs_dir / path]
+        if thumb_path:
+            files.append(self.thumbs_dir / thumb_path)
+        if dslr_path:
+            files += [self.photos_dir / dslr_path, self.thumbs_dir / dslr_path]
+        for p in files:
+            p.unlink(missing_ok=True)
 
     def disk_free_bytes(self) -> int:
         return shutil.disk_usage(self.data_dir).free

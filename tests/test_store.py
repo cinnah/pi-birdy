@@ -888,3 +888,88 @@ def test_count_visits_with_species_ignores_visits_without_a_bird(store):
     assert store.count_visits_with_species("Robin") == 1
     store.delete_capture(a)                 # its only member is gone; the visit row lingers
     assert store.get_visit(vid) is not None and store.count_visits_with_species("Robin") == 0
+
+
+def _eos_rel(store, cid) -> str:
+    c = store.get(cid)
+    rel = c.path.replace(".jpg", "_eos.jpg")
+    write_jpeg(store.photos_dir / rel, w=1200, h=800)
+    return rel
+
+
+def _verdict(store, cid, **kw):
+    store.store_verdict(cid, is_bird=True, confidence=0.9, species=None, species_confidence=None, **kw)
+
+
+def test_photo_is_the_pi_photo_by_default(store):
+    cid = add(store, T0)
+    _verdict(store, cid)
+    c = store.get(cid)
+    assert c.dslr_path is None and c.dslr_box is None and c.photo == c.path
+
+
+def test_promoted_capture_uses_the_dslr_photo_and_thumb(store):
+    cid = add(store, T0)
+    old_thumb = store.thumbs_dir / store.get(cid).thumb_path
+    rel = _eos_rel(store, cid)
+    _verdict(store, cid, dslr_path=rel, dslr_box=(0.4, 0.4, 0.1, 0.1))
+    c = store.get(cid)
+    assert c.dslr_path == rel and c.dslr_box == (0.4, 0.4, 0.1, 0.1)
+    assert c.photo == rel and c.path != rel
+    assert c.thumb_path == rel and (store.thumbs_dir / rel).exists()
+    assert not old_thumb.exists()
+
+
+def test_dslr_frame_without_a_bird_is_not_the_photo(store):
+    cid = add(store, T0)
+    rel = _eos_rel(store, cid)
+    _verdict(store, cid, dslr_path=rel, dslr_box=None)
+    c = store.get(cid)
+    assert c.dslr_path == rel and c.dslr_box is None and c.photo == c.path
+    assert c.thumb_path == c.path
+
+
+def test_a_later_verdict_keeps_the_dslr_columns(store):
+    cid = add(store, T0)
+    rel = _eos_rel(store, cid)
+    _verdict(store, cid, dslr_path=rel, dslr_box=(0.4, 0.4, 0.1, 0.1))
+    _verdict(store, cid)                      # the backfill: no dslr arguments
+    assert store.get(cid).photo == rel
+
+
+def test_count_dslr_shots(store):
+    a, b = add(store, T0), add(store, T0 + timedelta(hours=1))
+    _verdict(store, a, dslr_path=_eos_rel(store, a), dslr_box=None)
+    _verdict(store, b, dslr_path=_eos_rel(store, b), dslr_box=(0.1, 0.1, 0.2, 0.2))
+    assert store.count_dslr_shots(T0 - timedelta(minutes=1)) == 2
+    assert store.count_dslr_shots(T0 + timedelta(minutes=30)) == 1
+
+
+def test_delete_capture_removes_the_dslr_file(store):
+    cid = add(store, T0)
+    rel = _eos_rel(store, cid)
+    _verdict(store, cid, dslr_path=rel, dslr_box=(0.4, 0.4, 0.1, 0.1))
+    store.delete_capture(cid)
+    assert not (store.photos_dir / rel).exists() and not (store.thumbs_dir / rel).exists()
+
+
+def test_purge_dslr_unused(store):
+    old, new, promoted = add(store, T0), add(store, T0 + timedelta(days=9)), add(store, T0 + timedelta(seconds=5))
+    rels = {}
+    for cid, box in ((old, None), (new, None), (promoted, (0.4, 0.4, 0.1, 0.1))):
+        rels[cid] = _eos_rel(store, cid)
+        _verdict(store, cid, dslr_path=rels[cid], dslr_box=box)
+    n = store.purge_dslr_unused(older_than_days=7, now=T0 + timedelta(days=10))
+    assert n == 1
+    assert store.get(old).dslr_path is None and not (store.photos_dir / rels[old]).exists()
+    assert store.get(new).dslr_path == rels[new]                       # too recent
+    assert store.get(promoted).photo == rels[promoted]                 # a bird photo: kept
+    assert (store.photos_dir / store.get(old).path).exists()           # the Pi photo is untouched
+
+
+def test_species_summary_best_photo_is_the_main_photo(store):
+    cid = add(store, T0)
+    rel = _eos_rel(store, cid)
+    _verdict(store, cid, dslr_path=rel, dslr_box=(0.4, 0.4, 0.1, 0.1))
+    store.write_final(cid, True, 0.9, "Robin", 0.8)
+    assert store.species_summary()[0].best_path == rel
