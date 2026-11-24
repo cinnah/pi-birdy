@@ -138,6 +138,9 @@
   .group-note { padding: 10px 0 0; max-width: 62ch; }
   .action { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 0 4px; }
   .action .hint { margin: 0; }
+  .xcam { position: relative; overflow: hidden; margin: 12px 0 4px; background: #050605; touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+  .xcam img { display: block; width: 100%; height: auto; pointer-events: none; }
+  .xcam .xbox { position: absolute; border: 2px solid var(--osd-amber); box-shadow: 0 0 0 9999px rgba(5, 6, 5, 0.5); pointer-events: none; }
 
   .sys { margin: 0; font: 400 12px/1.4 var(--mono); font-stretch: 87.5%; }
   .sys div { display: grid; grid-template-columns: minmax(0, 15em) minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
@@ -192,6 +195,7 @@
 
 {% block body %}
 <form method="post" action="/settings/test-alert" id="test-alert"></form>
+<form method="post" action="/settings/dslr-frame" id="dslr-frame"></form>
 <div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}
 {%- if status.dslr %}<p class="hint">50D: {{ {'off': 'off', 'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] }} · {{ status.dslr.shots_today }} shots today</p>{% endif %}</div>
 {% if error_message or test_result %}
@@ -334,7 +338,7 @@
     <p class="hint group-note">Applies to days ranked from now on; earlier days keep their picks (<code class="key">birdy publish --rerank</code> on the Pi re-ranks history). Publish and Hide on the grid override this per photo.</p>
   </section>
 
-  <section class="group">
+  <section class="group" id="extra-camera">
     <header><h2 class="head">Extra camera</h2><p>A 50D on USB, fired once per bird</p></header>
     <div class="row {{ 'error' if error_field == 'dslr_enabled' else '' }}">
       <label for="dslr_enabled">Use the 50D</label>
@@ -344,9 +348,17 @@
     <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
       <label for="dslr_region">Feeder region</label>
       <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
-      {{ explain("The part of the 50D frame searched for the bird: x, y, width, height as fractions of the frame. Frame the feeder tightly; check it with birdy dslr shot.", "dslr.region") }}
+      {{ explain("The part of the 50D frame searched for the bird: x, y, width, height as fractions of the frame. Frame the feeder tightly: take a test frame below and drag a box on it.", "dslr.region") }}
     </div>
     {% if error_field == 'dslr_region' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="action">
+      <button class="btn" type="submit" form="dslr-frame" {{ '' if dslr_available else 'disabled' }}>Take a test frame</button>
+      <p class="hint">Fires the extra camera once and shows its frame here. Unsaved changes on this page are lost.</p>
+    </div>
+    {% if dslr_frame %}
+    <div class="xcam" id="xcam"><img src="/settings/dslr-frame.jpg?t={{ dslr_frame }}" alt="Last test frame from the extra camera" draggable="false"><div class="xbox" id="xbox"></div></div>
+    <p class="hint">Test frame from {{ dslr_frame_at | local_time("minute") }}. The box is the feeder region: drag on the frame to redraw it, then Save.</p>
+    {% endif %}
     {{ num("dslr_daily_cap", "dslr.daily_cap", "Shots per day, at most",
            "The 50D stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "shots") }}
   </section>
@@ -539,5 +551,45 @@
   initial = snapshot();
   setInterval(refreshFrame, 1000);
 })();
+
+  // Extra camera: drag a box on the test frame to set the feeder region (fractions of the frame).
+  (() => {
+    const wrap = document.getElementById('xcam');
+    if (!wrap) return;
+    const box = document.getElementById('xbox'), field = document.getElementById('dslr_region');
+    const parse = () => {
+      const v = field.value.replace(/,/g, ' ').trim().split(/\s+/).map(Number);
+      return v.length === 4 && v.every(Number.isFinite) ? v : null;
+    };
+    const draw = () => {
+      const r = parse();
+      box.hidden = !r;
+      if (!r) return;
+      const [x, y, w, h] = r;
+      Object.assign(box.style, { left: x * 100 + '%', top: y * 100 + '%', width: w * 100 + '%', height: h * 100 + '%' });
+    };
+    const at = e => {
+      const b = wrap.getBoundingClientRect();
+      return [Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (e.clientY - b.top) / b.height))];
+    };
+    const r3 = n => +n.toFixed(3);
+    let start = null;
+    wrap.addEventListener('pointerdown', e => { start = at(e); wrap.setPointerCapture(e.pointerId); e.preventDefault(); });
+    wrap.addEventListener('pointermove', e => {
+      if (!start) return;
+      const [x, y] = at(e);
+      const x0 = r3(Math.min(start[0], x)), y0 = r3(Math.min(start[1], y));
+      const w = Math.min(r3(Math.abs(x - start[0])), r3(1 - x0)), h = Math.min(r3(Math.abs(y - start[1])), r3(1 - y0));
+      if (w < 0.02 || h < 0.02) return;   // a tap is not a box
+      field.value = [x0, y0, w, h].join(', ');
+      draw();
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const end = () => { start = null; };
+    wrap.addEventListener('pointerup', end);
+    wrap.addEventListener('pointercancel', end);
+    field.addEventListener('input', draw);
+    draw();
+  })();
 </script>
 {% endblock %}

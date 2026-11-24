@@ -1224,3 +1224,50 @@ def test_dslr_switch_on_settings_is_live(store, state, live, config_path):
     assert dslr.probes == 1                                          # already on: no second probe
     post_settings(c)                                                 # box unchecked
     assert live.get().dslr.enabled is False and c.get("/status").json()["dslr"]["state"] == "off"
+
+
+class _FrameDslr(_StatusDslr):
+    def __init__(self, fail=None):
+        self.fail, self.shots = fail, 0
+
+    def capture(self, dest):
+        self.shots += 1
+        if self.fail:
+            raise self.fail
+        cv2.imwrite(str(dest), np.full((2000, 3000, 3), 90, np.uint8))
+        return 1.2
+
+
+def test_settings_test_frame_is_taken_shown_and_downscaled(store, state, live, config_path):
+    dslr = _FrameDslr()
+    c = TestClient(create_app(store, state, live, config_path, dslr=dslr))
+    html = c.get("/settings").text
+    assert "Take a test frame" in html and 'id="xcam"' not in html
+    assert c.get("/settings/dslr-frame.jpg").status_code == 404
+    r = c.post("/settings/dslr-frame", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/settings#extra-camera"   # a refresh can't fire again
+    assert dslr.shots == 1 and (store.data_dir / "dslr-test.jpg").exists()
+    assert 'id="xcam"' in c.get("/settings").text
+    r = c.get("/settings/dslr-frame.jpg")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+    assert img.shape[:2] == (853, 1280)
+
+
+def test_settings_test_frame_works_with_the_switch_off(store, state, live, config_path):
+    assert live.get().dslr.enabled is False
+    dslr = _FrameDslr()
+    c = TestClient(create_app(store, state, live, config_path, dslr=dslr))
+    assert c.post("/settings/dslr-frame", follow_redirects=False).status_code == 303 and dslr.shots == 1
+
+
+def test_settings_test_frame_reports_a_camera_error(store, state, live, config_path):
+    from birdy.dslr import DslrError
+    c = TestClient(create_app(store, state, live, config_path, dslr=_FrameDslr(fail=DslrError("No camera found."))))
+    r = c.post("/settings/dslr-frame")
+    assert r.status_code == 502 and "extra camera: No camera found." in r.text
+
+
+def test_settings_test_frame_without_a_dslr_is_503(client):
+    assert client.post("/settings/dslr-frame").status_code == 503
+    assert "disabled>Take a test frame" in client.get("/settings").text

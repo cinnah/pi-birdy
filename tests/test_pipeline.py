@@ -75,9 +75,10 @@ def test_worker_classifies_submitted_event(store, live):
     try:
         ev = add(store, 0)
         assert p.submit(ev) is True
-        assert wait_until(lambda: store.get(ev.capture_id).status == "done")
+        # is_bird, not status: the final columns are written by Visits a moment after the verdict
+        assert wait_until(lambda: store.get(ev.capture_id).is_bird is not None)
         c = store.get(ev.capture_id)
-        assert c.is_bird is True and c.confidence == 0.9
+        assert c.status == "done" and c.is_bird is True and c.confidence == 0.9
         assert clf.calls == [ev.path]
     finally:
         p.stop()
@@ -998,3 +999,37 @@ def test_the_dslr_switch_is_live(store, live):
     on = add_at(store, fresh() + timedelta(milliseconds=5))
     Pipeline(store, StagedClassifier(), live, dslr=dslr).process(on.capture_id, on.path, on.captured_at)
     assert len(dslr.shots) == 1
+
+
+def test_a_photo_taken_by_hand_fires_the_dslr_even_for_a_non_bird(store, live):
+    dslr_on(live)
+    clf, dslr = StagedClassifier(bird=False), FakeDslr()
+    ev = add_at(store, fresh())
+    Pipeline(store, clf, live, dslr=dslr).process(ev.capture_id, ev.path, ev.captured_at, manual=True)
+    c = store.get(ev.capture_id)
+    assert len(dslr.shots) == 1 and c.is_bird is False
+    assert c.dslr_path is not None and c.dslr_box is None and c.photo == c.path   # kept as an unused frame
+    assert clf.named == [] and clf.located == []                                  # no species for a non-bird
+
+
+def test_a_bird_photo_taken_by_hand_is_handled_like_any_bird(store, live):
+    dslr_on(live)
+    clf, dslr = StagedClassifier(), FakeDslr()
+    ev = add_at(store, fresh())
+    Pipeline(store, clf, live, dslr=dslr).process(ev.capture_id, ev.path, ev.captured_at, manual=True)
+    c = store.get(ev.capture_id)
+    assert len(dslr.shots) == 1 and c.photo == c.dslr_path
+
+
+def test_the_worker_passes_the_manual_flag(store, live):
+    dslr_on(live)
+    dslr = FakeDslr()
+    p = Pipeline(store, StagedClassifier(bird=False), live, dslr=dslr)
+    p.start()
+    try:
+        ev = dataclasses.replace(add_at(store, fresh()), manual=True)
+        p.submit(ev)
+        assert wait_until(lambda: store.get(ev.capture_id).is_bird is not None)
+        assert len(dslr.shots) == 1
+    finally:
+        p.stop()

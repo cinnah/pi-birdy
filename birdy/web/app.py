@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from birdy.classifier import CropLoader, Prediction
 from birdy.config import ConfigError
 from birdy.daylight import DaylightGate
-from birdy.dslr import species_crop
+from birdy.dslr import DslrError, species_crop
 from birdy.live import LiveConfig
 from birdy.motion import crop_box
 from birdy.notify import TelegramError
@@ -29,6 +30,8 @@ from birdy.state import RuntimeState
 from birdy.store import FILTERS, Store
 
 log = logging.getLogger(__name__)
+
+DSLR_PREVIEW_SIDE = 1280   # longest side of the test frame shown on /settings
 
 PAGE_SIZE = 50
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -118,6 +121,28 @@ def create_app(
             cv2.rectangle(bgr, (int(x * w), int(y * h)), (int((x + bw) * w), int((y + bh) * h)), (0, 176, 255), 2)
         ok, jpg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return jpg.tobytes() if ok else None
+
+    # The extra camera's last test frame (also what `birdy dslr shot` writes) and a web-sized copy of it.
+    dslr_test = store.data_dir / "dslr-test.jpg"
+    dslr_preview = store.data_dir / "dslr-test-web.jpg"
+
+    def _dslr_preview() -> Path | None:
+        """The web-sized copy of the last test frame, remade when the frame is newer; None when there is none."""
+        if not dslr_test.exists():
+            return None
+        if not dslr_preview.exists() or dslr_preview.stat().st_mtime < dslr_test.stat().st_mtime:
+            img = cv2.imread(str(dslr_test))
+            if img is None:
+                return None
+            h, w = img.shape[:2]
+            scale = DSLR_PREVIEW_SIDE / max(h, w)
+            if scale < 1:
+                img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+            tmp = dslr_preview.with_name("dslr-test-web.tmp.jpg")
+            if not cv2.imwrite(str(tmp), img, [cv2.IMWRITE_JPEG_QUALITY, 85]):
+                return None
+            os.replace(tmp, dslr_preview)
+        return dslr_preview
 
     def status_payload() -> dict:
         snap = state.snapshot()
@@ -359,6 +384,10 @@ def create_app(
             "species_seen": [r.species for r in store.species_summary()],
             "species_list": _species_list_state(),
             "alerts_enabled": notifier is not None,
+            "dslr_available": dslr is not None,
+            # mtime of the last test frame: its presence, its caption and the image's cache buster
+            "dslr_frame": int(dslr_test.stat().st_mtime) if dslr_test.exists() else None,
+            "dslr_frame_at": datetime.fromtimestamp(dslr_test.stat().st_mtime, timezone.utc) if dslr_test.exists() else None,
             "test_ok": None if test is None else test[0],
             "test_result": None if test is None else test[1],
             "error_field": None if error is None else error[0],
@@ -408,6 +437,28 @@ def create_app(
             except Exception:
                 pass   # Dslr logged it and its status says why
         return RedirectResponse("/settings?saved=1", status_code=303)
+
+    @app.get("/settings/dslr-frame.jpg")
+    async def settings_dslr_frame_jpg():
+        path = await run_in_threadpool(_dslr_preview)   # may decode a 15 MP frame: off the event loop
+        if path is None:
+            raise HTTPException(status_code=404, detail="no test frame yet")
+        return Response(content=path.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.post("/settings/dslr-frame", response_class=HTMLResponse)
+    async def settings_dslr_frame(request: Request):
+        """Fire the extra camera once and keep the frame as the test frame the region is drawn on.
+        Works with the switch off (for aiming before enabling); the daily cap still applies."""
+        if dslr is None:
+            ctx = settings_context(test=(False, "no extra camera in this process"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=503)
+        try:
+            await run_in_threadpool(dslr.capture, dslr_test)
+        except DslrError as e:
+            ctx = settings_context(test=(False, f"extra camera: {e}"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+        # Redirect: a page refresh must not fire the shutter again.
+        return RedirectResponse("/settings#extra-camera", status_code=303)
 
     @app.post("/settings/test-alert", response_class=HTMLResponse)
     async def settings_test_alert(request: Request):

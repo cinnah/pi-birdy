@@ -84,7 +84,7 @@ def _capture_still(
     abs_path, rel_path = store.photo_path_for(now)
     picam2.capture_file(str(abs_path))
     capture_id = store.add_capture(now, rel_path, score, motion_box=motion_box)
-    pipeline.submit(MotionEvent(capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score))
+    pipeline.submit(MotionEvent(capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score, manual=manual))
     log.info("captured %s (%s)", rel_path, "by hand" if manual else f"motion {score}")
 
 

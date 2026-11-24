@@ -42,6 +42,7 @@ class MotionEvent:
     path: Path
     captured_at: datetime
     motion_score: int
+    manual: bool = False    # "Take a photo" on the web page: the extra camera fires whatever the verdict
 
 
 class Pipeline:
@@ -98,7 +99,9 @@ class Pipeline:
     def queue_depth(self) -> int:
         return self._queue.qsize()
 
-    def process(self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None) -> None:
+    def process(
+        self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None, manual: bool = False
+    ) -> None:
         cfg = self._live.get()
         dslr_path, dslr_box = None, None
         try:
@@ -107,7 +110,7 @@ class Pipeline:
             if self._dslr is None or not cfg.dslr.enabled:   # the switch is live
                 pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
             else:
-                pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg)
+                pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg, manual)
         except Exception:
             log.exception("classification failed for %s", path)
             self._drop_dslr_frame(path)
@@ -154,19 +157,25 @@ class Pipeline:
         except (OSError, ValueError):
             log.exception("could not remove the 50D frame of %s", path)
 
-    def _classify_with_dslr(self, capture_id: int, path: Path, captured_at: datetime, crop, cfg):
+    def _classify_with_dslr(self, capture_id: int, path: Path, captured_at: datetime, crop, cfg, manual: bool = False):
         """Verdict on the Pi crop; for a fresh bird, one DSLR frame; the species from that frame
-        when the detector finds the bird in it, else from the Pi crop.
+        when the detector finds the bird in it, else from the Pi crop. A photo taken by hand
+        (`manual`) fires the DSLR whatever the verdict; a non-bird keeps its frame as an unused one
+        (linked from the tile, purged like the others).
         Returns (prediction, DSLR path relative to photos/ or None, bird box in the DSLR frame or None)."""
         clf = self._classifier
         crop_rgb = clf.load_crop(path, crop.bbox, crop.pad)
         v = clf.verdict(crop_rgb, cfg.classifier.threshold)
-        if not v.is_bird:
+        if not (v.is_bird or manual):
             return clf.prediction(v, [], None), None, None
         rel, frame, box = None, None, None
         if (datetime.now(timezone.utc) - captured_at).total_seconds() <= FRESH_SECONDS:
             rel = dslr_rel(path.relative_to(self._store.photos_dir))
             frame, took = self._dslr_frame(capture_id, rel)
+        if not v.is_bird:
+            if frame is not None:
+                log.info("capture %d: 50D %.2f s (by hand, not a bird)", capture_id, took)
+            return clf.prediction(v, [], None), (str(rel) if frame is not None else None), None
         species_rgb = crop_rgb
         if frame is not None:
             det = clf.locate(region_crop(frame, cfg.dslr.region))
@@ -323,7 +332,7 @@ class Pipeline:
                     if current is None or current.status != "pending":
                         log.debug("capture %d no longer pending; skipping", ev.capture_id)
                     else:
-                        self.process(ev.capture_id, ev.path, ev.captured_at, current.motion_box)
+                        self.process(ev.capture_id, ev.path, ev.captured_at, current.motion_box, manual=ev.manual)
                 except Exception:
                     log.exception("processing capture %d failed", ev.capture_id)
             if time.monotonic() >= next_sweep:

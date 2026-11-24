@@ -27,7 +27,9 @@ Live view is slower than a real shot and far smaller, so it is not used. The shu
 
 In: a `gphoto2` wrapper, a staged classifier API (verdict, then name), the pipeline's DSLR step, stored DSLR columns, a "main photo" rule for every reader, retention of unused DSLR frames, a `[dslr]` config section, a `birdy dslr` CLI, status display, install/docs.
 
-Out: drawing the DSLR region on the settings page, manually promoting a bird-less DSLR frame, bursts, live view, setting exposure/ISO/size from birdy (set on the camera body), RAW files, a second worker thread.
+Added after the first version (2026-11-24): a **Take a test frame** button on `/settings` with a draggable region box, and a manual **Take a photo** always fires the DSLR.
+
+Out: manually promoting a bird-less DSLR frame, bursts, live view, setting exposure/ISO/size from birdy (set on the camera body), RAW files, a second worker thread.
 
 With `dslr.enabled = false` (the default) the service behaves exactly as before: the pipeline takes its Pi-only code path and `gphoto2` is never run. `dslr.enabled` is a live switch on `/settings` (changed 2026-11-24, after the first version made it restart-only): the `Dslr` object is always built, the pipeline reads the switch per capture, and switching it on from the page calls `info()` once so the status line is current.
 
@@ -105,7 +107,7 @@ visits.photo_classified(...)                                      # unchanged
 
 - `dslr_rel` is the Pi photo's relative path with `_eos` before the extension (`2026/11/24/101502_123_eos.jpg`), so it lives beside the Pi photo and `/photos` serves it.
 - **Species crop on the DSLR frame:** a square centred on the box, side = 2 × the box's longer side in pixels, at least 224 px, shifted to stay inside the frame (the motion-crop rule, in DSLR pixels).
-- `FRESH = 10 s` keeps the backlog sweep, restarts and the backfill from firing the camera at an empty feeder. A manual **Take a photo** shot goes through the same path and fires the DSLR when the Pi photo is a bird.
+- `FRESH = 10 s` keeps the backlog sweep, restarts and the backfill from firing the camera at an empty feeder. A manual **Take a photo** shot fires the DSLR whatever the verdict (`MotionEvent.manual`); for a non-bird its frame is stored without a box, i.e. as an unused frame.
 - A DSLR frame that cannot be decoded counts as a failed capture (file removed, Pi photo stays main).
 - When a row is promoted (`box` set), `store_verdict` also makes the thumbnail from the DSLR frame and points `thumb_path` at it (the Pi thumbnail file is removed).
 - Log line: `capture 812: 50D 1.21 s, bird 0.71` or `capture 812: 50D 1.19 s, no bird in frame`.
