@@ -629,3 +629,19 @@ def test_evaluate_day_reranks_by_name_and_time(live, store, config):
     assert [store.get(x.id).published for x in (a, b, c)] == [None, None, "auto"]
     assert pub.evaluate(c) is False
     assert pub.evaluate_day(c.species, c.captured_at) is False
+
+
+def test_mirror_uses_the_dslr_photo_of_a_promoted_capture(live, store, config):
+    pub = make(live, store, config)
+    c = bird(store, T0, "Robin", 0.9)
+    eos = c.path.replace(".jpg", "_eos.jpg")
+    cv2.imwrite(str(store.photos_dir / eos), np.full((2000, 3000, 3), 90, np.uint8))
+    store.store_verdict(c.id, is_bird=True, confidence=0.9, species="Robin", species_confidence=0.9,
+                        dslr_path=eos, dslr_box=(0.4, 0.4, 0.2, 0.2))
+    store.set_published(c.id, "forced")
+    assert pub.run_once() is True
+    c = store.get(c.id)
+    assert c.web_path == eos
+    web = cv2.imread(str(pub.photos_dir / eos))
+    assert max(web.shape[:2]) == 1600
+    assert (pub.thumbs_dir / eos).exists()

@@ -323,7 +323,7 @@ class Visits:
             return
         first_seen = self._store.count_visits_with_species(v.species) == 1
         try:
-            reason = self._notifier.consider(best.id, self._store.photos_dir / best.path, v.species,
+            reason = self._notifier.consider(best.id, self._store.photos_dir / best.photo, v.species,
                                              best.species_confidence or v.species_confidence or 0.0, best.captured_at, first_seen)
         except Exception:
             log.exception("alert decision failed for visit %d", v.id)

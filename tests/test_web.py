@@ -1144,3 +1144,38 @@ def test_settings_post_saves_dslr(client, live):
     r = post_settings(client, dslr_region="0.1, 0.2, 0.3, 0.4", dslr_daily_cap="25")
     assert r.status_code in (200, 303)
     assert live.get().dslr.region == (0.1, 0.2, 0.3, 0.4) and live.get().dslr.daily_cap == 25
+
+
+def _promote(store, cid, box=(0.4, 0.4, 0.2, 0.2)):
+    c = store.get(cid)
+    eos = c.path.replace(".jpg", "_eos.jpg")
+    cv2.imwrite(str(store.photos_dir / eos), np.full((800, 1200, 3), 90, np.uint8))
+    store.store_verdict(cid, is_bird=True, confidence=0.9, species="Robin", species_confidence=0.8,
+                        dslr_path=eos, dslr_box=box)
+    return eos
+
+
+def test_grid_links_the_dslr_photo_for_a_promoted_capture(client, store):
+    cid = add(store, 0, True).id
+    eos = _promote(store, cid)
+    html = client.get("/?filter=all").text
+    assert f'class="photo" href="/photos/{eos}"' in html
+    assert f'href="/photos/{store.get(cid).path}"' in html and ">Pi photo<" in html
+    assert '<span class="tag">50D</span>' in html
+
+
+def test_grid_offers_the_unused_dslr_frame(client, store):
+    cid = add(store, 0, True).id
+    eos = _promote(store, cid, box=None)
+    html = client.get("/?filter=all").text
+    assert f'class="photo" href="/photos/{store.get(cid).path}"' in html
+    assert f'href="/photos/{eos}"' in html and ">50D frame<" in html
+
+
+def test_crop_jpg_of_a_promoted_capture_is_the_dslr_species_crop(client, store):
+    cid = add(store, 0, True).id
+    _promote(store, cid)
+    r = client.get(f"/captures/{cid}/crop.jpg")
+    assert r.status_code == 200
+    img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+    assert img.shape[:2] == (480, 480)        # 2 x (0.2 * 1200)

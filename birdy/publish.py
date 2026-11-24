@@ -289,7 +289,7 @@ class Publisher:
         for c in self._store.published():
             if self._stop.is_set():
                 return None
-            rel = c.path
+            rel = c.photo
             try:
                 self._ensure_web_copy(c, rel)
             except _UnreadableOriginal:

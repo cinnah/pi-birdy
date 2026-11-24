@@ -49,7 +49,7 @@
   .acts .pb.del { flex: 0 1 auto; color: #a3aaa5; }
   .acts .pb.del:hover { color: #ff4d3d; border-color: #ff4d3d; }
   .acts a.pb { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
-  .acts .pb.view { flex: 0 1 auto; color: #a3aaa5; }
+  .acts .pb.view, .acts .pb.aux { flex: 0 1 auto; color: #a3aaa5; }
 
   .bulk {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 12px;
@@ -125,7 +125,7 @@
     .tile a.photo .stamp:last-child { flex-direction: column; gap: 1px; }
     .acts .pb { min-height: 36px; }
     .acts .pb.del { flex: 1 1 100%; }
-    .acts .pb.view { flex: 1 1 auto; }
+    .acts .pb.view, .acts .pb.aux { flex: 1 1 auto; }
     .tile .sp { order: -1; }
   }
 </style>
@@ -178,7 +178,7 @@
     {% for c in captures %}
     {% set t = c.captured_at | local_time("short") %}
     <div class="tile{{ ' junk' if c.is_bird == false else '' }}">
-    <a class="photo" href="/photos/{{ c.path }}"{% if c.thumb_path %} data-thumb="/thumbs/{{ c.thumb_path }}"{% endif %}>
+    <a class="photo" href="/photos/{{ c.photo }}"{% if c.thumb_path %} data-thumb="/thumbs/{{ c.thumb_path }}"{% endif %}>
       {% if c.thumb_path %}<img src="/thumbs/{{ c.thumb_path }}" alt="{{ c.species or ('bird' if c.is_bird else 'capture') }} at {{ t }}" loading="lazy">{% else %}<div class="nothumb">no thumbnail</div>{% endif %}
       <div class="stamp">
         <span>{{ t }}</span>
@@ -191,6 +191,7 @@
       </div>
       <div class="stamp">
         <span class="mot">mot {{ c.motion_score }}</span>
+        {% if c.dslr_box %}<span class="tag">50D</span>{% endif %}
         {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
       </div>
     </a>
@@ -217,6 +218,8 @@
     </form>
     {% endif %}
     <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
+    {% if c.dslr_box %}<a class="pb aux" href="/photos/{{ c.path }}" title="The Pi camera's photo that triggered the 50D">Pi photo</a>
+    {% elif c.dslr_path %}<a class="pb aux" href="/photos/{{ c.dslr_path }}" title="The 50D frame: no bird was found in it">50D frame</a>{% endif %}
     {% if c.status == 'done' %}
     <details class="fix"><summary class="pb">Fix</summary>
       {# the species field comes first: Enter in it submits the form's first button #}

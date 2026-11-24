@@ -453,3 +453,23 @@ def test_clear_on_a_lone_model_non_bird_stays_lone(store, visits):
     visits.correct(b, "clear")
     c = store.get(b)
     assert c.visit_id is None and c.is_bird is False and c.species is None
+
+
+def test_alert_sends_the_main_photo(store, visits):
+    paths = []
+    consider = visits._notifier.consider
+
+    def recording(capture_id, photo_path, *rest):
+        paths.append(photo_path)
+        return consider(capture_id, photo_path, *rest)
+
+    visits._notifier.consider = recording
+    a = add(store, 0, emb=e(0))
+    eos = store.get(a).path.replace(".jpg", "_eos.jpg")
+    cv2.imwrite(str(store.photos_dir / eos), np.zeros((80, 120, 3), np.uint8))
+    with store._lock, store._conn:
+        store._conn.execute(
+            "UPDATE captures SET dslr_path = ?, dslr_x = 0.4, dslr_y = 0.4, dslr_w = 0.2, dslr_h = 0.2 WHERE id = ?", (eos, a))
+    visits.photo_classified(store.get(a), live=True)
+    visits.tick(T0 + timedelta(seconds=71))
+    assert paths == [store.photos_dir / eos]

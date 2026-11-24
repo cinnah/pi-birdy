@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from birdy.classifier import CropLoader, Prediction
 from birdy.config import ConfigError
 from birdy.daylight import DaylightGate
+from birdy.dslr import species_crop
 from birdy.live import LiveConfig
 from birdy.motion import crop_box
 from birdy.notify import TelegramError
@@ -92,7 +93,15 @@ def create_app(
     lores_size = live.get().camera.lores_size
 
     def _crop_jpeg(c) -> bytes | None:
-        """What the classifier saw: the motion crop (else the ROI crop), with the stored detector box drawn."""
+        """What the classifier saw: the motion crop (else the ROI crop), with the stored detector box drawn;
+        for a capture whose main photo is the DSLR frame, the species crop of that frame."""
+        if c.dslr_box is not None:
+            # The species model saw a square around the bird in the DSLR frame.
+            frame = cv2.imread(str(store.photos_dir / c.dslr_path))
+            if frame is None:
+                return None
+            ok, jpg = cv2.imencode(".jpg", species_crop(frame, c.dslr_box), [cv2.IMWRITE_JPEG_QUALITY, 85])
+            return jpg.tobytes() if ok else None
         crop = crop_box(c.motion_box, live.get().motion.roi, lores_size)
         try:
             rgb = CropLoader(lores_size).load(store.photos_dir / c.path, crop.bbox, crop.pad)
