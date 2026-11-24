@@ -86,16 +86,19 @@ const BIRDY = (() => {
   });
   // A print pasted on the sheet with its typed entry. `entry` is already-escaped HTML.
   // `sizes` tells the browser how wide the print renders, so a wide cell gets the full photo instead of a blurred thumbnail.
+  // On the feeder and species pages (TO_SHEET) a print goes to its day's sheet, which opens it in the lightbox (?site&photo).
+  let TO_SHEET = false;
   function print(site, p, strip, idx, entry, sizes = "(max-width: 719px) 45vw, 320px", cls = "") {
     const base = siteBase(site.id);
+    const href = TO_SHEET ? `${sheetHref(day(p.captured_at))}&site=${encodeURIComponent(site.id)}&photo=${encodeURIComponent(p.photo)}` : base + p.photo;
     // alt is empty on purpose: the entry beneath names the bird, so the link isn't read twice.
     return `<figure class="cell ${cls}">
-      <a class="print" href="${esc(base + p.photo)}" data-strip="${strip}" data-i="${idx}"><img src="${esc(base + p.thumb)}" srcset="${esc(base + p.thumb)} 400w, ${esc(base + p.photo)} 1600w" sizes="${esc(sizes)}" alt="" loading="lazy"></a>
+      <a class="print" href="${esc(href)}" ${TO_SHEET ? "data-sheet" : `data-strip="${strip}" data-i="${idx}"`}><img src="${esc(base + p.thumb)}" srcset="${esc(base + p.thumb)} 400w, ${esc(base + p.photo)} 1600w" sizes="${esc(sizes)}" alt="" loading="lazy"></a>
       <figcaption class="entry">${entry}</figcaption></figure>`;
   }
   function evidence() {
     const dlg = document.getElementById("lightbox");
-    if (!dlg) return;
+    if (!dlg) return () => false;
     const img = dlg.querySelector("img"), cap = dlg.querySelector(".cap"), cnt = dlg.querySelector(".count");
     const thumbs = dlg.querySelector(".thumbs");
     let items = [], i = 0, token = 0;
@@ -116,24 +119,30 @@ const BIRDY = (() => {
     const step = (d) => { if (items.length > 1) { i = (i + d + items.length) % items.length; show(); } };
     document.addEventListener("click", (e) => {
       const a = e.target.closest("a.print");
-      if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // let modifier/middle clicks open the photo in a tab
+      if (!a || "sheet" in a.dataset || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // let modifier/middle clicks open the photo in a tab; a data-sheet print navigates
       e.preventDefault();
-      items = STRIPS[+a.dataset.strip] || [];
-      i = Math.min(+a.dataset.i || 0, Math.max(0, items.length - 1));
-      if (!items.length) return;
+      open(STRIPS[+a.dataset.strip], +a.dataset.i);
+    });
+    const open = (strip, idx) => {
+      items = strip || [];
+      i = Math.min(idx || 0, Math.max(0, items.length - 1));
+      if (!items.length) return false;
       show();
       dlg.showModal();
-    });
+      return true;
+    };
     thumbs.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; i = [...thumbs.children].indexOf(b); show(); });
     // Nothing sits on the photo: its left third steps back, the rest steps forward; a lone photo closes on tap.
     img.addEventListener("click", (e) => { if (items.length < 2) return dlg.close(); const r = img.getBoundingClientRect(); step(e.clientX - r.left < r.width / 3 ? -1 : 1); });
     dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest(".close")) dlg.close(); });
     dlg.addEventListener("keydown", (e) => { if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1); });
     dlg.addEventListener("close", () => { token++; img.removeAttribute("src"); img.alt = ""; dlg.removeAttribute("aria-busy"); });
+    return open;
   }
 
   // --- shared pieces ------------------------------------------------------------------
   const foot = (left, right) => `<footer class="foot"><span>${left}</span><span>${right}</span></footer>`;
+  const sheetHref = (d) => "index.html?day=" + encodeURIComponent(d);   // the daily record of that day
   const RECORDED = "Recorded automatically by a camera at each window · the best photos of each species per day";
   // The photo log: every published photo, grouped by day, newest first.
   function photoLog(entries, todayDay, withWho) {
@@ -145,7 +154,7 @@ const BIRDY = (() => {
       const strip = STRIPS.push(list.map((e) => stripItem(e.site, e.p, withWho ? e.site.name : ""))) - 1;
       const prints = list.map((e, k) => print(e.site, e.p, strip, k,
         `<b>${esc(name(e.p))}</b><span class="t">${esc(hm(e.p.captured_at))}</span>${withWho ? `<span class="who">${esc(e.site.name)}</span>` : ""}`)).join("");
-      return `<section class="log" style="--i:${Math.min(i++, 12)}"><h4 class="logday"><b class="${d === todayDay ? "today" : ""}">${esc(dayLong(d))}</b><span>${esc(dow3(d))}</span></h4><div class="prints">${prints}</div></section>`;
+      return `<section class="log" style="--i:${Math.min(i++, 12)}"><h4 class="logday"><b class="${d === todayDay ? "today" : ""}"><a href="${sheetHref(d)}">${esc(dayLong(d))}</a></b><span>${esc(dow3(d))}</span></h4><div class="prints">${prints}</div></section>`;
     }).join("");
   }
 
@@ -172,7 +181,6 @@ const BIRDY = (() => {
     const prevDay = entryDays.filter((d) => d < sheetDay).at(-1);
     const nextDay = entryDays.find((d) => d > sheetDay && !isToday(d));
     const onToday = !q("day") || isToday(sheetDay);
-    const sheetHref = (d) => "index.html?day=" + encodeURIComponent(d);
     const prevLink = prevDay ? `<a class="hit" href="${sheetHref(prevDay)}" rel="prev"><span aria-hidden="true">← </span>${esc(dayShort(prevDay))}</a>` : "";
     const nextLink = nextDay ? `<a class="hit" href="${sheetHref(nextDay)}" rel="next">${esc(dayShort(nextDay))}<span aria-hidden="true"> →</span></a>`
       : onToday ? "" : `<a class="hit" href="index.html">Today<span aria-hidden="true"> →</span></a>`;
@@ -231,7 +239,15 @@ const BIRDY = (() => {
         <div class="row totals"><div>${plural(ordered.length, "species")}</div>${totals}</div>
       </section>
       ${foot(RECORDED, since ? `Record kept since ${esc(dayLong(since))}` : "")}`;
-    evidence();
+    const open = evidence();
+    // Arriving from a print on a feeder or species page: open that photo, then drop it from the address so a reload shows the plain sheet.
+    const photo = q("photo"), from = q("site");
+    if (photo && from) {
+      const src = siteBase(from) + photo;
+      const strip = STRIPS.find((items) => items.some((x) => x.src === src));
+      if (strip) open(strip, strip.findIndex((x) => x.src === src));
+      history.replaceState(null, "", q("day") ? sheetHref(q("day")) : "index.html");
+    }
   }
 
   // Feeder page: the monthly sheet (species × days), the hour tally, and the photo log.
@@ -241,6 +257,7 @@ const BIRDY = (() => {
     const s = sites.find((x) => x.id === id);
     if (!s) throw new Error("There is no feeder with that name.");
     const m = await loadManifest(id);
+    TO_SHEET = true;
     if (!m) throw new Error(`${s.name} hasn't published anything yet, or the server is unreachable. Try again in a minute.`);
     document.title = `birdy — ${s.name}, monthly record`;
     const st = m.stats, todayDay = siteToday(m.site);
@@ -253,7 +270,13 @@ const BIRDY = (() => {
     const cellCount = (sp, d) => (counted ? sp.days?.[d] : photosOn[sp.name + "\n" + d]) || 0;
     const species = st.species.map((sp) => ({ ...sp, month: days.reduce((a, d) => a + cellCount(sp, d), 0) }))
       .filter((sp) => sp.month > 0).sort((a, b) => b.month - a.month || a.name.localeCompare(b.name));
-    const dayHead = (d, i) => { const p = parts(d); const first = i === 0 || p[2] === 1; return `<div class="mh ${d === todayDay ? "today" : ""}"><small>${first ? esc(MONTHS[p[1] - 1]) : ""}</small>${p[2]}</div>`; };
+    // A day's column head links to that day's sheet when the sheet has entries (published photos); an empty sheet gets no link.
+    const photoDays = new Set(m.photos.map((p) => day(p.captured_at)));
+    const dayHead = (d, i) => {
+      const p = parts(d); const first = i === 0 || p[2] === 1;
+      const inner = `<small>${first ? esc(MONTHS[p[1] - 1]) : ""}</small>${p[2]}`;
+      return `<div class="mh ${d === todayDay ? "today" : ""}">${photoDays.has(d) ? `<a href="${sheetHref(d)}" aria-label="${esc(dayLong(d))}, daily record">${inner}</a>` : inner}</div>`;
+    };
     const colTotals = days.map((d) => species.reduce((a, sp) => a + cellCount(sp, d), 0));
     const mgrid = species.length ? `<div class="mgrid" style="--d:${days.length}">
         <div class="mh sp"><small>Species</small>${counted ? "visits per day" : "published photos per day"}</div>${days.map(dayHead).join("")}<div class="mh mt"><small>&nbsp;</small>Total</div>
@@ -269,7 +292,7 @@ const BIRDY = (() => {
     let latest = "";
     if (latestDay) {
       const g = [...groupByDay(m, latestDay).values()].sort((a, b) => b.count - a.count || a.species.localeCompare(b.species));
-      latest = `<h3 class="sec"><span>${latestDay === todayDay ? "Today" : "Last entries"}</span><span class="typed ${latestDay === todayDay ? "" : ""}">${esc(dayFull(latestDay))}</span></h3>
+      latest = `<h3 class="sec"><span>${latestDay === todayDay ? "Today" : "Last entries"}</span><a class="typed" href="${sheetHref(latestDay)}">${esc(dayFull(latestDay))}</a></h3>
         <div class="strip">${g.map((grp) => { const strip = STRIPS.push(grp.items.map((p) => stripItem(s, p))) - 1;
           return print(s, grp.best, strip, grp.items.indexOf(grp.best), `<b>${esc(grp.species)}</b><span class="n">×${esc(grp.count)}</span><span class="t">${esc(hm(grp.last))}</span>`, "(max-width: 719px) 45vw, 440px"); }).join("")}</div>`;
     }
@@ -301,6 +324,7 @@ const BIRDY = (() => {
     if (!sp) throw new Error("No species was given.");
     document.title = `birdy — ${sp}`;
     const sites = await loadAll();
+    TO_SHEET = true;
     const rows = [], entries = [];
     let total = 0;
     for (const s of sites) {
