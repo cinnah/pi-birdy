@@ -450,3 +450,42 @@ def test_transport_strips_token():
 
     HttpTelegramTransport("  TOKEN123\n", urlopen=urlopen).send_text("42", "hi")
     assert seen["url"].endswith("/botTOKEN123/sendMessage")
+
+
+def _jpeg(path, w, h, noise=True):
+    import cv2
+    import numpy as np
+    img = np.random.default_rng(0).integers(0, 255, (h, w, 3), dtype=np.uint8) if noise else np.full((h, w, 3), 120, np.uint8)
+    cv2.imwrite(str(path), img)
+    return path
+
+
+def test_telegram_jpeg_passes_a_normal_photo_through(tmp_path):
+    from birdy.notify import _telegram_jpeg
+    p = _jpeg(tmp_path / "a.jpg", 3280, 2464, noise=False)   # a Pi still; pure noise this size is 9.5 MB
+    assert _telegram_jpeg(p) == p.read_bytes()
+
+
+def test_telegram_jpeg_shrinks_a_photo_with_oversized_sides(tmp_path):
+    import cv2
+    import numpy as np
+    from birdy.notify import _telegram_jpeg
+    p = _jpeg(tmp_path / "a.jpg", 6000, 4100)            # sides sum to 10,100
+    out = cv2.imdecode(np.frombuffer(_telegram_jpeg(p), np.uint8), cv2.IMREAD_COLOR)
+    assert max(out.shape[:2]) == 2560
+
+
+def test_telegram_jpeg_shrinks_a_heavy_file(tmp_path, monkeypatch):
+    import cv2
+    import numpy as np
+    import birdy.notify as notify
+    p = _jpeg(tmp_path / "a.jpg", 3000, 2000)
+    monkeypatch.setattr(notify, "TG_MAX_BYTES", 1000)
+    out = cv2.imdecode(np.frombuffer(notify._telegram_jpeg(p), np.uint8), cv2.IMREAD_COLOR)
+    assert max(out.shape[:2]) == 2560
+
+
+def test_telegram_jpeg_missing_file_raises_file_not_found(tmp_path):
+    from birdy.notify import _telegram_jpeg
+    with pytest.raises(FileNotFoundError):
+        _telegram_jpeg(tmp_path / "gone.jpg")

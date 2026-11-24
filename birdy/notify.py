@@ -17,6 +17,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+import cv2
+import numpy as np
+
 from birdy.config import Config
 from birdy.live import LiveConfig
 
@@ -25,6 +28,11 @@ log = logging.getLogger(__name__)
 RETRY_DELAYS = (5.0, 15.0, 45.0)
 NO_RETRY_STATUSES = frozenset({400, 401, 403})  # bad request / bad token / blocked bot: retrying cannot help
 TELEGRAM_API = "https://api.telegram.org"
+
+# Telegram's sendPhoto rejects files over 10 MB and photos whose width + height exceed 10,000.
+TG_MAX_BYTES = 8 * 1024 * 1024
+TG_MAX_SIDE_SUM = 10_000
+TG_SEND_SIDE = 2560
 
 
 class TelegramError(Exception):
@@ -93,9 +101,26 @@ class TelegramTransport(Protocol):
     def send_text(self, chat_id: str, text: str) -> None: ...
 
 
+def _telegram_jpeg(path: Path) -> bytes:
+    """The photo's bytes as Telegram accepts them: the file itself, or a smaller JPEG when it is
+    too heavy or too large (a 15 MP DSLR frame can be). FileNotFoundError propagates."""
+    data = path.read_bytes()
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return data
+    h, w = img.shape[:2]
+    if len(data) <= TG_MAX_BYTES and w + h <= TG_MAX_SIDE_SUM:
+        return data
+    scale = TG_SEND_SIDE / max(h, w)
+    if scale < 1:
+        img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
+    ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return jpg.tobytes() if ok else data
+
+
 def _multipart(fields: dict[str, str], file_field: str, path: Path) -> tuple[bytes, str]:
     boundary = uuid.uuid4().hex
-    data = path.read_bytes()  # FileNotFoundError propagates to the caller
+    data = _telegram_jpeg(path)  # FileNotFoundError propagates to the caller
     parts = [
         f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
         for k, v in fields.items()
