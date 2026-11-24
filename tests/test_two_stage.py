@@ -294,3 +294,40 @@ def test_prediction_carries_the_embedding_for_birds(live):
     assert pred.embedding is not None and pred.embedding.shape == (8,)
     pred, _ = two_stage(live, 0.1, 0.8, p_det=0.1).classify_image(IMG)
     assert pred.embedding is None
+
+
+def test_verdict_then_name_equals_classify_image(live):
+    clf = two_stage(live, 0.9, 0.8, p_det=0.4)
+    v = clf.verdict(IMG)
+    assert v.is_bird and v.confidence == 0.9 and v.detector_confidence == 0.4
+    assert v.detector_box == (0.1, 0.2, 0.3, 0.4)
+    top, emb = clf.name(IMG)
+    assert clf.prediction(v, top, emb) == clf.classify_image(IMG)[0]
+
+
+def test_verdict_does_not_run_the_species_model(live):
+    clf = two_stage(live, 0.9, 0.8)
+    clf.verdict(IMG)
+    assert clf.species.calls == 0
+
+
+def test_prediction_without_a_name_is_a_bird_with_no_species(live):
+    clf = two_stage(live, 0.9, 0.8)
+    pred = clf.prediction(clf.verdict(IMG), [], None)
+    assert pred.is_bird and pred.species is None and pred.species_confidence is None and pred.embedding is None
+
+
+def test_locate_returns_the_detectors_best_bird(live):
+    assert two_stage(live, 0.0, 0.0, p_det=0.6).locate(IMG).score == 0.6
+    assert two_stage(live, 0.0, 0.0, p_det=0.0).locate(IMG) is None
+    assert two_stage(live, 0.0, 0.0, det_exc=RuntimeError("x")).locate(IMG) is None
+
+
+def test_load_crop_returns_rgb(live, tmp_path):
+    import cv2
+    p = tmp_path / "a.jpg"
+    bgr = np.zeros((60, 80, 3), np.uint8)
+    bgr[:, :, 0] = 250                                    # blue in BGR
+    cv2.imwrite(str(p), bgr)
+    rgb = two_stage(live, 0.9, 0.8).load_crop(p, None)
+    assert rgb.shape == (60, 80, 3) and rgb[30, 40, 2] > 200 and rgb[30, 40, 0] < 50

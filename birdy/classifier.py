@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Protocol
 import cv2
 import numpy as np
 
-from birdy.detector import BirdDetector
+from birdy.detector import BirdDetector, Detection
 from birdy.live import LiveConfig
 from birdy.motion import BBox
 from birdy.species import BioClipSpecies, SpeciesLabel
@@ -35,6 +35,15 @@ class Prediction:
     detector_box: tuple[float, float, float, float] | None = None   # (x, y, w, h) fractions of the crop
     # The species model's L2-normalised image embedding, when it ran; None otherwise.
     embedding: np.ndarray | None = field(default=None, compare=False, repr=False)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """Bird or not, from the gate and the detector; no species yet."""
+    is_bird: bool
+    confidence: float                                         # max(gate P(bird), detector score)
+    detector_confidence: float
+    detector_box: tuple[float, float, float, float] | None
 
 
 class Classifier(Protocol):
@@ -210,53 +219,81 @@ class TwoStageClassifier:
         # TFLite interpreters are not thread-safe; the pipeline and the web thread share this object.
         self._lock = threading.Lock()
 
+    def load_crop(self, image_path: Path, roi_bbox: BBox | None, pad: float | None = None) -> np.ndarray:
+        """Decode a still and crop it like `classify` does; RGB."""
+        return self._crops.load(image_path, roi_bbox, pad)
+
+    def _detect(self, img_rgb: np.ndarray) -> Detection | None:
+        """The detector's best bird, None when there is none or it failed. Caller holds the lock."""
+        if self.detector is None:
+            return None
+        try:
+            return self.detector.best_bird(img_rgb)
+        except Exception as e:
+            key = f"{type(e).__name__}: {e}"
+            if key not in self._detector_errors:  # log each distinct failure once, not per capture
+                log.exception("detector failed (%s); continuing without it", key)
+                self._detector_errors.add(key)
+            return None
+
+    def verdict(self, img_rgb: np.ndarray, threshold: float | None = None) -> Verdict:
+        """Stage 1: gate + detector. Fast (well under a second on the Pi)."""
+        cfg = self._live.get()
+        t_gate = cfg.classifier.threshold if threshold is None else threshold
+        with self._lock:
+            p_bird = self.gate.predict(img_rgb)
+            det = self._detect(img_rgb)
+        p_det = det.score if det is not None else 0.0
+        return Verdict(
+            is_bird=p_bird >= t_gate or p_det >= cfg.detector.threshold,
+            confidence=max(p_bird, p_det),
+            detector_confidence=p_det,
+            detector_box=det.box if det is not None else None,
+        )
+
+    def locate(self, img_rgb: np.ndarray) -> Detection | None:
+        """The detector alone, on any image (the DSLR frame's feeder region)."""
+        with self._lock:
+            return self._detect(img_rgb)
+
+    def name(self, img_rgb: np.ndarray) -> tuple[list[tuple[SpeciesLabel, float]], np.ndarray | None]:
+        """Stage 2: the species model's top-5 and image embedding ([], None when it failed).
+        Only call it for a bird: the species model has no "nothing here" answer (14 % of empty
+        frames get a confident name)."""
+        cfg = self._live.get()
+        with self._lock:
+            try:
+                self._refresh_candidates(cfg)
+                fn = getattr(self.species, "top_with_embedding", None)
+                return fn(img_rgb, k=5) if fn else (self.species.top(img_rgb, k=5), None)
+            except Exception as e:
+                key = f"{type(e).__name__}: {e}"
+                if key not in self._species_errors:
+                    log.exception("species model failed (%s); continuing without a species", key)
+                    self._species_errors.add(key)
+                return [], None
+
+    def prediction(self, v: Verdict, top: list[tuple[SpeciesLabel, float]], emb: np.ndarray | None) -> Prediction:
+        """Verdict + species result -> Prediction; a species is reported at or above `species.threshold`."""
+        label, p_sp = top[0] if top else (None, 0.0)
+        species = label.common if label is not None and p_sp >= self._live.get().species.threshold else None
+        return Prediction(
+            is_bird=v.is_bird,
+            confidence=v.confidence,
+            species=species,
+            species_confidence=p_sp if species is not None else None,
+            detector_confidence=v.detector_confidence,
+            detector_box=v.detector_box,
+            embedding=emb,
+        )
+
     def classify_image(
         self, img_rgb: np.ndarray, threshold: float | None = None, known_bird: bool = False
     ) -> tuple[Prediction, list[tuple[SpeciesLabel, float]]]:
-        cfg = self._live.get()
-        t_gate = cfg.classifier.threshold if threshold is None else threshold
-        t_det = cfg.detector.threshold
-        t_sp = cfg.species.threshold
-
-        with self._lock:
-            p_bird = self.gate.predict(img_rgb)
-            det = None
-            if self.detector is not None:
-                try:
-                    det = self.detector.best_bird(img_rgb)
-                except Exception as e:
-                    key = f"{type(e).__name__}: {e}"
-                    if key not in self._detector_errors:  # log each distinct failure once, not per capture
-                        log.exception("detector failed (%s); continuing without it", key)
-                        self._detector_errors.add(key)
-            p_det = det.score if det is not None else 0.0
-            is_bird = p_bird >= t_gate or p_det >= t_det
-            top, emb = [], None
-            if is_bird or known_bird:
-                # The species model has no "nothing here" answer (14 % of empty frames get a confident
-                # name), so it only ever sees photos the gate or detector (or an earlier verdict) called a bird.
-                try:
-                    self._refresh_candidates(cfg)
-                    fn = getattr(self.species, "top_with_embedding", None)
-                    top, emb = fn(img_rgb, k=5) if fn else (self.species.top(img_rgb, k=5), None)
-                except Exception as e:
-                    key = f"{type(e).__name__}: {e}"
-                    if key not in self._species_errors:
-                        log.exception("species model failed (%s); continuing without a species", key)
-                        self._species_errors.add(key)
-                    top, emb = [], None
-        label, p_sp = top[0] if top else (None, 0.0)
-        species = label.common if label is not None and p_sp >= t_sp else None
-        pred = Prediction(
-            is_bird=is_bird,
-            confidence=max(p_bird, p_det),
-            species=species,
-            species_confidence=p_sp if species is not None else None,
-            detector_confidence=p_det,
-            detector_box=det.box if det is not None else None,
-            embedding=emb,
-        )
-        return pred, top
+        v = self.verdict(img_rgb, threshold)
+        # `known_bird`: a stored bird being re-checked always gets a species run.
+        top, emb = self.name(img_rgb) if (v.is_bird or known_bird) else ([], None)
+        return self.prediction(v, top, emb), top
 
     def _refresh_candidates(self, cfg: Config) -> None:
         """Re-apply the candidate set when the `[species]` config or the local list changed. Caller holds the lock."""
