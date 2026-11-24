@@ -111,6 +111,9 @@ class Dslr:
             if proc.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
                 raise DslrError(_message(proc))
             os.replace(tmp, dest)
+        except OSError as e:                  # disk full, the day folder gone: the frame is lost, the capture is not
+            tmp.unlink(missing_ok=True)
+            self._fail("error", f"could not save the frame: {e}")
         except DslrError as e:
             tmp.unlink(missing_ok=True)
             self._fail(_state_for(str(e)), str(e))

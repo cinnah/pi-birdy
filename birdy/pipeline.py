@@ -110,6 +110,7 @@ class Pipeline:
                 pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg)
         except Exception:
             log.exception("classification failed for %s", path)
+            self._drop_dslr_frame(path)
             try:
                 self._store.mark_error(capture_id)
             except Exception:
@@ -124,6 +125,7 @@ class Pipeline:
             )
         except Exception:
             log.exception("storing classification failed for capture %d", capture_id)
+            self._drop_dslr_frame(path)
             try:
                 self._store.mark_error(capture_id)
             except Exception:
@@ -141,6 +143,16 @@ class Pipeline:
             log.info("capture %d: bird=%s p=%.2f species=%s", capture_id, pred.is_bird, pred.confidence, final.species)
         else:
             log.info("capture %d: bird=%s p=%.2f", capture_id, pred.is_bird, pred.confidence)
+
+    def _drop_dslr_frame(self, path: Path) -> None:
+        """Remove the DSLR frame taken for this Pi photo when its row will not record it (the
+        capture is being marked 'error'): no row would point at the file, so nothing could purge it."""
+        if self._dslr is None:
+            return
+        try:
+            (self._store.photos_dir / dslr_rel(path.relative_to(self._store.photos_dir))).unlink(missing_ok=True)
+        except (OSError, ValueError):
+            log.exception("could not remove the 50D frame of %s", path)
 
     def _classify_with_dslr(self, capture_id: int, path: Path, captured_at: datetime, crop, cfg):
         """Verdict on the Pi crop; for a fresh bird, one DSLR frame; the species from that frame

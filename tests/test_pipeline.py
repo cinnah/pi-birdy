@@ -961,3 +961,17 @@ def test_backfill_of_a_promoted_row_falls_back_to_the_pi_crop_when_the_dslr_file
     clf.named.clear()
     p.sweep()
     assert clf.named == [(48, 64)] and store.get(ev.capture_id).status == "done"
+
+
+def test_a_dslr_frame_is_removed_when_its_verdict_cannot_be_stored(store, live, monkeypatch):
+    dslr = FakeDslr()
+    ev = add_at(store, fresh())
+
+    def boom(*a, **k):
+        raise RuntimeError("db is gone")
+
+    monkeypatch.setattr(store, "store_verdict", boom)
+    Pipeline(store, StagedClassifier(), live, dslr=dslr).process(ev.capture_id, ev.path, ev.captured_at)
+    assert len(dslr.shots) == 1 and not dslr.shots[0].exists()
+    assert store.get(ev.capture_id).status == "error"
+    assert ev.path.exists()                       # the Pi photo is untouched

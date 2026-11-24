@@ -148,3 +148,15 @@ def test_species_crop_has_a_minimum_and_stays_in_the_frame():
     frame = np.zeros((2000, 3000, 3), np.uint8)
     assert species_crop(frame, (0.0, 0.0, 0.01, 0.01)).shape[:2] == (224, 224)   # tiny box in the corner
     assert species_crop(frame, (0.1, 0.1, 0.8, 0.8)).shape[:2] == (2000, 2000)   # capped by the frame height
+
+
+def test_a_failed_save_raises_dslr_error_and_leaves_nothing(store, live, tmp_path, monkeypatch):
+    def boom(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("birdy.dslr.os.replace", boom)
+    d = make(store, live, Runner())
+    dest = tmp_path / "a_eos.jpg"
+    with pytest.raises(DslrError, match="could not save the frame"):
+        d.capture(dest)
+    assert not dest.exists() and not tmp_files(tmp_path) and d.status().state == "error"
