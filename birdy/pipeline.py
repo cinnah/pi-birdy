@@ -18,7 +18,10 @@ import cv2
 import numpy as np
 
 from birdy.classifier import Classifier
-from birdy.dslr import DslrError, box_in_frame, dslr_rel, region_crop, species_crop
+from birdy.dslr import (
+    EXPOSURE_K_DEFAULT, DslrError, adapt_exposure_k, box_in_frame, dslr_rel, frame_brightness, pick_shutter,
+    region_crop, species_crop,
+)
 from birdy.live import LiveConfig
 from birdy.motion import NormBox, crop_box
 from birdy.store import Capture, Store
@@ -43,6 +46,7 @@ class MotionEvent:
     captured_at: datetime
     motion_score: int
     manual: bool = False    # "Take a photo" on the web page: the extra camera fires whatever the verdict
+    lux: float | None = None   # the Pi camera's light reading for this still (None = unknown)
 
 
 class Pipeline:
@@ -100,7 +104,8 @@ class Pipeline:
         return self._queue.qsize()
 
     def process(
-        self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None, manual: bool = False
+        self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None, manual: bool = False,
+        lux: float | None = None,
     ) -> None:
         cfg = self._live.get()
         dslr_path, dslr_box = None, None
@@ -110,7 +115,7 @@ class Pipeline:
             if self._dslr is None or not cfg.dslr.enabled:   # the switch is live
                 pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
             else:
-                pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg, manual)
+                pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg, manual, lux)
         except Exception:
             log.exception("classification failed for %s", path)
             self._drop_dslr_frame(path)
@@ -157,7 +162,9 @@ class Pipeline:
         except (OSError, ValueError):
             log.exception("could not remove the 50D frame of %s", path)
 
-    def _classify_with_dslr(self, capture_id: int, path: Path, captured_at: datetime, crop, cfg, manual: bool = False):
+    def _classify_with_dslr(
+        self, capture_id: int, path: Path, captured_at: datetime, crop, cfg, manual: bool = False, lux: float | None = None
+    ):
         """Verdict on the Pi crop; for a fresh bird, one DSLR frame; the species from that frame
         when the detector finds the bird in it, else from the Pi crop. A photo taken by hand
         (`manual`) fires the DSLR whatever the verdict; its frame is the capture's main photo even with no
@@ -171,7 +178,7 @@ class Pipeline:
         rel, frame, box = None, None, None
         if (datetime.now(timezone.utc) - captured_at).total_seconds() <= FRESH_SECONDS:
             rel = dslr_rel(path.relative_to(self._store.photos_dir))
-            frame, took = self._dslr_frame(capture_id, rel)
+            frame, took = self._dslr_frame(capture_id, rel, cfg, lux)
         if not v.is_bird:
             if frame is not None:
                 log.info("capture %d: 50D %.2f s (by hand, not a bird)", capture_id, took)
@@ -188,11 +195,24 @@ class Pipeline:
         top, emb = clf.name(species_rgb)
         return clf.prediction(v, top, emb), (str(rel) if frame is not None else None), box
 
-    def _dslr_frame(self, capture_id: int, rel: Path) -> tuple[np.ndarray | None, float]:
-        """Fire the DSLR; the decoded RGB frame and the seconds taken, or (None, 0) when it failed."""
-        dest = self._store.photos_dir / rel
+    def _exposure_k(self) -> float:
+        """The learned exposure constant (lux x seconds), kept in the meta table across restarts."""
         try:
-            took = self._dslr.capture(dest)
+            return float(self._store.get_meta("dslr_exposure_k") or EXPOSURE_K_DEFAULT)
+        except ValueError:
+            return EXPOSURE_K_DEFAULT
+
+    def _dslr_frame(self, capture_id: int, rel: Path, cfg=None, lux: float | None = None) -> tuple[np.ndarray | None, float]:
+        """Fire the DSLR; the decoded RGB frame and the seconds taken, or (None, 0) when it failed.
+        With `dslr.auto_shutter` and a light reading, the shutter speed is picked first and the
+        frame's brightness then corrects the exposure constant for the next shot."""
+        dest = self._store.photos_dir / rel
+        shutter, k = None, None
+        if cfg is not None and cfg.dslr.auto_shutter and lux is not None:
+            k = self._exposure_k()
+            shutter = pick_shutter(lux, k)
+        try:
+            took = self._dslr.capture(dest, shutter) if shutter else self._dslr.capture(dest)
         except DslrError:
             return None, 0.0                  # Dslr logged it (once per distinct error)
         bgr = cv2.imread(str(dest))
@@ -200,6 +220,16 @@ class Pipeline:
             dest.unlink(missing_ok=True)
             log.warning("capture %d: the 50D frame could not be decoded; using the Pi photo", capture_id)
             return None, 0.0
+        if shutter is not None:
+            brightness = frame_brightness(bgr, cfg.dslr.region)
+            new_k = adapt_exposure_k(k, brightness, shutter)
+            log.info("capture %d: 50D at %s for %.0f lux, brightness %.0f (k %.2f -> %.2f)",
+                     capture_id, shutter, lux, brightness, k, new_k)
+            if new_k != k:
+                try:
+                    self._store.set_meta("dslr_exposure_k", f"{new_k:.4f}")
+                except Exception:
+                    log.exception("could not store the exposure constant")
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), took
 
     def sweep(self) -> None:
@@ -332,7 +362,7 @@ class Pipeline:
                     if current is None or current.status != "pending":
                         log.debug("capture %d no longer pending; skipping", ev.capture_id)
                     else:
-                        self.process(ev.capture_id, ev.path, ev.captured_at, current.motion_box, manual=ev.manual)
+                        self.process(ev.capture_id, ev.path, ev.captured_at, current.motion_box, manual=ev.manual, lux=ev.lux)
                 except Exception:
                     log.exception("processing capture %d failed", ev.capture_id)
             if time.monotonic() >= next_sweep:

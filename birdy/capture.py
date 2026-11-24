@@ -82,10 +82,16 @@ def _capture_still(
         return
     now = datetime.now().astimezone()
     abs_path, rel_path = store.photo_path_for(now)
-    picam2.capture_file(str(abs_path))
+    meta = picam2.capture_file(str(abs_path))   # returns the frame's metadata
+    # The camera's estimate of the scene's light level; the extra camera's shutter speed is picked from it.
+    lux = meta.get("Lux") if isinstance(meta, dict) else None
+    lux = float(lux) if isinstance(lux, (int, float)) and lux > 0 else None
     capture_id = store.add_capture(now, rel_path, score, motion_box=motion_box)
-    pipeline.submit(MotionEvent(capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score, manual=manual))
-    log.info("captured %s (%s)", rel_path, "by hand" if manual else f"motion {score}")
+    pipeline.submit(MotionEvent(
+        capture_id=capture_id, path=abs_path, captured_at=now, motion_score=score, manual=manual, lux=lux,
+    ))
+    log.info("captured %s (%s%s)", rel_path, "by hand" if manual else f"motion {score}",
+             "" if lux is None else f", {lux:.0f} lux")
 
 
 def _tunable_key(cfg: Config) -> tuple:

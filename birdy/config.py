@@ -121,6 +121,7 @@ class DslrConfig:
     enabled: bool                               # live; the second camera (gphoto2 over USB), a switch on /settings
     region: tuple[float, float, float, float]   # live; x, y, w, h fractions of the DSLR frame the detector searches
     daily_cap: int                              # live; maximum DSLR shots per local day
+    auto_shutter: bool                          # live; pick the DSLR's shutter speed from the Pi camera's light reading
 
 
 @dataclass(frozen=True)
@@ -360,6 +361,7 @@ def load_config(path: Path) -> Config:
     dslr_enabled = _bool(ds, "dslr", "enabled", False)
     dslr_region = _region(ds.get("region", [0.0, 0.0, 1.0, 1.0]), "dslr.region")
     dslr_cap = _num(ds, "dslr", "daily_cap", 200, int)
+    dslr_auto = _bool(ds, "dslr", "auto_shutter", False)
     _check(1 <= dslr_cap <= 2000, "dslr.daily_cap must be between 1 and 2000")
 
     return Config(
@@ -404,5 +406,5 @@ def load_config(path: Path) -> Config:
             enabled=pub_enabled, host=pub_host, user=pub_user, remote_dir=pub_remote, site_id=pub_site,
             ssh_key=pub_key, min_confidence=pub_min, per_species_per_day=pub_n,
         ),
-        dslr=DslrConfig(enabled=dslr_enabled, region=dslr_region, daily_cap=dslr_cap),
+        dslr=DslrConfig(enabled=dslr_enabled, region=dslr_region, daily_cap=dslr_cap, auto_shutter=dslr_auto),
     )

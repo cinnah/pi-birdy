@@ -7,7 +7,10 @@ import cv2
 import numpy as np
 import pytest
 
-from birdy.dslr import Dslr, DslrError, box_in_frame, dslr_rel, region_crop, species_crop
+from birdy.dslr import (
+    EXPOSURE_K_RANGE, TARGET_BRIGHTNESS, Dslr, DslrError, adapt_exposure_k, box_in_frame, dslr_rel, frame_brightness,
+    pick_shutter, region_crop, species_crop,
+)
 from birdy.store import Store
 
 NOW = datetime(2026, 11, 24, 12, 0).astimezone()
@@ -160,3 +163,46 @@ def test_a_failed_save_raises_dslr_error_and_leaves_nothing(store, live, tmp_pat
     with pytest.raises(DslrError, match="could not save the frame"):
         d.capture(dest)
     assert not dest.exists() and not tmp_files(tmp_path) and d.status().state == "error"
+
+
+def test_capture_sets_the_shutter_speed_in_the_same_call(store, live, tmp_path):
+    r = Runner()
+    make(store, live, r).capture(tmp_path / "a_eos.jpg", "1/250")
+    assert r.calls[0][:4] == ["gphoto2", "--set-config", "shutterspeed=1/250", "--capture-image-and-download"]
+    assert len(r.calls) == 1
+
+
+@pytest.mark.parametrize("lux, k, expected", [
+    (None, 1.5, None),          # no light reading: leave the camera's own speed
+    (0, 1.5, None),
+    (5000, 1.5, "1/500"),       # bright: never faster than 1/500
+    (750, 1.5, "1/500"),        # needs exactly 1/500
+    (500, 1.5, "1/320"),        # needs 1/333: the next slower step that is long enough
+    (300, 1.5, "1/200"),
+    (100, 1.5, "1/60"),         # needs 1/67
+    (10, 1.5, "1/60"),          # dusk: never slower than 1/60
+    (750, 3.0, "1/250"),        # a larger constant asks for more time
+])
+def test_pick_shutter(lux, k, expected):
+    assert pick_shutter(lux, k) == expected
+
+
+def test_frame_brightness_reads_the_region_only():
+    frame = np.zeros((160, 320, 3), np.uint8)
+    frame[:, 160:] = 200
+    assert frame_brightness(frame, (0.5, 0.0, 0.5, 1.0)) == 200
+    assert frame_brightness(frame, (0.0, 0.0, 0.5, 1.0)) == 0
+    assert frame_brightness(frame, (0.0, 0.0, 1.0, 1.0)) == 100
+
+
+def test_adapt_exposure_k():
+    t = TARGET_BRIGHTNESS
+    assert adapt_exposure_k(1.0, t / 2, "1/250") == pytest.approx(2.0)       # half as bright: twice the time
+    assert adapt_exposure_k(1.0, 2, "1/250") == pytest.approx(4.0)           # at most 4x per frame
+    assert adapt_exposure_k(1.0, t / 2, "1/60") == 1.0                       # slowest speed: a dark frame is expected
+    assert adapt_exposure_k(1.0, t, "1/250") == pytest.approx(0.95)          # bright enough: creep faster
+    assert adapt_exposure_k(1.0, t * 0.8, "1/250") == pytest.approx(0.95)    # inside the tolerance counts as bright enough
+    assert adapt_exposure_k(1.0, t, "1/500") == 1.0                          # already the fastest: nothing to learn
+    assert adapt_exposure_k(1.0, t / 2, "1/500") == pytest.approx(2.0)
+    assert adapt_exposure_k(50.0, 2, "1/250") == EXPOSURE_K_RANGE[1]         # clamped
+    assert adapt_exposure_k(0.0205, t, "1/250") == EXPOSURE_K_RANGE[0]

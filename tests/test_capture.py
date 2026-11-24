@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 import cv2
 import numpy as np
+import pytest
 
 from birdy import capture
 from birdy.capture import _build_tunables, run_capture
@@ -233,3 +234,25 @@ def test_manual_capture_request_takes_a_still_on_the_next_frame(live, monkeypatc
     row = store.get(sink.events[0].capture_id)
     assert row.status == "pending" and row.motion_score == 0 and row.motion_box is None
     assert (store.photos_dir / row.path).exists()
+
+
+class _LuxCamera(_StillCamera):
+    def __init__(self, meta):
+        self.meta = meta
+
+    def capture_file(self, path):
+        super().capture_file(path)
+        return self.meta
+
+
+@pytest.mark.parametrize("meta, lux", [
+    ({"Lux": 812.5, "ExposureTime": 4000}, 812.5),
+    ({"ExposureTime": 4000}, None),          # a camera without a lux estimate
+    ({"Lux": 0.0}, None),
+    (None, None),
+])
+def test_capture_still_passes_the_light_reading(tmp_path, meta, lux):
+    store = Store(tmp_path / "data")
+    sink = _Sink()
+    capture._capture_still(_LuxCamera(meta), store, sink, 100)
+    assert sink.events[0].lux == lux

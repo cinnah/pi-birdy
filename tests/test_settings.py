@@ -32,6 +32,7 @@ def default_patch(config, **overrides) -> SettingsPatch:
         dslr_enabled=config.dslr.enabled,
         dslr_region=config.dslr.region,
         dslr_daily_cap=config.dslr.daily_cap,
+        dslr_auto_shutter=config.dslr.auto_shutter,
     )
     base.update(overrides)
     return SettingsPatch(**base)
@@ -452,3 +453,9 @@ def test_dslr_switch_parses_and_saves(config_path, config):
     new = save_settings(config_path, config, patch)
     assert new.dslr.enabled is True
     assert save_settings(config_path, new, parse_settings_form(FORM)).dslr.enabled is False
+
+
+def test_dslr_auto_shutter_switch_parses_and_saves(config_path, config):
+    assert config.dslr.auto_shutter is False and parse_settings_form(FORM).dslr_auto_shutter is False
+    new = save_settings(config_path, config, parse_settings_form({**FORM, "dslr_auto_shutter": "on"}))
+    assert new.dslr.auto_shutter is True

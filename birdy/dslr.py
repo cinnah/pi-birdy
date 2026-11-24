@@ -27,6 +27,18 @@ INFO_KEYS = ("capturetarget", "imageformat", "autopoweroff", "focusmode", "autoe
 
 NormBox = tuple[float, float, float, float]
 
+# Auto shutter: speeds birdy may set (seconds, gphoto2's name), fastest first. Faster than 1/500 buys
+# nothing for a perched bird; slower than 1/60 blurs it.
+SHUTTER_LADDER = (
+    (1 / 500, "1/500"), (1 / 400, "1/400"), (1 / 320, "1/320"), (1 / 250, "1/250"), (1 / 200, "1/200"),
+    (1 / 160, "1/160"), (1 / 125, "1/125"), (1 / 100, "1/100"), (1 / 80, "1/80"), (1 / 60, "1/60"),
+)
+# Exposure constant: the shutter time a well-exposed frame needs is K / lux (lens wide open, Auto ISO
+# at its top). The default is a first guess; every frame taken corrects it (`adapt_exposure_k`).
+EXPOSURE_K_DEFAULT = 1.5
+EXPOSURE_K_RANGE = (0.02, 60.0)
+TARGET_BRIGHTNESS = 100.0     # mean grey level (0-255) of a well-exposed feeder region
+
 
 class DslrError(Exception):
     pass
@@ -95,9 +107,10 @@ class Dslr:
         return self._now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
 
     # --- public -----------------------------------------------------------
-    def capture(self, dest: Path) -> float:
+    def capture(self, dest: Path, shutter: str | None = None) -> float:
         """Take one frame and download it to `dest` (written through a temp name). Returns the
-        seconds it took; raises DslrError (camera off, cap reached, timeout...), leaving no file."""
+        seconds it took; raises DslrError (camera off, cap reached, timeout...), leaving no file.
+        `shutter` (e.g. "1/250") is set on the camera in the same gphoto2 call, before the shot."""
         cap = self._live.get().dslr.daily_cap
         midnight = self._midnight()
         if self._store.count_dslr_shots(midnight) >= cap:
@@ -106,7 +119,8 @@ class Dslr:
         tmp = dest.with_name(dest.name + ".tmp")
         t0 = time.monotonic()
         try:
-            proc = self._run(["--capture-image-and-download", "--filename", str(tmp), "--force-overwrite"])
+            setting = ["--set-config", f"shutterspeed={shutter}"] if shutter else []
+            proc = self._run([*setting, "--capture-image-and-download", "--filename", str(tmp), "--force-overwrite"])
             # gphoto2 can exit 0 after printing an error: the file is the proof.
             if proc.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
                 raise DslrError(_message(proc))
@@ -183,3 +197,38 @@ def species_crop(frame: np.ndarray, box: NormBox) -> np.ndarray:
     x0 = int(min(max(round(cx - side / 2), 0), w - side))
     y0 = int(min(max(round(cy - side / 2), 0), h - side))
     return frame[y0:y0 + side, x0:x0 + side]
+
+
+# --- auto shutter (pure) ----------------------------------------------------
+
+def pick_shutter(lux: float | None, k: float) -> str | None:
+    """The fastest ladder speed that still exposes the frame at this light level (time >= k / lux);
+    the slowest one when even that is too fast. None when there is no light reading."""
+    if lux is None or lux <= 0:
+        return None
+    needed = k / lux
+    for seconds, name in SHUTTER_LADDER:
+        if seconds >= needed:
+            return name
+    return SHUTTER_LADDER[-1][1]
+
+
+def frame_brightness(frame: np.ndarray, region: NormBox) -> float:
+    """Mean grey level (0-255) of the feeder region, on a subsampled frame."""
+    return float(region_crop(frame, region)[::8, ::8].mean())
+
+
+def adapt_exposure_k(k: float, brightness: float, shutter: str) -> float:
+    """Correct the exposure constant from a frame taken at `shutter`.
+
+    Too dark (< 75 % of the target): the frame needed more time, so k grows by the shortfall (at
+    most 4x per frame) - unless the shutter was already the slowest allowed, where a dark frame is
+    expected and says nothing about k. Bright enough: k shrinks 5 %, so the speed creeps back up
+    until a frame comes out a little dark - unless the shutter was already the fastest."""
+    lo, hi = EXPOSURE_K_RANGE
+    if brightness < 0.75 * TARGET_BRIGHTNESS:
+        if shutter != SHUTTER_LADDER[-1][1]:
+            k *= min(TARGET_BRIGHTNESS / max(brightness, 1.0), 4.0)
+    elif shutter != SHUTTER_LADDER[0][1]:
+        k *= 0.95
+    return min(max(k, lo), hi)

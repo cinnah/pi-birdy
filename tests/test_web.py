@@ -1293,3 +1293,9 @@ def test_settings_test_frame_full_size(store, state, live, config_path):
     img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
     assert r.status_code == 200 and img.shape[:2] == (2000, 3000)
     assert 'id="xlb"' in c.get("/settings").text
+
+
+def test_settings_has_the_auto_shutter_switch(client, live):
+    assert 'name="dslr_auto_shutter"' in client.get("/settings").text
+    post_settings(client, dslr_auto_shutter="on")
+    assert live.get().dslr.auto_shutter is True

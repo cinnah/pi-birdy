@@ -94,3 +94,5 @@ region = [0.0, 0.0, 1.0, 1.0]     # live; x, y, w, h (fractions of the DSLR fram
                                   # Frame the feeder tightly: a bird should be >= ~10 % of the region's width.
                                   # `birdy dslr shot` saves a test frame with this region drawn.
 daily_cap = 200                   # live; DSLR shots per local day (1-2000), a guard for the shutter
+auto_shutter = false              # live; set the shutter speed before each shot from the Pi camera's light reading
+                                  # (1/500 in good light down to 1/60); the DSLR must be in Tv (shutter priority) mode

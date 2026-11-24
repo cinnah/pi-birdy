@@ -845,14 +845,15 @@ class FakeDslr:
     def __init__(self, fail=False, garbage=False):
         self.fail, self.garbage, self.shots = fail, garbage, []
 
-    def capture(self, dest):
+    def capture(self, dest, shutter=None):
         self.shots.append(dest)
+        self.shutters = getattr(self, "shutters", []) + [shutter]
         if self.fail:
             raise DslrError("no camera")
         if self.garbage:
             dest.write_bytes(b"not a jpeg")
         else:
-            cv2.imwrite(str(dest), np.zeros((800, 1200, 3), np.uint8))
+            cv2.imwrite(str(dest), np.full((800, 1200, 3), getattr(self, 'level', 0), np.uint8))
         return 1.2
 
 
@@ -1041,3 +1042,56 @@ def test_an_automatic_bird_with_no_bird_in_the_dslr_frame_is_not_promoted_by_han
     dslr_on(live)
     c = run_one(store, live, StagedClassifier(dslr_bird=0.0), FakeDslr(), fresh())
     assert c.dslr_main is False and c.photo == c.path
+
+
+def auto_shutter_on(live):
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, dslr=dataclasses.replace(cfg.dslr, enabled=True, auto_shutter=True)))
+
+
+def shoot(store, live, dslr, lux, i=0):
+    ev = add_at(store, fresh() + timedelta(milliseconds=i))
+    Pipeline(store, StagedClassifier(), live, dslr=dslr).process(ev.capture_id, ev.path, ev.captured_at, lux=lux)
+    return store.get(ev.capture_id)
+
+
+def test_auto_shutter_picks_the_speed_from_the_light_and_learns_from_a_dark_frame(store, live):
+    auto_shutter_on(live)
+    dslr = FakeDslr()
+    dslr.level = 50                                   # half the target brightness
+    shoot(store, live, dslr, lux=300)                 # k 1.5 -> needs 1/200
+    assert dslr.shutters == ["1/200"]
+    assert float(store.get_meta("dslr_exposure_k")) == pytest.approx(3.0)
+    shoot(store, live, dslr, lux=300, i=5)            # k 3.0 -> needs 1/100
+    assert dslr.shutters[-1] == "1/100"
+
+
+def test_auto_shutter_creeps_faster_after_a_bright_frame(store, live):
+    auto_shutter_on(live)
+    dslr = FakeDslr()
+    dslr.level = 120
+    shoot(store, live, dslr, lux=300)
+    assert float(store.get_meta("dslr_exposure_k")) == pytest.approx(1.5 * 0.95)
+
+
+def test_auto_shutter_off_or_no_light_reading_leaves_the_camera_alone(store, live):
+    dslr_on(live)
+    dslr = FakeDslr()
+    shoot(store, live, dslr, lux=300)                 # switch off
+    auto_shutter_on(live)
+    shoot(store, live, dslr, lux=None, i=5)           # switch on, no reading
+    assert dslr.shutters == [None, None] and store.get_meta("dslr_exposure_k") is None
+
+
+def test_the_worker_passes_the_light_reading(store, live):
+    auto_shutter_on(live)
+    dslr = FakeDslr()
+    p = Pipeline(store, StagedClassifier(), live, dslr=dslr)
+    p.start()
+    try:
+        ev = dataclasses.replace(add_at(store, fresh()), lux=5000.0)
+        p.submit(ev)
+        assert wait_until(lambda: store.get(ev.capture_id).is_bird is not None)
+        assert dslr.shutters == ["1/500"]
+    finally:
+        p.stop()

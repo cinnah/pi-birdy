@@ -40,6 +40,7 @@ FIELD_KEYS = {
     "publish_min_confidence": "publish.min_confidence",
     "per_species_per_day": "publish.per_species_per_day",
     "dslr_enabled": "dslr.enabled",
+    "dslr_auto_shutter": "dslr.auto_shutter",
     "dslr_region": "dslr.region",
     "dslr_daily_cap": "dslr.daily_cap",
 }
@@ -72,6 +73,7 @@ class SettingsPatch:
     dslr_enabled: bool
     dslr_region: tuple[float, float, float, float]
     dslr_daily_cap: int
+    dslr_auto_shutter: bool
 
 
 def config_to_dict(config: Config) -> dict:
@@ -139,6 +141,7 @@ def config_to_dict(config: Config) -> dict:
         },
         "dslr": {
             "enabled": config.dslr.enabled,
+            "auto_shutter": config.dslr.auto_shutter,
             "region": list(config.dslr.region),
             "daily_cap": config.dslr.daily_cap,
         },
@@ -177,7 +180,10 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
         min_confidence=patch.publish_min_confidence,
         per_species_per_day=patch.per_species_per_day,
     )
-    data.setdefault("dslr", {}).update(enabled=patch.dslr_enabled, region=list(patch.dslr_region), daily_cap=patch.dslr_daily_cap)
+    data.setdefault("dslr", {}).update(
+        enabled=patch.dslr_enabled, region=list(patch.dslr_region), daily_cap=patch.dslr_daily_cap,
+        auto_shutter=patch.dslr_auto_shutter,
+    )
     return data
 
 
@@ -283,6 +289,7 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         publish_min_confidence=_num(form, "publish_min_confidence", float),
         per_species_per_day=_num(form, "per_species_per_day", int),
         dslr_enabled=form.get("dslr_enabled") is not None,
+        dslr_auto_shutter=form.get("dslr_auto_shutter") is not None,
         dslr_region=_region(form),
         dslr_daily_cap=_num(form, "dslr_daily_cap", int),
     )

@@ -144,7 +144,7 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         cooldown_minutes=cur.telegram.cooldown_minutes,
         publish_min_confidence=cur.publish.min_confidence,
         per_species_per_day=cur.publish.per_species_per_day,
-        dslr_enabled=cur.dslr.enabled, dslr_region=cur.dslr.region, dslr_daily_cap=cur.dslr.daily_cap,
+        dslr_enabled=cur.dslr.enabled, dslr_region=cur.dslr.region, dslr_daily_cap=cur.dslr.daily_cap, dslr_auto_shutter=cur.dslr.auto_shutter,
     )
     new = save_settings(config_path, cur, patch)
     live.replace(new)  # what the web handler does

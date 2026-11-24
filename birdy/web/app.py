@@ -342,6 +342,7 @@ def create_app(
                 "publish_min_confidence": cfg.publish.min_confidence,
                 "per_species_per_day": cfg.publish.per_species_per_day,
                 "dslr_enabled": cfg.dslr.enabled,
+                "dslr_auto_shutter": cfg.dslr.auto_shutter,
                 "dslr_region": ", ".join(f"{x:g}" for x in cfg.dslr.region),
                 "dslr_daily_cap": cfg.dslr.daily_cap,
             }

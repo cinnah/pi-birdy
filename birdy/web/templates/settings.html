@@ -348,6 +348,11 @@
       <input class="switch" type="checkbox" id="dslr_enabled" name="dslr_enabled" value="on" {{ 'checked' if v['dslr_enabled'] else '' }}>
       {{ explain("When a bird is seen, also take a photo with the 50D and use it when the bird is in it. Off: the Pi camera works alone.", "dslr.enabled") }}
     </div>
+    <div class="row {{ 'error' if error_field == 'dslr_auto_shutter' else '' }}">
+      <label for="dslr_auto_shutter">Shutter speed by light</label>
+      <input class="switch" type="checkbox" id="dslr_auto_shutter" name="dslr_auto_shutter" value="on" {{ 'checked' if v['dslr_auto_shutter'] else '' }}>
+      {{ explain("Before each shot, set the fastest shutter speed the light allows (1/500 in good light down to 1/60 at dusk), from the Pi camera's light reading. The camera must be in Tv mode. Off: the speed set on the camera is used.", "dslr.auto_shutter") }}
+    </div>
     <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
       <label for="dslr_region">Feeder region</label>
       <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
@@ -539,7 +544,7 @@
 
   // unsaved-changes count in the save bar
   const dirtyEl = document.getElementById('dirty'), small = dirtyEl.querySelector('small').outerHTML;
-  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.alert_new_species) d.alert_new_species = ''; if (!d.dslr_enabled) d.dslr_enabled = ''; return d; };
+  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.alert_new_species) d.alert_new_species = ''; if (!d.dslr_enabled) d.dslr_enabled = ''; if (!d.dslr_auto_shutter) d.dslr_auto_shutter = ''; return d; };
   let initial = null;
   function markDirty() {
     if (!initial) return;

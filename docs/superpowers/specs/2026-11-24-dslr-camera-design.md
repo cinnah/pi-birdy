@@ -27,7 +27,7 @@ Live view is slower than a real shot and far smaller, so it is not used. The shu
 
 In: a `gphoto2` wrapper, a staged classifier API (verdict, then name), the pipeline's DSLR step, stored DSLR columns, a "main photo" rule for every reader, retention of unused DSLR frames, a `[dslr]` config section, a `birdy dslr` CLI, status display, install/docs.
 
-Added after the first version (2026-11-24): a **Take a test frame** button on `/settings` with a draggable region box, and a manual **Take a photo** always fires the DSLR.
+Added after the first version (2026-11-24): a **Take a test frame** button on `/settings` with a draggable region box, and a manual **Take a photo** always fires the DSLR. Also added that day: `dslr.auto_shutter` — the shutter speed is picked before each shot from the Pi camera's lux reading and a self-correcting exposure constant (details in `CLAUDE.md`), because a fixed 1/500 s measured far too dark at sunset (brightness 12 of 255 at f/4, ISO 1600).
 
 Out: manually promoting a bird-less DSLR frame, bursts, live view, setting exposure/ISO/size from birdy (set on the camera body), RAW files, a second worker thread.
 
