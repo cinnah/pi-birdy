@@ -191,7 +191,7 @@
       </div>
       <div class="stamp">
         <span class="mot">mot {{ c.motion_score }}</span>
-        {% if c.dslr_box %}<span class="tag">50D</span>{% endif %}
+        {% if c.photo != c.path %}<span class="tag">50D</span>{% endif %}
         {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
       </div>
     </a>
@@ -218,7 +218,7 @@
     </form>
     {% endif %}
     <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
-    {% if c.dslr_box %}<a class="pb aux" href="/photos/{{ c.path }}" title="The Pi camera's photo that triggered the 50D">Pi photo</a>
+    {% if c.photo != c.path %}<a class="pb aux" href="/photos/{{ c.path }}" title="The Pi camera's photo that triggered the 50D">Pi photo</a>
     {% elif c.dslr_path %}<a class="pb aux" href="/photos/{{ c.dslr_path }}" title="The 50D frame: no bird was found in it">50D frame</a>{% endif %}
     {% if c.status == 'done' %}
     <details class="fix"><summary class="pb">Fix</summary>
@@ -293,7 +293,8 @@ document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener(
   setTimeout(() => { delete b.dataset.armed; b.textContent = label; b.classList.remove('armed'); }, 4000);
 }));
 
-// Lightbox: a tile's photo (or its Model view, the crop the model classified) opens over the grid;
+// Lightbox: a tile's photo (or its Model view, the crop the model classified, or its other camera's
+// photo: the Pi photo / 50D frame link) opens over the grid;
 // arrows/keys/swipe step through this page's photos in the current view, MODEL VIEW or M switches it.
 // The links still work as plain links without JS, and a modified click still opens a new tab.
 (function () {
@@ -304,39 +305,43 @@ document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener(
   const mode = document.getElementById('lb-mode');
   const links = [...document.querySelectorAll('.tile a.photo')];
   const views = links.map(a => a.closest('.tile').querySelector('a.view'));
+  const alts = links.map(a => a.closest('.tile').querySelector('a.aux'));   // the other camera's photo, when there is one
   if (!lb || !links.length || !lb.showModal) return;
-  let i = 0, model = false, opener = null;
+  let i = 0, model = false, alt = false, opener = null;
 
   function show(n) {
     i = n;
     const a = links[i];
-    const src = model ? views[i].href : a.href;
-    img.alt = (a.querySelector('img')?.alt || '') + (model ? ' (model view)' : '');
-    if (model) img.src = src;
+    if (alt && !alts[i]) alt = false;               // stepped to a photo with one camera only
+    const src = alt ? alts[i].href : model ? views[i].href : a.href;
+    img.alt = (a.querySelector('img')?.alt || '') + (alt ? ` (${alts[i].textContent})` : model ? ' (model view)' : '');
+    if (model || alt) img.src = src;
     else {
       // the cached thumb shows at once; the full photo replaces it when it has loaded
       if (a.dataset.thumb) img.src = a.dataset.thumb;
       const full = new Image();
-      full.onload = () => { if (links[i] === a && !model) img.src = src; };
+      full.onload = () => { if (links[i] === a && !model && !alt) img.src = src; };
       full.src = src;
     }
     orig.href = src;
-    orig.textContent = model ? 'crop' : 'original';
+    orig.textContent = alt ? 'original' : model ? 'crop' : 'original';
     mode.setAttribute('aria-pressed', model);
     at.textContent = `${i + 1} / ${links.length}`;
-    if (model) at.append(Object.assign(document.createElement('span'), {className: 'm', textContent: ' · model view'}));
+    if (alt) at.append(Object.assign(document.createElement('span'), {className: 'm', textContent: ' · ' + alts[i].textContent.toLowerCase()}));
+    else if (model) at.append(Object.assign(document.createElement('span'), {className: 'm', textContent: ' · model view'}));
     stamps.replaceChildren(...[...a.querySelectorAll('.stamp')].map(s => s.cloneNode(true)));
     prev.disabled = i === 0;
     next.disabled = i === links.length - 1;
   }
   const step = d => { const n = i + d; if (n >= 0 && n < links.length) show(n); };
 
-  const toggle = () => { model = !model; show(i); };
+  const toggle = () => { model = alt ? true : !model; alt = false; show(i); };
 
-  const open = (n, m) => e => {
+  const open = (n, m, other = false) => e => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
     model = m;
+    alt = other;
     opener = e.currentTarget;
     show(n);
     lb.showModal();
@@ -344,6 +349,7 @@ document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener(
   links.forEach((a, n) => {
     a.addEventListener('click', open(n, false));
     views[n]?.addEventListener('click', open(n, true));
+    alts[n]?.addEventListener('click', open(n, false, true));
   });
   prev.addEventListener('click', () => step(-1));
   next.addEventListener('click', () => step(1));

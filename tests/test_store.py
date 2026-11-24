@@ -973,3 +973,15 @@ def test_species_summary_best_photo_is_the_main_photo(store):
     _verdict(store, cid, dslr_path=rel, dslr_box=(0.4, 0.4, 0.1, 0.1))
     store.write_final(cid, True, 0.9, "Robin", 0.8)
     assert store.species_summary()[0].best_path == rel
+
+
+def test_a_photo_taken_by_hand_uses_the_dslr_frame_without_a_box_and_is_not_purged_as_unused(store):
+    cid = add(store, T0)
+    rel = _eos_rel(store, cid)
+    _verdict(store, cid, dslr_path=rel, dslr_box=None, dslr_main=True)
+    c = store.get(cid)
+    assert c.dslr_main is True and c.dslr_box is None and c.photo == rel and c.thumb_path == rel
+    assert store.purge_dslr_unused(older_than_days=7, now=T0 + timedelta(days=30)) == 0
+    assert (store.photos_dir / rel).exists()
+    store.delete_capture(cid)
+    assert not (store.photos_dir / rel).exists()

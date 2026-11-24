@@ -439,8 +439,12 @@ def create_app(
         return RedirectResponse("/settings?saved=1", status_code=303)
 
     @app.get("/settings/dslr-frame.jpg")
-    async def settings_dslr_frame_jpg():
-        path = await run_in_threadpool(_dslr_preview)   # may decode a 15 MP frame: off the event loop
+    async def settings_dslr_frame_jpg(full: int = 0):
+        """The last test frame: the web-sized copy, or with `?full=1` the camera's file as is (the lightbox)."""
+        if full:
+            path = dslr_test if dslr_test.exists() else None
+        else:
+            path = await run_in_threadpool(_dslr_preview)   # may decode a 15 MP frame: off the event loop
         if path is None:
             raise HTTPException(status_code=404, detail="no test frame yet")
         return Response(content=path.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})

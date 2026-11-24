@@ -1271,3 +1271,25 @@ def test_settings_test_frame_reports_a_camera_error(store, state, live, config_p
 def test_settings_test_frame_without_a_dslr_is_503(client):
     assert client.post("/settings/dslr-frame").status_code == 503
     assert "disabled>Take a test frame" in client.get("/settings").text
+
+
+def test_grid_shows_the_dslr_frame_of_a_photo_taken_by_hand(client, store):
+    cid = add(store, 0, False).id
+    c = store.get(cid)
+    eos = c.path.replace(".jpg", "_eos.jpg")
+    cv2.imwrite(str(store.photos_dir / eos), np.full((800, 1200, 3), 90, np.uint8))
+    store.store_verdict(cid, is_bird=False, confidence=0.1, species=None, species_confidence=None,
+                        dslr_path=eos, dslr_main=True)
+    html = client.get("/?filter=all").text
+    assert f'class="photo" href="/photos/{eos}"' in html and ">Pi photo<" in html
+    assert client.get(f"/captures/{cid}/crop.jpg").status_code == 200    # still the Pi crop the model saw
+
+
+def test_settings_test_frame_full_size(store, state, live, config_path):
+    c = TestClient(create_app(store, state, live, config_path, dslr=_FrameDslr()))
+    assert c.get("/settings/dslr-frame.jpg?full=1").status_code == 404
+    c.post("/settings/dslr-frame", follow_redirects=False)
+    r = c.get("/settings/dslr-frame.jpg?full=1")
+    img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+    assert r.status_code == 200 and img.shape[:2] == (2000, 3000)
+    assert 'id="xlb"' in c.get("/settings").text

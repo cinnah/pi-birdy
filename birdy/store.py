@@ -111,11 +111,15 @@ class Capture:
     # fractions (x, y, w, h) of that frame. A box means the frame is the capture's main photo.
     dslr_path: str | None = None
     dslr_box: tuple[float, float, float, float] | None = None
+    # The DSLR frame is the main photo although no bird box was found: a photo taken by hand.
+    dslr_main: bool = False
 
     @property
     def photo(self) -> str:
-        """The photo to show, publish and alert with: the DSLR frame when a bird was found in it, else the Pi photo."""
-        return self.dslr_path if self.dslr_path is not None and self.dslr_box is not None else self.path
+        """The photo to show, publish and alert with: the DSLR frame when a bird was found in it
+        (or the photo was taken by hand), else the Pi photo."""
+        promoted = self.dslr_path is not None and (self.dslr_box is not None or self.dslr_main)
+        return self.dslr_path if promoted else self.path
 
 
 @dataclass(frozen=True)
@@ -178,6 +182,7 @@ def _row_to_capture(row: sqlite3.Row) -> Capture:
         has_embedding=row["embedding"] is not None,
         dslr_path=row["dslr_path"],
         dslr_box=None if row["dslr_x"] is None else (row["dslr_x"], row["dslr_y"], row["dslr_w"], row["dslr_h"]),
+        dslr_main=bool(row["dslr_main"]),
     )
 
 
@@ -262,6 +267,7 @@ class Store:
                 ("dslr_y", "REAL"),
                 ("dslr_w", "REAL"),
                 ("dslr_h", "REAL"),
+                ("dslr_main", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 if name not in cols:
                     try:
@@ -461,15 +467,18 @@ class Store:
         embedding: np.ndarray | None = None,
         dslr_path: str | None = None,
         dslr_box: tuple[float, float, float, float] | None = None,
+        dslr_main: bool = False,
     ) -> None:
         """The classifier's verdict for a photo (model_*); the final columns are written by Visits.
         A None embedding keeps the stored one. `dslr_path` records a DSLR frame taken for this
         capture (None = leave the DSLR columns as they are); with a `dslr_box` the frame becomes the
-        main photo and the thumbnail is remade from it."""
+        main photo and the thumbnail is remade from it; `dslr_main` does the same without a box (a photo
+        taken by hand)."""
         bx = (None, None, None, None) if det_box is None else det_box
         blob = None if embedding is None else np.asarray(embedding, np.float16).tobytes()
         # Outside the lock: decoding a 15 MP frame takes a moment.
-        new_thumb = self._make_thumbnail(Path(dslr_path)) if dslr_path is not None and dslr_box is not None else None
+        promoted = dslr_path is not None and (dslr_box is not None or dslr_main)
+        new_thumb = self._make_thumbnail(Path(dslr_path)) if promoted else None
         old_thumb = None
         with self._lock, self._conn:
             self._conn.execute(
@@ -482,8 +491,8 @@ class Store:
             if dslr_path is not None:
                 dx = (None, None, None, None) if dslr_box is None else dslr_box
                 self._conn.execute(
-                    "UPDATE captures SET dslr_path = ?, dslr_x = ?, dslr_y = ?, dslr_w = ?, dslr_h = ? WHERE id = ?",
-                    (str(dslr_path), *dx, capture_id),
+                    "UPDATE captures SET dslr_path = ?, dslr_x = ?, dslr_y = ?, dslr_w = ?, dslr_h = ?, dslr_main = ? WHERE id = ?",
+                    (str(dslr_path), *dx, int(dslr_main), capture_id),
                 )
                 if new_thumb is not None:
                     row = self._conn.execute("SELECT thumb_path FROM captures WHERE id = ?", (capture_id,)).fetchone()
@@ -678,7 +687,7 @@ class Store:
             out = []
             for g in groups:
                 best = self._conn.execute(
-                    "SELECT id, CASE WHEN dslr_x IS NOT NULL THEN dslr_path ELSE path END AS photo, thumb_path"
+                    "SELECT id, CASE WHEN dslr_x IS NOT NULL OR dslr_main = 1 THEN dslr_path ELSE path END AS photo, thumb_path"
                     " FROM captures WHERE species = ? AND is_bird = 1"
                     " ORDER BY species_confidence DESC, captured_at DESC LIMIT 1",
                     (g["species"],),
@@ -972,7 +981,7 @@ class Store:
         cutoff = _to_db_time(now - timedelta(days=older_than_days))
         with self._lock, self._conn:
             rows = self._conn.execute(
-                "SELECT id, dslr_path FROM captures WHERE dslr_path IS NOT NULL AND dslr_x IS NULL AND captured_at < ?",
+                "SELECT id, dslr_path FROM captures WHERE dslr_path IS NOT NULL AND dslr_x IS NULL AND dslr_main = 0 AND captured_at < ?",
                 (cutoff,),
             ).fetchall()
             self._conn.executemany("UPDATE captures SET dslr_path = NULL WHERE id = ?", [(r["id"],) for r in rows])

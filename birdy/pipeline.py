@@ -124,7 +124,7 @@ class Pipeline:
                 capture_id, is_bird=pred.is_bird, confidence=pred.confidence,
                 species=pred.species, species_confidence=pred.species_confidence,
                 det_confidence=pred.detector_confidence, det_box=pred.detector_box, embedding=pred.embedding,
-                dslr_path=dslr_path, dslr_box=dslr_box,
+                dslr_path=dslr_path, dslr_box=dslr_box, dslr_main=manual and dslr_path is not None,
             )
         except Exception:
             log.exception("storing classification failed for capture %d", capture_id)
@@ -160,8 +160,8 @@ class Pipeline:
     def _classify_with_dslr(self, capture_id: int, path: Path, captured_at: datetime, crop, cfg, manual: bool = False):
         """Verdict on the Pi crop; for a fresh bird, one DSLR frame; the species from that frame
         when the detector finds the bird in it, else from the Pi crop. A photo taken by hand
-        (`manual`) fires the DSLR whatever the verdict; a non-bird keeps its frame as an unused one
-        (linked from the tile, purged like the others).
+        (`manual`) fires the DSLR whatever the verdict; its frame is the capture's main photo even with no
+        bird in it (`process` stores `dslr_main`).
         Returns (prediction, DSLR path relative to photos/ or None, bird box in the DSLR frame or None)."""
         clf = self._classifier
         crop_rgb = clf.load_crop(path, crop.bbox, crop.pad)

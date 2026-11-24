@@ -1008,7 +1008,9 @@ def test_a_photo_taken_by_hand_fires_the_dslr_even_for_a_non_bird(store, live):
     Pipeline(store, clf, live, dslr=dslr).process(ev.capture_id, ev.path, ev.captured_at, manual=True)
     c = store.get(ev.capture_id)
     assert len(dslr.shots) == 1 and c.is_bird is False
-    assert c.dslr_path is not None and c.dslr_box is None and c.photo == c.path   # kept as an unused frame
+    # taken by hand: the 50D frame is the main photo even with no bird in it
+    assert c.dslr_path is not None and c.dslr_box is None and c.dslr_main is True
+    assert c.photo == c.dslr_path and c.thumb_path == c.dslr_path
     assert clf.named == [] and clf.located == []                                  # no species for a non-bird
 
 
@@ -1033,3 +1035,9 @@ def test_the_worker_passes_the_manual_flag(store, live):
         assert len(dslr.shots) == 1
     finally:
         p.stop()
+
+
+def test_an_automatic_bird_with_no_bird_in_the_dslr_frame_is_not_promoted_by_hand_rule(store, live):
+    dslr_on(live)
+    c = run_one(store, live, StagedClassifier(dslr_bird=0.0), FakeDslr(), fresh())
+    assert c.dslr_main is False and c.photo == c.path

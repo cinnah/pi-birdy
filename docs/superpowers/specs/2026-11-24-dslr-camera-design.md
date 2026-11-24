@@ -107,7 +107,7 @@ visits.photo_classified(...)                                      # unchanged
 
 - `dslr_rel` is the Pi photo's relative path with `_eos` before the extension (`2026/11/24/101502_123_eos.jpg`), so it lives beside the Pi photo and `/photos` serves it.
 - **Species crop on the DSLR frame:** a square centred on the box, side = 2 × the box's longer side in pixels, at least 224 px, shifted to stay inside the frame (the motion-crop rule, in DSLR pixels).
-- `FRESH = 10 s` keeps the backlog sweep, restarts and the backfill from firing the camera at an empty feeder. A manual **Take a photo** shot fires the DSLR whatever the verdict (`MotionEvent.manual`); for a non-bird its frame is stored without a box, i.e. as an unused frame.
+- `FRESH = 10 s` keeps the backlog sweep, restarts and the backfill from firing the camera at an empty feeder. A manual **Take a photo** shot fires the DSLR whatever the verdict (`MotionEvent.manual`); its frame is the capture's main photo even with no bird in it (`dslr_main = 1`; changed the same day, after first storing it as an unused frame).
 - A DSLR frame that cannot be decoded counts as a failed capture (file removed, Pi photo stays main).
 - When a row is promoted (`box` set), `store_verdict` also makes the thumbnail from the DSLR frame and points `thumb_path` at it (the Pi thumbnail file is removed).
 - Log line: `capture 812: 50D 1.21 s, bird 0.71` or `capture 812: 50D 1.19 s, no bird in frame`.
