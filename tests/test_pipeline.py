@@ -8,7 +8,9 @@ import cv2
 import numpy as np
 import pytest
 
-from birdy.classifier import Prediction
+from birdy.classifier import Prediction, Verdict
+from birdy.detector import Detection
+from birdy.dslr import DslrError
 from birdy.motion import BBox, roi_bbox
 from birdy.pipeline import MotionEvent, Pipeline
 from birdy.publish import Publisher
@@ -807,3 +809,125 @@ def test_detector_only_backfill_keeps_the_stored_embedding(store, live):
     unchecked(store, [ev.capture_id])                          # a species pass does take the new one
     Pipeline(store, ReturnsFake(pred), live).sweep()
     assert np.allclose(store.embeddings([ev.capture_id])[ev.capture_id], new)
+
+
+class StagedClassifier:
+    """The staged API the DSLR path uses; records which image each stage saw."""
+
+    def __init__(self, bird=True, dslr_bird=0.7):
+        self.bird, self.dslr_bird = bird, dslr_bird
+        self.located: list[tuple] = []
+        self.named: list[tuple] = []
+
+    def classify(self, *a, **k):
+        raise AssertionError("the DSLR path must use the staged API")
+
+    def load_crop(self, image_path, roi_bbox, pad=None):
+        return np.zeros((48, 64, 3), np.uint8)
+
+    def verdict(self, img, threshold=None):
+        return Verdict(self.bird, 0.9 if self.bird else 0.1, 0.0, None)
+
+    def locate(self, img):
+        self.located.append(img.shape[:2])
+        return Detection("bird", self.dslr_bird, (0.5, 0.5, 0.2, 0.2)) if self.dslr_bird else None
+
+    def name(self, img):
+        self.named.append(img.shape[:2])
+        return [], np.ones(8, np.float32) / np.sqrt(8)
+
+    def prediction(self, v, top, emb):
+        return Prediction(is_bird=v.is_bird, confidence=v.confidence, embedding=emb)
+
+
+class FakeDslr:
+    def __init__(self, fail=False, garbage=False):
+        self.fail, self.garbage, self.shots = fail, garbage, []
+
+    def capture(self, dest):
+        self.shots.append(dest)
+        if self.fail:
+            raise DslrError("no camera")
+        if self.garbage:
+            dest.write_bytes(b"not a jpeg")
+        else:
+            cv2.imwrite(str(dest), np.zeros((800, 1200, 3), np.uint8))
+        return 1.2
+
+
+def fresh():
+    return datetime.now().astimezone()
+
+
+def run_one(store, live, clf, dslr, when):
+    ev = add_at(store, when)
+    p = Pipeline(store, clf, live, dslr=dslr)
+    p.process(ev.capture_id, ev.path, ev.captured_at)
+    return store.get(ev.capture_id)
+
+
+def test_dslr_fires_once_for_a_fresh_bird_and_becomes_the_photo(store, live):
+    clf, dslr = StagedClassifier(), FakeDslr()
+    c = run_one(store, live, clf, dslr, fresh())
+    assert len(dslr.shots) == 1
+    assert c.status == "done" and c.dslr_path == c.path.replace(".jpg", "_eos.jpg")
+    assert c.photo == c.dslr_path and c.thumb_path == c.dslr_path
+    # default region = whole frame, so the box maps one to one
+    assert c.dslr_box == pytest.approx((0.5, 0.5, 0.2, 0.2))
+    assert clf.located == [(800, 1200)]
+    assert clf.named == [(480, 480)]          # 2 x the box's longer side (0.2 * 1200), from the DSLR frame
+    assert c.has_embedding
+
+
+def test_dslr_never_fires_for_a_non_bird(store, live):
+    clf, dslr = StagedClassifier(bird=False), FakeDslr()
+    c = run_one(store, live, clf, dslr, fresh())
+    assert dslr.shots == [] and clf.named == [] and c.dslr_path is None and c.is_bird is False
+
+
+def test_dslr_does_not_fire_for_a_stale_bird(store, live):
+    clf, dslr = StagedClassifier(), FakeDslr()
+    c = run_one(store, live, clf, dslr, datetime.now().astimezone() - timedelta(seconds=30))
+    assert dslr.shots == [] and c.dslr_path is None
+    assert clf.named == [(48, 64)]            # the species still runs, on the Pi crop
+
+
+def test_dslr_frame_without_a_bird_keeps_the_pi_photo(store, live):
+    clf, dslr = StagedClassifier(dslr_bird=0.0), FakeDslr()
+    c = run_one(store, live, clf, dslr, fresh())
+    assert c.dslr_path is not None and c.dslr_box is None and c.photo == c.path
+    assert clf.named == [(48, 64)]
+
+
+def test_a_weak_detection_in_the_dslr_frame_does_not_promote(store, live):
+    clf = StagedClassifier(dslr_bird=live.get().detector.threshold - 0.05)
+    c = run_one(store, live, clf, FakeDslr(), fresh())
+    assert c.dslr_box is None and c.photo == c.path
+
+
+def test_dslr_failure_falls_back_to_the_pi_photo(store, live):
+    clf = StagedClassifier()
+    c = run_one(store, live, clf, FakeDslr(fail=True), fresh())
+    assert c.status == "done" and c.dslr_path is None and c.is_bird is True
+    assert clf.named == [(48, 64)]
+
+
+def test_an_undecodable_dslr_file_is_removed(store, live):
+    clf, dslr = StagedClassifier(), FakeDslr(garbage=True)
+    c = run_one(store, live, clf, dslr, fresh())
+    assert c.dslr_path is None and not dslr.shots[0].exists() and c.status == "done"
+
+
+def test_the_dslr_region_limits_the_search_and_maps_the_box(store, live, config):
+    live.replace(dataclasses.replace(config, dslr=dataclasses.replace(config.dslr, region=(0.5, 0.0, 0.5, 1.0))))
+    clf = StagedClassifier()
+    c = run_one(store, live, clf, FakeDslr(), fresh())
+    assert clf.located == [(800, 600)]
+    assert c.dslr_box == pytest.approx((0.75, 0.5, 0.1, 0.2))
+
+
+def test_without_a_dslr_the_pipeline_calls_classify_only(store, live):
+    clf = FakeClassifier()
+    ev = add_at(store, fresh())
+    Pipeline(store, clf, live).process(ev.capture_id, ev.path, ev.captured_at)
+    assert clf.calls == [ev.path] and store.get(ev.capture_id).dslr_path is None

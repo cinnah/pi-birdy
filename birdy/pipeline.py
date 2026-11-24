@@ -10,17 +10,22 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import cv2
+import numpy as np
+
 from birdy.classifier import Classifier
+from birdy.dslr import DslrError, box_in_frame, dslr_rel, region_crop, species_crop
 from birdy.live import LiveConfig
 from birdy.motion import NormBox, crop_box
 from birdy.store import Capture, Store
 from birdy.visits import Visits
 
 if TYPE_CHECKING:
+    from birdy.dslr import Dslr
     from birdy.notify import TelegramNotifier
     from birdy.publish import Publisher
 
@@ -28,6 +33,7 @@ log = logging.getLogger(__name__)
 
 BACKLOG_PER_SWEEP = 50
 TICK_INTERVAL = 5.0     # seconds between visit close/alert checks
+FRESH_SECONDS = 10.0   # the DSLR only fires for a Pi photo this recent: never for the backlog or after a restart
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,7 @@ class Pipeline:
         notifier: "TelegramNotifier | None" = None,
         publisher: "Publisher | None" = None,
         visits: Visits | None = None,
+        dslr: "Dslr | None" = None,
         lores_size: tuple[int, int] = (320, 240),
         maxsize: int = 50,
         sweep_interval: float = 300.0,
@@ -55,6 +62,7 @@ class Pipeline:
         self._store = store
         self._classifier = classifier
         self._live = live
+        self._dslr = dslr
         # Visits alerts and publishes; `notifier`/`publisher` only feed the default one built here
         # when none is given (model-species majority voting: no bank, no embeddings needed).
         self.visits = visits if visits is not None else Visits(
@@ -92,10 +100,14 @@ class Pipeline:
 
     def process(self, capture_id: int, path: Path, captured_at: datetime, motion_box: NormBox | None = None) -> None:
         cfg = self._live.get()
+        dslr_path, dslr_box = None, None
         try:
             # Inside the try: a bad stored box marks the row 'error' instead of retrying it forever.
             crop = crop_box(motion_box, cfg.motion.roi, self._lores_size)
-            pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
+            if self._dslr is None:
+                pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
+            else:
+                pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg)
         except Exception:
             log.exception("classification failed for %s", path)
             try:
@@ -108,6 +120,7 @@ class Pipeline:
                 capture_id, is_bird=pred.is_bird, confidence=pred.confidence,
                 species=pred.species, species_confidence=pred.species_confidence,
                 det_confidence=pred.detector_confidence, det_box=pred.detector_box, embedding=pred.embedding,
+                dslr_path=dslr_path, dslr_box=dslr_box,
             )
         except Exception:
             log.exception("storing classification failed for capture %d", capture_id)
@@ -128,6 +141,45 @@ class Pipeline:
             log.info("capture %d: bird=%s p=%.2f species=%s", capture_id, pred.is_bird, pred.confidence, final.species)
         else:
             log.info("capture %d: bird=%s p=%.2f", capture_id, pred.is_bird, pred.confidence)
+
+    def _classify_with_dslr(self, capture_id: int, path: Path, captured_at: datetime, crop, cfg):
+        """Verdict on the Pi crop; for a fresh bird, one DSLR frame; the species from that frame
+        when the detector finds the bird in it, else from the Pi crop.
+        Returns (prediction, DSLR path relative to photos/ or None, bird box in the DSLR frame or None)."""
+        clf = self._classifier
+        crop_rgb = clf.load_crop(path, crop.bbox, crop.pad)
+        v = clf.verdict(crop_rgb, cfg.classifier.threshold)
+        if not v.is_bird:
+            return clf.prediction(v, [], None), None, None
+        rel, frame, box = None, None, None
+        if (datetime.now(timezone.utc) - captured_at).total_seconds() <= FRESH_SECONDS:
+            rel = dslr_rel(path.relative_to(self._store.photos_dir))
+            frame, took = self._dslr_frame(capture_id, rel)
+        species_rgb = crop_rgb
+        if frame is not None:
+            det = clf.locate(region_crop(frame, cfg.dslr.region))
+            if det is not None and det.score >= cfg.detector.threshold:
+                box = box_in_frame(det.box, cfg.dslr.region)
+                species_rgb = species_crop(frame, box)
+                log.info("capture %d: 50D %.2f s, bird %.2f", capture_id, took, det.score)
+            else:
+                log.info("capture %d: 50D %.2f s, no bird in frame", capture_id, took)
+        top, emb = clf.name(species_rgb)
+        return clf.prediction(v, top, emb), (str(rel) if frame is not None else None), box
+
+    def _dslr_frame(self, capture_id: int, rel: Path) -> tuple[np.ndarray | None, float]:
+        """Fire the DSLR; the decoded RGB frame and the seconds taken, or (None, 0) when it failed."""
+        dest = self._store.photos_dir / rel
+        try:
+            took = self._dslr.capture(dest)
+        except DslrError:
+            return None, 0.0                  # Dslr logged it (once per distinct error)
+        bgr = cv2.imread(str(dest))
+        if bgr is None:
+            dest.unlink(missing_ok=True)
+            log.warning("capture %d: the 50D frame could not be decoded; using the Pi photo", capture_id)
+            return None, 0.0
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), took
 
     def sweep(self) -> None:
         for c in self._store.pending():
