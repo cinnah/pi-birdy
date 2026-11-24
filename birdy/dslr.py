@@ -1,0 +1,182 @@
+"""The second camera: a DSLR (Canon EOS 50D) driven with the `gphoto2` command over USB.
+
+The only module that runs gphoto2. `Dslr` takes one frame per call; the pure helpers below turn
+a detector box in the DSLR frame into the crop the species model sees."""
+
+from __future__ import annotations
+
+import logging
+import os
+import subprocess
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
+import numpy as np
+
+from birdy.live import LiveConfig
+from birdy.store import Store
+
+log = logging.getLogger(__name__)
+
+TIMEOUT_SECONDS = 15
+MIN_SPECIES_SIDE = 224
+INFO_KEYS = ("capturetarget", "imageformat", "autopoweroff", "focusmode", "autoexposuremode", "iso", "shuttercounter")
+
+NormBox = tuple[float, float, float, float]
+
+
+class DslrError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class DslrStatus:
+    state: str            # 'ready' | 'not_connected' | 'error' | 'cap_reached' | 'unknown'
+    shots_today: int
+    last_error: str | None
+
+
+def _message(proc: subprocess.CompletedProcess) -> str:
+    """gphoto2's most telling output line: the first one naming an error, else the last one."""
+    lines = [ln.strip() for ln in ((proc.stderr or "") + "\n" + (proc.stdout or "")).splitlines() if ln.strip()]
+    for ln in lines:
+        if "error" in ln.casefold() and ln.strip("* ").casefold() != "error":
+            return ln.strip("* ")
+    return lines[-1].strip("* ") if lines else f"gphoto2 exit {proc.returncode}"
+
+
+def _state_for(message: str) -> str:
+    m = message.casefold()
+    return "not_connected" if "no camera found" in m or "could not detect any camera" in m else "error"
+
+
+class Dslr:
+    def __init__(
+        self,
+        store: Store,
+        live: LiveConfig,
+        runner: Callable = subprocess.run,
+        now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
+    ) -> None:
+        self._store = store
+        self._live = live
+        self._runner = runner
+        self._now = now
+        self._state = "unknown"
+        self._last_error: str | None = None
+        self._warned: set[str] = set()
+
+    # --- gphoto2 ----------------------------------------------------------
+    def _run(self, args: list[str]) -> subprocess.CompletedProcess:
+        try:
+            return self._runner(["gphoto2", *args], capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise DslrError(f"gphoto2 timed out after {TIMEOUT_SECONDS} s") from None
+        except OSError as e:
+            raise DslrError(f"gphoto2 could not be run: {e}") from None
+
+    def _fail(self, state: str, message: str) -> None:
+        self._state, self._last_error = state, message
+        if message not in self._warned:       # one warning per distinct failure, not per bird
+            self._warned.add(message)
+            log.warning("50D: %s", message)
+        raise DslrError(message)
+
+    def _ok(self) -> None:
+        if self._state != "ready":
+            log.info("50D ready")
+        self._state, self._last_error = "ready", None
+        self._warned.clear()
+
+    def _midnight(self) -> datetime:
+        return self._now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # --- public -----------------------------------------------------------
+    def capture(self, dest: Path) -> float:
+        """Take one frame and download it to `dest` (written through a temp name). Returns the
+        seconds it took; raises DslrError (camera off, cap reached, timeout...), leaving no file."""
+        cap = self._live.get().dslr.daily_cap
+        midnight = self._midnight()
+        if self._store.count_dslr_shots(midnight) >= cap:
+            self._fail("cap_reached", f"daily cap reached ({cap} shots on {midnight:%d/%m}); Pi photos only until midnight")
+        dest = Path(dest)
+        tmp = dest.with_name(dest.name + ".tmp")
+        t0 = time.monotonic()
+        try:
+            proc = self._run(["--capture-image-and-download", "--filename", str(tmp), "--force-overwrite"])
+            # gphoto2 can exit 0 after printing an error: the file is the proof.
+            if proc.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+                raise DslrError(_message(proc))
+            os.replace(tmp, dest)
+        except DslrError as e:
+            tmp.unlink(missing_ok=True)
+            self._fail(_state_for(str(e)), str(e))
+        self._ok()
+        return time.monotonic() - t0
+
+    def info(self, keys: tuple[str, ...] = INFO_KEYS) -> dict[str, str]:
+        """The camera's current value for each config key, in one gphoto2 call."""
+        args: list[str] = []
+        for k in keys:
+            args += ["--get-config", k]
+        try:
+            proc = self._run(args)
+            if proc.returncode != 0:
+                raise DslrError(_message(proc))
+        except DslrError as e:
+            self._fail(_state_for(str(e)), str(e))
+        out: dict[str, str] = {}
+        blocks = [b for b in (proc.stdout or "").split("END") if b.strip()]
+        for key, block in zip(keys, blocks):
+            for line in block.splitlines():
+                if line.startswith("Current:"):
+                    out[key] = line.split(":", 1)[1].strip()
+        self._ok()
+        return out
+
+    def status(self) -> DslrStatus:
+        shots = self._store.count_dslr_shots(self._midnight())
+        state = self._state
+        if state == "cap_reached" and shots < self._live.get().dslr.daily_cap:
+            state = "ready"                   # a new day, or the cap was raised
+        return DslrStatus(state=state, shots_today=shots, last_error=self._last_error)
+
+
+# --- geometry (pure) --------------------------------------------------------
+
+def dslr_rel(pi_rel: Path) -> Path:
+    """Where a capture's DSLR frame lives: beside the Pi photo, `_eos` before the extension."""
+    pi_rel = Path(pi_rel)
+    return pi_rel.with_name(f"{pi_rel.stem}_eos{pi_rel.suffix}")
+
+
+def region_crop(frame: np.ndarray, region: NormBox) -> np.ndarray:
+    """The part of the frame the detector searches; `region` is (x, y, w, h) in fractions."""
+    h, w = frame.shape[:2]
+    x, y, rw, rh = region
+    x0, y0 = int(x * w), int(y * h)
+    x1, y1 = min(w, max(x0 + 1, round((x + rw) * w))), min(h, max(y0 + 1, round((y + rh) * h)))
+    return frame[y0:y1, x0:x1]
+
+
+def box_in_frame(box: NormBox, region: NormBox) -> NormBox:
+    """A box given as fractions of `region` -> fractions of the whole frame."""
+    bx, by, bw, bh = box
+    rx, ry, rw, rh = region
+    return (rx + bx * rw, ry + by * rh, bw * rw, bh * rh)
+
+
+def species_crop(frame: np.ndarray, box: NormBox) -> np.ndarray:
+    """A square around the bird: side = 2 x the box's longer side (at least MIN_SPECIES_SIDE px),
+    capped by the frame and shifted to stay inside it. `box` is in fractions of the frame."""
+    h, w = frame.shape[:2]
+    bx, by, bw, bh = box
+    side = max(2 * max(bw * w, bh * h), MIN_SPECIES_SIDE)
+    side = int(min(round(side), w, h))
+    cx, cy = (bx + bw / 2) * w, (by + bh / 2) * h
+    x0 = int(min(max(round(cx - side / 2), 0), w - side))
+    y0 = int(min(max(round(cy - side / 2), 0), h - side))
+    return frame[y0:y0 + side, x0:x0 + side]
