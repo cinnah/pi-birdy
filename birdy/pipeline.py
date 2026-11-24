@@ -104,7 +104,7 @@ class Pipeline:
         try:
             # Inside the try: a bad stored box marks the row 'error' instead of retrying it forever.
             crop = crop_box(motion_box, cfg.motion.roi, self._lores_size)
-            if self._dslr is None:
+            if self._dslr is None or not cfg.dslr.enabled:   # the switch is live
                 pred = self._classifier.classify(path, crop.bbox, threshold=cfg.classifier.threshold, pad=crop.pad)
             else:
                 pred, dslr_path, dslr_box = self._classify_with_dslr(capture_id, path, captured_at, crop, cfg)

@@ -29,7 +29,7 @@ In: a `gphoto2` wrapper, a staged classifier API (verdict, then name), the pipel
 
 Out: drawing the DSLR region on the settings page, manually promoting a bird-less DSLR frame, bursts, live view, setting exposure/ISO/size from birdy (set on the camera body), RAW files, a second worker thread.
 
-With `dslr.enabled = false` (the default) the service behaves exactly as today: no `Dslr` is built and the pipeline takes its current code path.
+With `dslr.enabled = false` (the default) the service behaves exactly as before: the pipeline takes its Pi-only code path and `gphoto2` is never run. `dslr.enabled` is a live switch on `/settings` (changed 2026-11-24, after the first version made it restart-only): the `Dslr` object is always built, the pipeline reads the switch per capture, and switching it on from the page calls `info()` once so the status line is current.
 
 ## Camera wrapper — `birdy/dslr.py`
 
@@ -144,11 +144,11 @@ Each of these switches from `c.path` to `c.photo`:
 
 | Key | Default | Applies | Meaning |
 |---|---|---|---|
-| `enabled` | `false` | restart | build the `Dslr` and use the staged path |
+| `enabled` | `false` | live | use the staged path and fire the DSLR; a switch on `/settings` |
 | `region` | `[0.0, 0.0, 1.0, 1.0]` | live | `x, y, w, h` fractions of the DSLR frame the detector searches |
 | `daily_cap` | `200` | live | maximum DSLR shots per local day (1–2000) |
 
-Validation: `region` values in [0, 1], `w` and `h` > 0, `x + w` and `y + h` ≤ 1. All three follow the "adding a tunable key" checklist (`config.py`, `birdy.toml.example`, `settings.py`, `settings.html`); on `/settings`, `daily_cap` is a number field and `region` one text field of four fractions. The watcher warns that `enabled` needs a restart.
+Validation: `region` values in [0, 1], `w` and `h` > 0, `x + w` and `y + h` ≤ 1. All three follow the "adding a tunable key" checklist (`config.py`, `birdy.toml.example`, `settings.py`, `settings.html`); on `/settings`, `enabled` is a switch, `daily_cap` a number field and `region` one text field of four fractions.
 
 The region exists because the detector resizes its input to 320×320: a bird that is a few percent of a 15 MP frame would vanish. It must frame the feeder tightly enough that a bird is at least ~10 % of the region's width.
 
@@ -184,7 +184,7 @@ AC adapter; auto power off **Off**; lens on **MF**, focused on the feeder; Large
 
 1. Deploy with `enabled = false`; nothing changes.
 2. Mount and aim the 50D, set it up as above, then `birdy dslr info` and `birdy dslr shot` until the region frames the feeder.
-3. Set `enabled = true`, restart.
+3. Switch **Use the 50D** on at `/settings` (no restart).
 4. After a week, compare `dslr_path IS NOT NULL` with `dslr_x IS NOT NULL` over that week: the share of shots with no bird found.
 
 ## Later

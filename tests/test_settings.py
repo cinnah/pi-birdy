@@ -29,6 +29,7 @@ def default_patch(config, **overrides) -> SettingsPatch:
         cooldown_minutes=config.telegram.cooldown_minutes,
         publish_min_confidence=config.publish.min_confidence,
         per_species_per_day=config.publish.per_species_per_day,
+        dslr_enabled=config.dslr.enabled,
         dslr_region=config.dslr.region,
         dslr_daily_cap=config.dslr.daily_cap,
     )
@@ -442,3 +443,12 @@ def test_dslr_region_out_of_frame_is_rejected_on_save(config_path, config):
     patch = parse_settings_form({**FORM, "dslr_region": "0.8, 0, 0.5, 1"})
     with pytest.raises(ConfigError, match="dslr.region must lie inside the frame"):
         save_settings(config_path, config, patch)
+
+
+def test_dslr_switch_parses_and_saves(config_path, config):
+    assert parse_settings_form(FORM).dslr_enabled is False          # an unchecked box is absent from the form
+    patch = parse_settings_form({**FORM, "dslr_enabled": "on"})
+    assert patch.dslr_enabled is True
+    new = save_settings(config_path, config, patch)
+    assert new.dslr.enabled is True
+    assert save_settings(config_path, new, parse_settings_form(FORM)).dslr.enabled is False

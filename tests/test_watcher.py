@@ -144,7 +144,7 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         cooldown_minutes=cur.telegram.cooldown_minutes,
         publish_min_confidence=cur.publish.min_confidence,
         per_species_per_day=cur.publish.per_species_per_day,
-        dslr_region=cur.dslr.region, dslr_daily_cap=cur.dslr.daily_cap,
+        dslr_enabled=cur.dslr.enabled, dslr_region=cur.dslr.region, dslr_daily_cap=cur.dslr.daily_cap,
     )
     new = save_settings(config_path, cur, patch)
     live.replace(new)  # what the web handler does
@@ -191,10 +191,11 @@ def test_species_bank_change_warns(config_path, live, caplog):
     assert "restart birdy to apply them" in caplog.text
 
 
-def test_dslr_enabled_change_warns(config_path, live, caplog):
+def test_dslr_enabled_applies_live_without_a_restart_warning(config_path, live, caplog):
     w = ConfigWatcher(config_path, live)
     config_path.write_text(config_path.read_text() + "\n[dslr]\nenabled = true\n")
     bump_mtime(config_path)
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
-    assert "restart birdy to apply them" in caplog.text
+    assert live.get().dslr.enabled is True
+    assert "restart" not in caplog.text

@@ -331,7 +331,7 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     assert seen["web_classifier"] is clf
     # The pipeline crops with the camera's lores size, not a hard-coded default.
     assert seen["pipeline_lores_size"] == config.camera.lores_size
-    assert seen["pipeline_dslr"] is None          # dslr.enabled defaults to false: no Dslr is built
+    assert seen["pipeline_dslr"] is not None      # always built: dslr.enabled is a live switch
     # Alerts are off in the default config: no notifier anywhere.
     assert seen["pipeline_obj"].visits._notifier is None
     assert seen["web_notifier"] is None

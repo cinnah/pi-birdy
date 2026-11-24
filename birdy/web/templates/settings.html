@@ -193,7 +193,7 @@
 {% block body %}
 <form method="post" action="/settings/test-alert" id="test-alert"></form>
 <div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}
-{%- if status.dslr %}<p class="hint">50D: {{ {'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] }} · {{ status.dslr.shots_today }} shots today</p>{% endif %}</div>
+{%- if status.dslr %}<p class="hint">50D: {{ {'off': 'off', 'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] }} · {{ status.dslr.shots_today }} shots today</p>{% endif %}</div>
 {% if error_message or test_result %}
 <div class="msgs">
   {% if error_message %}<div class="msg bad" role="alert">{{ error_message }}</div>{% endif %}
@@ -335,7 +335,12 @@
   </section>
 
   <section class="group">
-    <header><h2 class="head">50D</h2><p>The second camera, fired once per bird</p></header>
+    <header><h2 class="head">Extra camera</h2><p>A 50D on USB, fired once per bird</p></header>
+    <div class="row {{ 'error' if error_field == 'dslr_enabled' else '' }}">
+      <label for="dslr_enabled">Use the 50D</label>
+      <input class="switch" type="checkbox" id="dslr_enabled" name="dslr_enabled" value="on" {{ 'checked' if v['dslr_enabled'] else '' }}>
+      {{ explain("When a bird is seen, also take a photo with the 50D and use it when the bird is in it. Off: the Pi camera works alone.", "dslr.enabled") }}
+    </div>
     <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
       <label for="dslr_region">Feeder region</label>
       <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
@@ -518,7 +523,7 @@
 
   // unsaved-changes count in the save bar
   const dirtyEl = document.getElementById('dirty'), small = dirtyEl.querySelector('small').outerHTML;
-  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.alert_new_species) d.alert_new_species = ''; return d; };
+  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.alert_new_species) d.alert_new_species = ''; if (!d.dslr_enabled) d.dslr_enabled = ''; return d; };
   let initial = null;
   function markDirty() {
     if (!initial) return;

@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -1188,6 +1189,8 @@ class _StatusDslr:
 
 
 def test_status_and_settings_show_the_dslr(store, state, live, config_path):
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, dslr=dataclasses.replace(cfg.dslr, enabled=True)))
     c = TestClient(create_app(store, state, live, config_path, dslr=_StatusDslr()))
     assert c.get("/status").json()["dslr"] == {"state": "ready", "shots_today": 4}
     assert "50D: ready · 4 shots today" in c.get("/settings").text
@@ -1196,3 +1199,28 @@ def test_status_and_settings_show_the_dslr(store, state, live, config_path):
 def test_status_has_no_dslr_when_disabled(client):
     assert "dslr" not in client.get("/status").json()
     assert "50D:" not in client.get("/settings").text
+
+
+class _SwitchDslr(_StatusDslr):
+    def __init__(self):
+        self.probes = 0
+
+    def info(self):
+        self.probes += 1
+        return {}
+
+
+def test_dslr_switch_on_settings_is_live(store, state, live, config_path):
+    dslr = _SwitchDslr()
+    c = TestClient(create_app(store, state, live, config_path, dslr=dslr))
+    html = c.get("/settings").text
+    assert 'name="dslr_enabled"' in html and "50D: off" in html
+    assert c.get("/status").json()["dslr"]["state"] == "off"
+    post_settings(c, dslr_enabled="on")
+    assert live.get().dslr.enabled is True and dslr.probes == 1      # asked the camera once, on switching on
+    assert c.get("/status").json()["dslr"]["state"] == "ready"
+    assert 'name="dslr_enabled" value="on" checked' in c.get("/settings").text
+    post_settings(c, dslr_enabled="on")
+    assert dslr.probes == 1                                          # already on: no second probe
+    post_settings(c)                                                 # box unchecked
+    assert live.get().dslr.enabled is False and c.get("/status").json()["dslr"]["state"] == "off"

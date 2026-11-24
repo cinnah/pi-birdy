@@ -133,7 +133,8 @@ def create_app(
         )
         if dslr is not None:
             st = dslr.status()
-            snap["dslr"] = {"state": st.state, "shots_today": st.shots_today}
+            state_name = st.state if live.get().dslr.enabled else "off"
+            snap["dslr"] = {"state": state_name, "shots_today": st.shots_today}
         return snap
 
     def _species_names(summary) -> list[str]:
@@ -315,6 +316,7 @@ def create_app(
                 "cooldown_minutes": cfg.telegram.cooldown_minutes,
                 "publish_min_confidence": cfg.publish.min_confidence,
                 "per_species_per_day": cfg.publish.per_species_per_day,
+                "dslr_enabled": cfg.dslr.enabled,
                 "dslr_region": ", ".join(f"{x:g}" for x in cfg.dslr.region),
                 "dslr_daily_cap": cfg.dslr.daily_cap,
             }
@@ -353,7 +355,6 @@ def create_app(
                 "publish.user": cfg.publish.user,
                 "publish.remote_dir": cfg.publish.remote_dir,
                 "publish.site_id": cfg.publish.site_id,
-                "dslr.enabled": cfg.dslr.enabled,
             },
             "species_seen": [r.species for r in store.species_summary()],
             "species_list": _species_list_state(),
@@ -398,7 +399,14 @@ def create_app(
         except OSError as e:
             ctx = settings_context(form=form, error=(None, f"could not write {config_path}: {e}"))
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=500)
+        was_on = live.get().dslr.enabled
         live.replace(new)
+        if dslr is not None and new.dslr.enabled and not was_on:
+            # Just switched on: ask the camera once, so the page says ready / not connected right away.
+            try:
+                await run_in_threadpool(dslr.info)
+            except Exception:
+                pass   # Dslr logged it and its status says why
         return RedirectResponse("/settings?saved=1", status_code=303)
 
     @app.post("/settings/test-alert", response_class=HTMLResponse)

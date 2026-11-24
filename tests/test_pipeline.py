@@ -859,7 +859,14 @@ def fresh():
     return datetime.now().astimezone()
 
 
+def dslr_on(live):
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, dslr=dataclasses.replace(cfg.dslr, enabled=True)))
+
+
 def run_one(store, live, clf, dslr, when):
+    if not live.get().dslr.enabled:
+        dslr_on(live)
     ev = add_at(store, when)
     p = Pipeline(store, clf, live, dslr=dslr)
     p.process(ev.capture_id, ev.path, ev.captured_at)
@@ -919,7 +926,7 @@ def test_an_undecodable_dslr_file_is_removed(store, live):
 
 
 def test_the_dslr_region_limits_the_search_and_maps_the_box(store, live, config):
-    live.replace(dataclasses.replace(config, dslr=dataclasses.replace(config.dslr, region=(0.5, 0.0, 0.5, 1.0))))
+    live.replace(dataclasses.replace(config, dslr=dataclasses.replace(config.dslr, enabled=True, region=(0.5, 0.0, 0.5, 1.0))))
     clf = StagedClassifier()
     c = run_one(store, live, clf, FakeDslr(), fresh())
     assert clf.located == [(800, 600)]
@@ -936,6 +943,7 @@ def test_without_a_dslr_the_pipeline_calls_classify_only(store, live):
 def test_backfill_of_a_promoted_row_names_from_the_dslr_crop_and_never_fires(store, live):
     clf, dslr = StagedClassifier(), FakeDslr()
     ev = add_at(store, fresh())
+    dslr_on(live)
     p = Pipeline(store, clf, live, dslr=dslr)
     p.process(ev.capture_id, ev.path, ev.captured_at)
     assert store.get(ev.capture_id).dslr_box is not None
@@ -952,6 +960,7 @@ def test_backfill_of_a_promoted_row_names_from_the_dslr_crop_and_never_fires(sto
 def test_backfill_of_a_promoted_row_falls_back_to_the_pi_crop_when_the_dslr_file_is_gone(store, live):
     clf = StagedClassifier()
     ev = add_at(store, fresh())
+    dslr_on(live)
     p = Pipeline(store, clf, live, dslr=FakeDslr())
     p.process(ev.capture_id, ev.path, ev.captured_at)
     c = store.get(ev.capture_id)
@@ -971,7 +980,21 @@ def test_a_dslr_frame_is_removed_when_its_verdict_cannot_be_stored(store, live, 
         raise RuntimeError("db is gone")
 
     monkeypatch.setattr(store, "store_verdict", boom)
+    dslr_on(live)
     Pipeline(store, StagedClassifier(), live, dslr=dslr).process(ev.capture_id, ev.path, ev.captured_at)
     assert len(dslr.shots) == 1 and not dslr.shots[0].exists()
     assert store.get(ev.capture_id).status == "error"
     assert ev.path.exists()                       # the Pi photo is untouched
+
+
+def test_the_dslr_switch_is_live(store, live):
+    """Off: the pipeline is the Pi-only path even though a Dslr exists. On: the next bird fires it."""
+    dslr = FakeDslr()
+    off = add_at(store, fresh())
+    clf = FakeClassifier()
+    Pipeline(store, clf, live, dslr=dslr).process(off.capture_id, off.path, off.captured_at)
+    assert dslr.shots == [] and clf.calls == [off.path]
+    dslr_on(live)
+    on = add_at(store, fresh() + timedelta(milliseconds=5))
+    Pipeline(store, StagedClassifier(), live, dslr=dslr).process(on.capture_id, on.path, on.captured_at)
+    assert len(dslr.shots) == 1

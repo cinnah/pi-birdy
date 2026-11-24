@@ -118,7 +118,7 @@ class PublishConfig:
 
 @dataclass(frozen=True)
 class DslrConfig:
-    enabled: bool                               # restart-only; the second camera (gphoto2 over USB)
+    enabled: bool                               # live; the second camera (gphoto2 over USB), a switch on /settings
     region: tuple[float, float, float, float]   # live; x, y, w, h fractions of the DSLR frame the detector searches
     daily_cap: int                              # live; maximum DSLR shots per local day
 

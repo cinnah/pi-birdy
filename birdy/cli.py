@@ -164,9 +164,9 @@ def cmd_run(config: Config, config_path: Path) -> int:
     if config.publish.enabled:
         publisher = Publisher(live, store, config.storage.data_dir / "publish")
         publisher.start()
-    dslr = None
+    # Always built: `dslr.enabled` is a live switch on /settings. Nothing runs gphoto2 while it is off.
+    dslr = Dslr(store, live)
     if config.dslr.enabled:
-        dslr = Dslr(store, live)
         try:
             info = dslr.info()
             log.info("50D connected: %s", ", ".join(f"{k}={v}" for k, v in info.items()))

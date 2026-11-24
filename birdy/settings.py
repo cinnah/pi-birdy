@@ -39,6 +39,7 @@ FIELD_KEYS = {
     "cooldown_minutes": "telegram.cooldown_minutes",
     "publish_min_confidence": "publish.min_confidence",
     "per_species_per_day": "publish.per_species_per_day",
+    "dslr_enabled": "dslr.enabled",
     "dslr_region": "dslr.region",
     "dslr_daily_cap": "dslr.daily_cap",
 }
@@ -68,6 +69,7 @@ class SettingsPatch:
     cooldown_minutes: int
     publish_min_confidence: float
     per_species_per_day: int
+    dslr_enabled: bool
     dslr_region: tuple[float, float, float, float]
     dslr_daily_cap: int
 
@@ -175,7 +177,7 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
         min_confidence=patch.publish_min_confidence,
         per_species_per_day=patch.per_species_per_day,
     )
-    data.setdefault("dslr", {}).update(region=list(patch.dslr_region), daily_cap=patch.dslr_daily_cap)
+    data.setdefault("dslr", {}).update(enabled=patch.dslr_enabled, region=list(patch.dslr_region), daily_cap=patch.dslr_daily_cap)
     return data
 
 
@@ -280,6 +282,7 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         cooldown_minutes=_num(form, "cooldown_minutes", int),
         publish_min_confidence=_num(form, "publish_min_confidence", float),
         per_species_per_day=_num(form, "per_species_per_day", int),
+        dslr_enabled=form.get("dslr_enabled") is not None,
         dslr_region=_region(form),
         dslr_daily_cap=_num(form, "dslr_daily_cap", int),
     )
