@@ -9,7 +9,7 @@ import pytest
 
 from birdy.dslr import (
     EXPOSURE_K_RANGE, TARGET_BRIGHTNESS, Dslr, DslrError, adapt_exposure_k, box_in_frame, dslr_rel, frame_brightness,
-    pick_shutter, region_crop, species_crop,
+    pick_shutter, region_crop, search_tiles, species_crop,
 )
 from birdy.store import Store
 
@@ -206,3 +206,26 @@ def test_adapt_exposure_k():
     assert adapt_exposure_k(1.0, t / 2, "1/500") == pytest.approx(2.0)
     assert adapt_exposure_k(50.0, 2, "1/250") == EXPOSURE_K_RANGE[1]         # clamped
     assert adapt_exposure_k(0.0205, t, "1/250") == EXPOSURE_K_RANGE[0]
+
+
+def test_search_tiles_cover_the_region_with_overlap():
+    region = (0.206, 0.346, 0.606, 0.641)                      # the Pi's region on a Large frame
+    tiles = search_tiles((3168, 4752, 3), region)
+    assert len(tiles) == 12                                    # 4 across x 3 down
+    x0, y0, x1, y1 = 0.206 * 4752, 0.346 * 3168, 0.812 * 4752, 0.987 * 3168
+    for x, y, w, h in tiles:
+        assert round(w * 4752) == 960 and round(h * 3168) == 960
+        assert x * 4752 >= x0 - 1 and y * 3168 >= y0 - 1
+        assert (x + w) * 4752 <= x1 + 1 and (y + h) * 3168 <= y1 + 1
+    xs = sorted({round(t[0] * 4752) for t in tiles})
+    ys = sorted({round(t[1] * 3168) for t in tiles})
+    assert xs[0] == int(x0) and xs[-1] + 960 == round(x1)       # edge to edge
+    assert ys[0] == int(y0) and ys[-1] + 960 == round(y1)
+    assert all(b - a <= 960 * 0.75 for a, b in zip(xs, xs[1:]))  # neighbours share >= 25 %
+    assert all(b - a <= 960 * 0.75 for a, b in zip(ys, ys[1:]))
+
+
+def test_search_tiles_of_a_small_or_narrow_region():
+    assert search_tiles((800, 900, 3), (0.0, 0.0, 1.0, 1.0)) == []       # fits one tile: search it whole
+    tiles = search_tiles((800, 1200, 3), (0.0, 0.0, 1.0, 1.0))           # wide, not tall
+    assert tiles == [pytest.approx((0.0, 0.0, 0.8, 1.0)), pytest.approx((0.2, 0.0, 0.8, 1.0))]

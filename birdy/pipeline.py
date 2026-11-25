@@ -20,7 +20,7 @@ import numpy as np
 from birdy.classifier import Classifier
 from birdy.dslr import (
     EXPOSURE_K_DEFAULT, DslrError, adapt_exposure_k, box_in_frame, dslr_rel, frame_brightness, pick_shutter,
-    region_crop, species_crop,
+    region_crop, search_tiles, species_crop,
 )
 from birdy.live import LiveConfig
 from birdy.motion import NormBox, crop_box
@@ -185,15 +185,29 @@ class Pipeline:
             return clf.prediction(v, [], None), (str(rel) if frame is not None else None), None
         species_rgb = crop_rgb
         if frame is not None:
-            det = clf.locate(region_crop(frame, cfg.dslr.region))
-            if det is not None and det.score >= cfg.detector.threshold:
-                box = box_in_frame(det.box, cfg.dslr.region)
+            score, box = self._find_bird(frame, cfg.dslr.region, cfg.detector.threshold)
+            if box is not None:
                 species_rgb = species_crop(frame, box)
-                log.info("capture %d: 50D %.2f s, bird %.2f", capture_id, took, det.score)
+                log.info("capture %d: 50D %.2f s, bird %.2f", capture_id, took, score)
             else:
                 log.info("capture %d: 50D %.2f s, no bird in frame", capture_id, took)
         top, emb = clf.name(species_rgb)
         return clf.prediction(v, top, emb), (str(rel) if frame is not None else None), box
+
+    def _find_bird(self, frame: np.ndarray, region, threshold: float):
+        """The bird in the DSLR frame: (score, box in fractions of the frame), or (0, None).
+        The whole region first; when that finds nothing, overlapping tiles of it (a small bird
+        vanishes when a large region is squeezed into the detector's 320 px), best tile wins."""
+        clf = self._classifier
+        det = clf.locate(region_crop(frame, region))
+        if det is not None and det.score >= threshold:
+            return det.score, box_in_frame(det.box, region)
+        best, best_box = 0.0, None
+        for tile in search_tiles(frame.shape, region):
+            det = clf.locate(region_crop(frame, tile))
+            if det is not None and det.score >= threshold and det.score > best:
+                best, best_box = det.score, box_in_frame(det.box, tile)
+        return best, best_box
 
     def _exposure_k(self) -> float:
         """The learned exposure constant (lux x seconds), kept in the meta table across restarts."""

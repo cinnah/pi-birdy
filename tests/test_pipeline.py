@@ -927,6 +927,32 @@ def test_an_undecodable_dslr_file_is_removed(store, live):
     assert c.dslr_path is None and not dslr.shots[0].exists() and c.status == "done"
 
 
+class SmallBirdClassifier(StagedClassifier):
+    """Sees nothing in the whole region; finds the bird only in tiles, best in the second."""
+
+    def locate(self, img):
+        self.located.append(img.shape[:2])
+        n = len(self.located)
+        if n == 1:
+            return None
+        return Detection("bird", 0.3 if n == 2 else 0.6, (0.5, 0.5, 0.25, 0.25))
+
+
+def test_a_small_bird_is_found_in_a_tile_of_the_dslr_frame(store, live):
+    clf = SmallBirdClassifier()
+    c = run_one(store, live, clf, FakeDslr(), fresh())
+    # the 1200 x 800 frame whole, then two overlapping 960 x 800 tiles; the better tile wins
+    assert clf.located == [(800, 1200), (800, 960), (800, 960)]
+    assert c.dslr_box == pytest.approx((0.2 + 0.5 * 0.8, 0.5, 0.25 * 0.8, 0.25))
+    assert c.photo == c.dslr_path
+
+
+def test_tiles_are_not_searched_when_the_whole_region_has_the_bird(store, live):
+    clf = StagedClassifier()
+    run_one(store, live, clf, FakeDslr(), fresh())
+    assert len(clf.located) == 1
+
+
 def test_the_dslr_region_limits_the_search_and_maps_the_box(store, live, config):
     live.replace(dataclasses.replace(config, dslr=dataclasses.replace(config.dslr, enabled=True, region=(0.5, 0.0, 0.5, 1.0))))
     clf = StagedClassifier()

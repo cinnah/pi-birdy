@@ -179,6 +179,33 @@ def region_crop(frame: np.ndarray, region: NormBox) -> np.ndarray:
     return frame[y0:y1, x0:x1]
 
 
+TILE_PX = 960          # the detector sees 320 px: a bird must be ~1/10 of what it is shown
+TILE_OVERLAP = 0.25    # of a tile, so a bird on a seam is whole in one of them
+
+
+def search_tiles(frame_shape: tuple[int, ...], region: NormBox, tile_px: int = TILE_PX,
+                 overlap: float = TILE_OVERLAP) -> list[NormBox]:
+    """Overlapping squares of about `tile_px` covering `region`, as (x, y, w, h) fractions of
+    the frame, row by row. Empty when the region already fits one tile (search it whole)."""
+    fh, fw = frame_shape[:2]
+    x, y, rw, rh = region
+    x0, y0 = int(x * fw), int(y * fh)
+    w, h = min(fw, round((x + rw) * fw)) - x0, min(fh, round((y + rh) * fh)) - y0
+    if w <= tile_px and h <= tile_px:
+        return []
+
+    def starts(length: int) -> tuple[list[int], int]:
+        size = min(tile_px, length)
+        if length <= size:
+            return [0], size
+        n = 1 + -(-(length - size) // max(1, int(size * (1 - overlap))))
+        return [round(i * (length - size) / (n - 1)) for i in range(n)], size
+
+    xs, tw = starts(w)
+    ys, th = starts(h)
+    return [((x0 + tx) / fw, (y0 + ty) / fh, tw / fw, th / fh) for ty in ys for tx in xs]
+
+
 def box_in_frame(box: NormBox, region: NormBox) -> NormBox:
     """A box given as fractions of `region` -> fractions of the whole frame."""
     bx, by, bw, bh = box

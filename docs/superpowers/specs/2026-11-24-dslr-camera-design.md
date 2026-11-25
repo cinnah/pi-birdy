@@ -192,3 +192,14 @@ AC adapter; auto power off **Off**; lens on **MF**, focused on the feeder; Large
 ## Later
 
 If more than about half of the shots have no bird in the frame, the bird is leaving before the shutter fires. The fix is a second worker thread that runs verdict + DSLR ahead of the species queue (every shot then lands ~1.5–2 s after its Pi photo, also mid-visit, where the sequential design can take 4–5 s). It needs split model locks and competes with BioCLIP for the Pi's cores, so it waits for that measurement.
+
+## Tiled search (added 2026-11-25)
+
+The detector works on a 320 px input. With a region of about 2900 x 2000 px of a Large frame, a
+bird on the dish is about 20 x 40 px after the resize and was missed (capture 5981: "no bird in
+frame" with a Black Redstart in plain view). `Pipeline._find_bird` therefore searches the whole
+region first and, when that finds nothing at `detector.threshold`, overlapping squares of about
+960 px (`dslr.search_tiles`, 25 % overlap); the best tile's box is the bird. Measured on the Pi on
+13 stored frames: 12 tiles take 2.1 s (only when the whole-region pass fails), the ten empty
+frames score at most 0.15, the missed frame 0.69. A capture's main photo is still fixed at first
+classification, so frames from before this change are not promoted.
