@@ -385,7 +385,8 @@
       {% if status.dslr %}
       {% set dslr_lamp = {'ready': 'on', 'not_connected': 'bad', 'error': 'bad'}.get(status.dslr.state, '') %}
       {% set dslr_word = {'off': 'off', 'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] %}
-      <span class="part-state {{ dslr_lamp }}">{{ xcam.short or 'camera' }}: {{ dslr_word }} · {{ status.dslr.shots_today }} shots today</span>
+      {% set dslr_line = (xcam.short or 'camera') ~ ': ' ~ dslr_word ~ ' · ' ~ status.dslr.shots_today ~ ' shots today' %}
+      <span class="part-state {{ dslr_lamp }}">{{ dslr_line }}</span>
       {% endif %}
       <p>{{ xcam.model or 'A second camera' }} on USB at the same window, fired once for each bird the Pi camera sees.</p>
     </header>
