@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-04T19:16:31+00:00",
+  "generatedAt": "2026-11-26T10:46:19+00:00",
   "title": "Design System: Birdy",
   "extensions": {
     "colorMeta": {
@@ -408,7 +408,7 @@
       "name": "Button",
       "kind": "button",
       "refersTo": "button",
-      "description": "Default outlined printed-label button (RESET SHAPE, SEND TEST ALERT, NEWER/OLDER).",
+      "description": "Default outlined printed-label button (RESET SHAPE, SEND TEST MESSAGE, NEWER/OLDER).",
       "html": "<button class=\"ds-btn\">Reset shape</button>",
       "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border:1px solid var(--rule-strong);border-radius:0;background:transparent;color:var(--ink);font:700 12px/1 var(--mono);font-stretch:87.5%;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out,border-color 150ms ease-out}.ds-btn:hover{border-color:var(--ink)}.ds-btn:active{background:var(--sel-bg);color:var(--sel-fg)}.ds-btn:focus-visible{outline:2px solid var(--signal);outline-offset:2px}"
     },
@@ -445,11 +445,11 @@
       "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-seg{display:inline-flex;border:1px solid var(--rule-strong);background:var(--ground)}.ds-seg a{display:flex;align-items:center;min-height:36px;padding:0 14px;text-decoration:none;font:700 11px/1 var(--mono);font-stretch:87.5%;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}.ds-seg a+a{border-left:1px solid var(--rule-strong)}.ds-seg a:hover{color:var(--ink)}.ds-seg a:focus-visible{outline:2px solid var(--signal);outline-offset:2px}.ds-seg a.active{background:var(--sel-bg);color:var(--sel-fg)}"
     },
     {
-      "name": "Watchlist Chip",
+      "name": "No-Message Chip",
       "kind": "chip",
       "refersTo": "chip",
-      "description": "Square toggle chip; pressed is the inverted row.",
-      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Eurasian Blue Tit</button> <button class=\"ds-chip\" aria-pressed=\"false\">Common Hoopoe</button>",
+      "description": "Square toggle chip for the species that send no message; pressed (silenced) is the inverted row.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Eurasian Blue Tit</button> <button class=\"ds-chip\" aria-pressed=\"false\">Black Redstart</button>",
       "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-chip{min-height:32px;padding:0 10px;border:1px solid var(--rule-strong);border-radius:0;background:transparent;color:var(--ink);font:500 12px/1 var(--mono);font-stretch:87.5%;cursor:pointer}.ds-chip:hover{border-color:var(--ink)}.ds-chip:focus-visible{outline:2px solid var(--signal);outline-offset:2px}.ds-chip[aria-pressed=true]{background:var(--sel-bg);color:var(--sel-fg);border-color:var(--sel-bg)}"
     },
     {
@@ -483,6 +483,22 @@
       "description": "OSD status line in place of a toast: bordered in currentColor, OK or ERR code prefix.",
       "html": "<div class=\"ds-msg ok\">Test alert sent.</div><div class=\"ds-msg bad\">Telegram said: chat not found</div>",
       "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-msg{display:flex;gap:10px;align-items:baseline;padding:10px 12px;margin:0 0 16px;border:1px solid currentColor;font:500 12px/1.45 var(--mono);font-stretch:87.5%;background:var(--ground)}.ds-msg::before{font-weight:800;letter-spacing:.1em;flex:none}.ds-msg.ok{color:var(--ink)}.ds-msg.ok::before{content:'OK'}.ds-msg.bad{color:var(--rec)}.ds-msg.bad::before{content:'ERR'}"
+    },
+    {
+      "name": "Menu Part",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Opens one part of the setup menu (Camera, Messages, Extra camera, Gallery, System): 2px ink rule, 18px mono head, its state as a lamp readout at the right, one sans sentence.",
+      "html": "<header class=\"ds-part-head\"><h2>Messages</h2><span class=\"ds-part-state ds-on\">Telegram on</span><p>One Telegram message with the best photo for every bird visit.</p></header>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-part-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:8px 14px;padding:14px 0 12px;border-top:2px solid var(--ink);border-bottom:1px solid var(--rule-strong);color:var(--ink);background:var(--ground)}.ds-part-head h2{margin:0;font:800 18px/1 var(--mono);font-stretch:87.5%;letter-spacing:.1em;text-transform:uppercase}.ds-part-head p{grid-column:1/-1;margin:0;font:400 13px/1.4 var(--sans);color:var(--dim);max-width:62ch}.ds-part-state{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;font:500 11px/1 var(--mono);font-stretch:87.5%;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}.ds-part-state::before{content:'';flex:none;width:9px;height:9px;border-radius:50%;background:var(--dim)}.ds-part-state.ds-on{color:var(--ink)}.ds-part-state.ds-on::before{background:var(--signal)}.ds-part-state.ds-bad{color:var(--rec)}.ds-part-state.ds-bad::before{background:var(--rec)}"
+    },
+    {
+      "name": "Menu Tabs",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Sticky 44px tab bar at the top of the setup menu, one cell per part; the part on screen is the inverted row.",
+      "html": "<nav class=\"ds-parts\"><a href=\"#\">Camera</a><a href=\"#\" aria-current=\"true\">Messages</a><a href=\"#\">Extra cam</a><a href=\"#\">Gallery</a><a href=\"#\">System</a></nav>",
+      "css": ":host{--ground:#0c0d0c;--ink:#f2f2ee;--dim:#9aa39d;--rule:#2b2f2c;--rule-strong:#4a504b;--seg-off:#232724;--signal:#ffb000;--primary:#ffb000;--on-primary:#0c0d0c;--rec:#ff4d3d;--field:#101210;--sel-bg:#f2f2ee;--sel-fg:#0c0d0c;--osd:#f2f2ee;--osd-amber:#ffb000;--osd-bar:#0c0d0c;--mono:'Martian Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;} .ds-parts{display:flex;background:var(--ground);border-bottom:1px solid var(--rule-strong);overflow-x:auto;scrollbar-width:none}.ds-parts a{flex:none;display:flex;align-items:center;height:44px;padding:0 12px;white-space:nowrap;font:500 11px/1 var(--mono);font-stretch:87.5%;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);text-decoration:none}.ds-parts a:hover{color:var(--ink)}.ds-parts a:focus-visible{outline:2px solid var(--signal);outline-offset:-2px}.ds-parts a[aria-current='true']{background:var(--sel-bg);color:var(--sel-fg)}"
     }
   ],
   "narrative": {
@@ -498,7 +514,7 @@
     "rules": [
       {
         "name": "The Inverted Row Rule",
-        "body": "Selection (current nav item, active segmented filter, pressed watchlist chip, switch ON, button pressed, text selection) is an inverted row: ink-coloured fill with ground-coloured text (OSD white on OSD black at night, LCD ink on LCD ground by day). Amber is never used to mean \"selected\".",
+        "body": "Selection (current nav item, active segmented filter, pressed no-message chip, switch ON, button pressed, text selection) is an inverted row: ink-coloured fill with ground-coloured text (OSD white on OSD black at night, LCD ink on LCD ground by day). Amber is never used to mean \"selected\".",
         "section": "colors"
       },
       {
@@ -528,21 +544,21 @@
       }
     ],
     "dos": [
-      "Do use the inverted row (ink fill, ground text) for every selected or current state, in both lights.",
-      "Do keep amber for live and primary: the armed lamp at night, lit and over-trigger meter cells, the hot readout, the primary button, the ROI and burned-in live marks, BIRD %.",
-      "Do pair every setting's plain-language sans label with its `birdy.toml` key in 11px dim mono.",
-      "Do separate with 1px hairlines (`rule` for rows, `rule-strong` for heads, sticky bars and control borders).",
-      "Do draw meters and bars as segments (6px on, 2px off; 2px gaps in the walk-test meter).",
-      "Do give burned-in viewfinder text the burn halo so it reads over any frame.",
-      "Do use a log1p slider track when a setting's range spans orders of magnitude."
+      "**Do** use the inverted row (ink fill, ground text) for every selected or current state, in both lights.",
+      "**Do** keep amber for live and primary: the armed lamp at night, lit and over-trigger meter cells, the hot readout, the primary button, the ROI and burned-in live marks, BIRD %.",
+      "**Do** pair every setting's plain-language sans label with its `birdy.toml` key in 11px dim mono.",
+      "**Do** separate with 1px hairlines (`rule` for rows, `rule-strong` for heads, sticky bars and control borders).",
+      "**Do** draw meters and bars as segments (6px on, 2px off; 2px gaps in the walk-test meter).",
+      "**Do** give burned-in viewfinder text the burn halo so it reads over any frame.",
+      "**Do** use a log1p slider track when a setting's range spans orders of magnitude."
     ],
     "donts": [
-      "Don't use amber to mark selection, or as text or a thin line on the day LCD ground.",
-      "Don't use REC red for anything but the REC lamp and errors.",
-      "Don't round corners on any control, tile or container; only indicator lamps are round.",
-      "Don't add drop shadows, cards or raised panels; the only shadow-like effects are the burn halo and the inset focus ring.",
-      "Don't set values, keys or heads in the system sans, or explanations in mono.",
-      "Don't load fonts or assets from the network; Martian Mono is self-hosted and everything else is system."
+      "**Don't** use amber to mark selection, or as text or a thin line on the day LCD ground.",
+      "**Don't** use REC red for anything but the REC lamp and errors.",
+      "**Don't** round corners on any control, tile or container; only indicator lamps are round.",
+      "**Don't** add drop shadows, cards or raised panels; the only shadow-like effects are the burn halo and the inset focus ring.",
+      "**Don't** set values, keys or heads in the system sans, or explanations in mono.",
+      "**Don't** load fonts or assets from the network; Martian Mono is self-hosted and everything else is system."
     ]
   }
 }

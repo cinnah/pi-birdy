@@ -228,7 +228,7 @@ A near-achromatic instrument palette (two grounds with a faint green cast) with 
 - **LCD Dim, Rules, Segment Off** (`lcd-dim`, `lcd-rule`, `lcd-rule-strong`, `lcd-seg-off`): the day counterparts of the night neutrals, same roles.
 
 ### Named Rules
-**The Inverted Row Rule.** Selection (current nav item, active segmented filter, pressed watchlist chip, switch ON, button pressed, text selection) is an inverted row: ink-coloured fill with ground-coloured text (OSD white on OSD black at night, LCD ink on LCD ground by day). Amber is never used to mean "selected".
+**The Inverted Row Rule.** Selection (current nav item, active segmented filter, pressed no-message chip, switch ON, button pressed, text selection) is an inverted row: ink-coloured fill with ground-coloured text (OSD white on OSD black at night, LCD ink on LCD ground by day). Amber is never used to mean "selected".
 
 **The One Sticker Rule.** On the LCD ground amber appears only as a fill (the primary button, the hot readout block, meter segments past the trigger, the dirty square), never as text or a thin line on the grey-green. On the LCD, "lit" is dark ink.
 
@@ -267,6 +267,8 @@ Page content is capped at 1500px (species page 960px) with a 16px gutter. Settin
 
 The capture grid is `auto-fill` tiles of min 220px with 14px gaps; at 640px it is exactly two columns with 8px gaps. Tables (species) use hairline rows with right-aligned mono numerics.
 
+The setup menu is divided into **parts**, one per device or job (Camera, Messages, Extra camera, Gallery, System). A part opens with a 2px ink rule, an 18px 800 mono uppercase head, its state at the right as a lamp readout (`TELEGRAM ON`, `50D: READY · 4 SHOTS TODAY`; lamp in signal when on, REC red on a fault) and one sans sentence under it; parts are 44px apart. A sticky 44px tab bar at the top of the menu (under the strip) lists the parts in dim mono; the part on screen is the inverted row. Groups inside a part (Motion, Bird check, ...) keep the 12px menu head.
+
 Rhythm: setting rows are 14px top / 12px bottom with a hairline between; groups are separated by 28px (36px on the species page) and open with a head on a `rule-strong` hairline. Control gaps are 6, 8, 12 or 16px.
 
 ## Elevation & Depth
@@ -297,7 +299,7 @@ Printed-label buttons: square, outlined, uppercase mono.
 
 ### Chips
 - **Style:** 32px square chips, 1px `rule-strong` border, mono 500 12px, transparent fill.
-- **State:** pressed (`aria-pressed="true"`) is the inverted selection row. Used as add/remove toggles for watchlist species.
+- **State:** pressed (`aria-pressed="true"`) is the inverted selection row. Used as add/remove toggles for the no-message species list.
 
 ### Inputs / Fields
 - **Style:** field ground (`night-field` / `lcd-field`), 1px `rule-strong` border, 0 radius, mono 500 14px, 8px 10px padding. Numeric fields are 9ch, right-aligned, with a 4ch uppercase mono unit after them.

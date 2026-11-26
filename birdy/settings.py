@@ -34,8 +34,7 @@ FIELD_KEYS = {
     "lon": "site.lon",
     "margin_minutes": "daylight.margin_minutes",
     "non_bird_days": "retention.non_bird_days",
-    "watchlist": "telegram.watchlist",
-    "alert_new_species": "telegram.alert_new_species",
+    "no_alert": "telegram.no_alert",
     "cooldown_minutes": "telegram.cooldown_minutes",
     "publish_min_confidence": "publish.min_confidence",
     "per_species_per_day": "publish.per_species_per_day",
@@ -65,8 +64,7 @@ class SettingsPatch:
     lon: float | None
     margin_minutes: int
     non_bird_days: int
-    watchlist: tuple[str, ...]
-    alert_new_species: bool
+    no_alert: tuple[str, ...]
     cooldown_minutes: int
     publish_min_confidence: float
     per_species_per_day: int
@@ -125,8 +123,7 @@ def config_to_dict(config: Config) -> dict:
             "bot_token": config.telegram.bot_token,
             "chat_id": config.telegram.chat_id,
             "base_url": config.telegram.base_url,
-            "watchlist": list(config.telegram.watchlist),
-            "alert_new_species": config.telegram.alert_new_species,
+            "no_alert": list(config.telegram.no_alert),
             "cooldown_minutes": config.telegram.cooldown_minutes,
         },
         "publish": {
@@ -172,8 +169,7 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
     data["daylight"]["margin_minutes"] = patch.margin_minutes
     data["retention"]["non_bird_days"] = patch.non_bird_days
     data["telegram"].update(
-        watchlist=list(patch.watchlist),
-        alert_new_species=patch.alert_new_species,
+        no_alert=list(patch.no_alert),
         cooldown_minutes=patch.cooldown_minutes,
     )
     data["publish"].update(
@@ -261,10 +257,6 @@ def _region(form: Mapping[str, str]) -> tuple[float, float, float, float]:
     return vals
 
 
-def _watchlist(form: Mapping[str, str]) -> tuple[str, ...]:
-    return _lines(form, "watchlist")
-
-
 def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
     """Turn the POSTed form into a SettingsPatch; raises ConfigError naming the config key."""
     return SettingsPatch(
@@ -283,8 +275,7 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         lon=_num(form, "lon", float, optional=True),
         margin_minutes=_num(form, "margin_minutes", int),
         non_bird_days=_num(form, "non_bird_days", int),
-        watchlist=_watchlist(form),
-        alert_new_species=form.get("alert_new_species") is not None,
+        no_alert=_lines(form, "no_alert"),
         cooldown_minutes=_num(form, "cooldown_minutes", int),
         publish_min_confidence=_num(form, "publish_min_confidence", float),
         per_species_per_day=_num(form, "per_species_per_day", int),

@@ -15,54 +15,52 @@ from birdy.notify import (
 )
 
 NOW = datetime(2026, 10, 3, 14, 32, tzinfo=timezone.utc)
-SET = TelegramSettings(watchlist=("Eurasian Hoopoe", " blue tit "), alert_new_species=True, cooldown_minutes=30)
+SET = TelegramSettings(no_alert=("Eurasian Hoopoe", " great tit "), cooldown_minutes=30)
 
 
 # --- policy ---------------------------------------------------------------
 
-def test_watchlist_hit_case_insensitive():
+def test_every_species_alerts():
     p = AlertPolicy()
-    assert p.decide("Blue Tit", False, SET, NOW) == "watchlist"
-    assert p.decide("eurasian hoopoe", False, SET, NOW) == "watchlist"
+    assert p.decide("Robin", False, SET, NOW) == "visit"
+    assert p.decide("Blue Tit", False, SET, NOW) == "visit"
 
 
-def test_not_watchlisted_not_new_is_none():
-    assert AlertPolicy().decide("Robin", False, SET, NOW) is None
+def test_no_alert_list_silences_case_insensitive():
+    p = AlertPolicy()
+    assert p.decide("Eurasian Hoopoe", False, SET, NOW) is None
+    assert p.decide("Great Tit", False, SET, NOW) is None  # listed as " great tit "
+    assert p.decide("eurasian hoopoe", True, SET, NOW) is None  # not even a first sighting
+    assert p.decide("Robin", False, SET, NOW) == "visit"  # a silenced species leaves no cooldown behind
 
 
-def test_new_species_alerts_once_and_bypasses_cooldown():
+def test_new_species_bypasses_cooldown():
     p = AlertPolicy()
     assert p.decide("Blue Tit", True, SET, NOW) == "new"
     assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=1)) is None  # cooldown from the "new" alert
     p2 = AlertPolicy()
-    assert p2.decide("Blue Tit", False, SET, NOW) == "watchlist"
+    assert p2.decide("Blue Tit", False, SET, NOW) == "visit"
     assert p2.decide("Blue Tit", True, SET, NOW + timedelta(minutes=1)) == "new"  # new ignores cooldown
-
-
-def test_new_species_disabled():
-    s = dataclasses.replace(SET, alert_new_species=False)
-    assert AlertPolicy().decide("Robin", True, s, NOW) is None
-    assert AlertPolicy().decide("Blue Tit", True, s, NOW) == "watchlist"
 
 
 def test_cooldown_suppresses_then_reallows():
     p = AlertPolicy()
-    assert p.decide("Blue Tit", False, SET, NOW) == "watchlist"
+    assert p.decide("Blue Tit", False, SET, NOW) == "visit"
     assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=29)) is None
-    assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=30)) == "watchlist"
+    assert p.decide("Blue Tit", False, SET, NOW + timedelta(minutes=30)) == "visit"
 
 
 def test_cooldown_zero_never_suppresses():
     s = dataclasses.replace(SET, cooldown_minutes=0)
     p = AlertPolicy()
-    assert p.decide("Blue Tit", False, s, NOW) == "watchlist"
-    assert p.decide("Blue Tit", False, s, NOW) == "watchlist"
+    assert p.decide("Blue Tit", False, s, NOW) == "visit"
+    assert p.decide("Blue Tit", False, s, NOW) == "visit"
 
 
 def test_cooldown_is_per_species():
     p = AlertPolicy()
-    assert p.decide("Blue Tit", False, SET, NOW) == "watchlist"
-    assert p.decide("Eurasian Hoopoe", False, SET, NOW) == "watchlist"
+    assert p.decide("Blue Tit", False, SET, NOW) == "visit"
+    assert p.decide("Robin", False, SET, NOW) == "visit"
 
 
 # --- caption --------------------------------------------------------------
@@ -74,7 +72,7 @@ def test_caption_format():
     assert first.startswith("🐦 Eurasian Blue Tit (82%) · ")
     assert first.endswith(" · new species!")
     assert link == "http://birdy.local:8000/?species=Eurasian%20Blue%20Tit"
-    assert "new species" not in caption_for(dataclasses.replace(a, reason="watchlist"), "http://x")
+    assert "new species" not in caption_for(dataclasses.replace(a, reason="visit"), "http://x")
 
 
 # --- transport ------------------------------------------------------------
@@ -164,7 +162,7 @@ class FakeTransport:
 
 
 def enabled_config(config, **tg):
-    base = dict(enabled=True, bot_token="T", chat_id="42", watchlist=("Blue Tit",), alert_new_species=True, cooldown_minutes=30)
+    base = dict(enabled=True, bot_token="T", chat_id="42", no_alert=(), cooldown_minutes=30)
     base.update(tg)
     return dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, **base))
 
@@ -218,10 +216,11 @@ def test_consider_queues_and_worker_sends_photo(live, config, store):
 
 
 def test_consider_takes_first_seen_from_caller(live, config, store):
-    live.replace(enabled_config(config, watchlist=()))
+    live.replace(enabled_config(config))
     n = TelegramNotifier(live, FakeTransport())
     assert n.consider(1, Path("a"), "Robin", 0.9, NOW, first_seen=True, now=NOW) == "new"
-    assert n.consider(2, Path("b"), "Robin", 0.9, NOW, first_seen=False, now=NOW + timedelta(hours=2)) is None
+    assert n.consider(2, Path("b"), "Robin", 0.9, NOW, first_seen=False, now=NOW + timedelta(minutes=5)) is None  # cooldown
+    assert n.consider(3, Path("c"), "Robin", 0.9, NOW, first_seen=False, now=NOW + timedelta(hours=2)) == "visit"
 
 
 def test_missing_photo_falls_back_to_text(live, config, store):
@@ -288,7 +287,7 @@ def test_queue_full_drops_with_warning(live, config, store, caplog):
     live.replace(enabled_config(config, cooldown_minutes=0))
     n = TelegramNotifier(live, FakeTransport(), maxsize=1)  # not started: nothing drains
     with caplog.at_level(logging.WARNING):
-        assert n.consider(1, Path("a"), "Blue Tit", 0.8, NOW, False, now=NOW) == "watchlist"
+        assert n.consider(1, Path("a"), "Blue Tit", 0.8, NOW, False, now=NOW) == "visit"
         assert n.consider(2, Path("b"), "Blue Tit", 0.8, NOW, False, now=NOW) is None
     assert "queue full" in caplog.text
 

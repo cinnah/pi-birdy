@@ -135,7 +135,7 @@ class SpeciesList:
 
     def unknown_names(self, names: Iterable[str], reported_only: bool = False) -> list[str]:
         """Names the bank doesn't know. `reported_only`: known only as the name a capture's species is
-        stored under (common, or latin when there is none) - what the watchlist is matched against."""
+        stored under (common, or latin when there is none) - what the no-alert list is matched against."""
         if reported_only:
             return [n for n in names if n.strip().casefold() not in self.bank.reported_names]
         return [n for n in names if self.bank.resolve(n) is None]

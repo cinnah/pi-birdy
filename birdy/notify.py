@@ -48,14 +48,13 @@ class TelegramError(Exception):
 class TelegramSettings:
     """The live-tunable subset of [telegram]."""
 
-    watchlist: tuple[str, ...]
-    alert_new_species: bool
+    no_alert: tuple[str, ...]
     cooldown_minutes: int
 
     @classmethod
     def from_config(cls, cfg: Config) -> TelegramSettings:
         t = cfg.telegram
-        return cls(t.watchlist, t.alert_new_species, t.cooldown_minutes)
+        return cls(t.no_alert, t.cooldown_minutes)
 
 
 @dataclass(frozen=True)
@@ -65,7 +64,7 @@ class Alert:
     species: str
     species_confidence: float
     captured_at: datetime
-    reason: str  # "watchlist" | "new"
+    reason: str  # "visit" | "new"
 
 
 class AlertPolicy:
@@ -75,17 +74,18 @@ class AlertPolicy:
         self._last: dict[str, datetime] = {}
 
     def decide(self, species: str, first_seen: bool, settings: TelegramSettings, now: datetime) -> str | None:
+        # every species alerts unless it is on the no-alert list; a first sighting skips the cooldown
         key = species.casefold()
-        if first_seen and settings.alert_new_species:
+        if key in {w.strip().casefold() for w in settings.no_alert}:
+            return None
+        if first_seen:
             self._last[key] = now
             return "new"
-        if key not in {w.strip().casefold() for w in settings.watchlist}:
-            return None
         last = self._last.get(key)
         if last is not None and now - last < timedelta(minutes=settings.cooldown_minutes):
             return None
         self._last[key] = now
-        return "watchlist"
+        return "visit"
 
 
 def caption_for(alert: Alert, base_url: str) -> str:

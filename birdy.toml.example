@@ -67,9 +67,8 @@ enabled = false            # restart-only; set true once bot_token and chat_id a
 bot_token = ""             # restart-only, SECRET — from @BotFather; this file is gitignored
 chat_id = ""               # restart-only — `birdy telegram-chat-id` prints it after you message the bot
 base_url = "http://birdy.local:8000"   # link in the alert caption
-watchlist = []             # species common names (as on /species), e.g. ["Common Hoopoe"]
-alert_new_species = true   # one alert the first time any species is ever seen
-cooldown_minutes = 30      # at most one alert per species per this many minutes
+no_alert = []              # every species alerts, except these: common names (as on /species), e.g. ["Black Redstart"]
+cooldown_minutes = 30      # at most one alert per species per this many minutes (a first-ever species skips it); 0 = every visit
 
 [publish]
 # Public gallery (https://birdy.akibeo.com). The Pi rsyncs web-sized copies of its best

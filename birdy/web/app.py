@@ -336,8 +336,7 @@ def create_app(
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
                 "margin_minutes": cfg.daylight.margin_minutes,
                 "non_bird_days": cfg.retention.non_bird_days,
-                "watchlist": "\n".join(cfg.telegram.watchlist),
-                "alert_new_species": cfg.telegram.alert_new_species,
+                "no_alert": "\n".join(cfg.telegram.no_alert),
                 "cooldown_minutes": cfg.telegram.cooldown_minutes,
                 "publish_min_confidence": cfg.publish.min_confidence,
                 "per_species_per_day": cfg.publish.per_species_per_day,
@@ -417,9 +416,9 @@ def create_app(
                     if unknown:
                         raise ConfigError(f"{key}: unknown species {', '.join(unknown)} (not in the name bank)")
                 # alerts match the stored species name (common, or latin when there is none), so only that works here
-                unknown = sl.unknown_names(patch.watchlist, reported_only=True)
+                unknown = sl.unknown_names(patch.no_alert, reported_only=True)
                 if unknown:
-                    raise ConfigError(f"telegram.watchlist: unknown species {', '.join(unknown)} (use the English name shown on /species)")
+                    raise ConfigError(f"telegram.no_alert: unknown species {', '.join(unknown)} (use the English name shown on /species)")
             new = save_settings(config_path, live.get(), patch)
         except ConfigError as e:
             msg = str(e)

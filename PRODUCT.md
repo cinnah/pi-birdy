@@ -15,7 +15,7 @@ All of them open the pages on phones and laptops/desktops about equally. On a ph
 
 ## Product Purpose
 
-A Raspberry Pi camera behind a window photographs birds at a feeder. It filters out non-bird motion with a local model, names the species, keeps the photos, and sends Telegram alerts for chosen species. The web UI is how the household sees what visited and how they adjust what counts as a visit. It works when the household enjoys the birds and the captures are mostly real birds, without anyone having to SSH in.
+A Raspberry Pi camera behind a window photographs birds at a feeder. It filters out non-bird motion with a local model, names the species, keeps the photos, and sends a Telegram message for every bird visit (except species the household has silenced). The web UI is how the household sees what visited and how they adjust what counts as a visit. It works when the household enjoys the birds and the captures are mostly real birds, without anyone having to SSH in.
 
 ## Positioning
 

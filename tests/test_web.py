@@ -252,8 +252,7 @@ def _base_form():
         "lon": "",
         "margin_minutes": "30",
         "non_bird_days": "7",
-        "watchlist": "",
-        "alert_new_species": "on",
+        "no_alert": "",
         "cooldown_minutes": "30",
         "publish_min_confidence": "0.6",
         "per_species_per_day": "3",
@@ -550,25 +549,23 @@ def test_settings_alerts_group_renders(client, store, live, config):
     import dataclasses
 
     add(store, 0, True)  # a "Robin" bird → species hint
-    live.replace(dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, watchlist=("Hoopoe",), bot_token="SECRET123", chat_id="42")))
+    live.replace(dataclasses.replace(config, telegram=dataclasses.replace(config.telegram, no_alert=("Hoopoe",), bot_token="SECRET123", chat_id="42")))
     r = client.get("/settings").text
-    assert '<textarea id="watchlist" name="watchlist"' in r and ">Hoopoe</textarea>" in r
-    assert 'name="alert_new_species" value="on" checked' in r
+    assert '<textarea id="no_alert" name="no_alert"' in r and ">Hoopoe</textarea>" in r
+    assert "alert_new_species" not in r and "watchlist" not in r
     assert 'name="cooldown_minutes"' in r
     assert "Robin" in r  # species hint
     assert "telegram.bot_token" in r and "SECRET123" not in r
-    assert "Send test alert" in r
+    assert "Send test message" in r
 
 
 def test_settings_post_saves_alert_fields(client, live, config_path):
-    r = post_settings(client, watchlist="Eurasian Hoopoe\nBlack Redstart", cooldown_minutes="10")
+    r = post_settings(client, no_alert="Eurasian Hoopoe\nBlack Redstart", cooldown_minutes="10")
     assert r.status_code == 303
     t = live.get().telegram
-    assert t.watchlist == ("Eurasian Hoopoe", "Black Redstart") and t.cooldown_minutes == 10 and t.alert_new_species is True
-    data = _base_form()
-    data.pop("alert_new_species")  # an unchecked checkbox is simply absent from the POST
-    r2 = client.post("/settings", data=data, follow_redirects=False)
-    assert r2.status_code == 303 and live.get().telegram.alert_new_species is False
+    assert t.no_alert == ("Eurasian Hoopoe", "Black Redstart") and t.cooldown_minutes == 10
+    r2 = client.post("/settings", data=_base_form(), follow_redirects=False)
+    assert r2.status_code == 303 and live.get().telegram.no_alert == ()
 
 
 def test_settings_post_invalid_cooldown_highlights_row(client):
@@ -592,8 +589,8 @@ def test_settings_button_disabled_without_notifier(store, state, live, config, c
     live.replace(dataclasses.replace(config, telegram=tg))
     c = TestClient(create_app(store, state, live, config_path, classifier=classifier))
     r = c.get("/settings").text
-    assert re.search(r'<button class="btn" type="submit" form="test-alert"\s+disabled>Send test alert</button>', r)
-    assert "Alerts are off. Set [telegram] in birdy.toml and restart." in r
+    assert re.search(r'<button class="btn" type="submit" form="test-alert"\s+disabled>Send test message</button>', r)
+    assert "Messages are off. Set [telegram] in birdy.toml and restart." in r
     assert "SECRET123" not in r
 
 
@@ -921,13 +918,13 @@ def test_settings_rejects_unknown_species_names(client):
     assert r.status_code == 422 and "species.include" in r.text and "Dodo" in r.text
     r = client.post("/settings", data={**_base_form(), "species_exclude": "Unicorn"}, follow_redirects=False)
     assert r.status_code == 422 and "species.exclude" in r.text
-    r = client.post("/settings", data={**_base_form(), "watchlist": "Black Redstart\nUnicorn"}, follow_redirects=False)
-    assert r.status_code == 422 and "telegram.watchlist" in r.text and "Unicorn" in r.text
-    r = client.post("/settings", data={**_base_form(), "watchlist": "Phoenicurus ochruros"}, follow_redirects=False)
-    assert r.status_code == 422 and "telegram.watchlist" in r.text and "use the English name shown on /species" in r.text
+    r = client.post("/settings", data={**_base_form(), "no_alert": "Black Redstart\nUnicorn"}, follow_redirects=False)
+    assert r.status_code == 422 and "telegram.no_alert" in r.text and "Unicorn" in r.text
+    r = client.post("/settings", data={**_base_form(), "no_alert": "Phoenicurus ochruros"}, follow_redirects=False)
+    assert r.status_code == 422 and "telegram.no_alert" in r.text and "use the English name shown on /species" in r.text
     r = client.post("/settings", data={**_base_form(), "species_include": "Phoenicurus ochruros"}, follow_redirects=False)
     assert r.status_code == 303                                 # include/exclude take latin names
-    r = client.post("/settings", data={**_base_form(), "species_include": "eurasian hoopoe", "watchlist": "black redstart"}, follow_redirects=False)
+    r = client.post("/settings", data={**_base_form(), "species_include": "eurasian hoopoe", "no_alert": "black redstart"}, follow_redirects=False)
     assert r.status_code == 303
 
 

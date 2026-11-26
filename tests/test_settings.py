@@ -24,8 +24,7 @@ def default_patch(config, **overrides) -> SettingsPatch:
         lon=config.site.lon,
         margin_minutes=config.daylight.margin_minutes,
         non_bird_days=config.retention.non_bird_days,
-        watchlist=config.telegram.watchlist,
-        alert_new_species=config.telegram.alert_new_species,
+        no_alert=config.telegram.no_alert,
         cooldown_minutes=config.telegram.cooldown_minutes,
         publish_min_confidence=config.publish.min_confidence,
         per_species_per_day=config.publish.per_species_per_day,
@@ -111,8 +110,7 @@ FORM = {
     "lon": "",
     "margin_minutes": "30",
     "non_bird_days": "7",
-    "watchlist": "",
-    "alert_new_species": "on",
+    "no_alert": "",
     "cooldown_minutes": "30",
     "publish_min_confidence": "0.6",
     "per_species_per_day": "3",
@@ -218,8 +216,7 @@ enabled = true
 bot_token = "123:ABC"
 chat_id = "42"
 base_url = "http://example.test"
-watchlist = ["Hoopoe"]
-alert_new_species = false
+no_alert = ["Hoopoe"]
 cooldown_minutes = 5
 
 [publish]
@@ -338,18 +335,16 @@ def test_parse_form_species_fields():
 def test_telegram_fields_roundtrip_and_token_preserved(config_path, config):
     config_path.write_text(config_path.read_text() + '\n[telegram]\nbot_token = "SECRET"\nchat_id = "7"\n')
     cfg = load_config(config_path)
-    new = save_settings(config_path, cfg, default_patch(cfg, watchlist=("Hoopoe", "Blue Tit"), alert_new_species=False, cooldown_minutes=10))
-    assert new.telegram.watchlist == ("Hoopoe", "Blue Tit")
-    assert new.telegram.alert_new_species is False and new.telegram.cooldown_minutes == 10
+    new = save_settings(config_path, cfg, default_patch(cfg, no_alert=("Hoopoe", "Blue Tit"), cooldown_minutes=10))
+    assert new.telegram.no_alert == ("Hoopoe", "Blue Tit")
+    assert new.telegram.cooldown_minutes == 10
     assert new.telegram.bot_token == "SECRET" and new.telegram.chat_id == "7"  # restart-only keys survive a save
 
 
-def test_parse_form_watchlist_textarea_and_checkbox():
-    p = parse_settings_form({**FORM, "watchlist": "Hoopoe\n\n  Blue Tit  \n", "alert_new_species": "on"})
-    assert p.watchlist == ("Hoopoe", "Blue Tit") and p.alert_new_species is True
-    form = dict(FORM)
-    del form["alert_new_species"]  # unchecked checkboxes are absent from the POST
-    assert parse_settings_form(form).alert_new_species is False
+def test_parse_form_no_alert_textarea():
+    p = parse_settings_form({**FORM, "no_alert": "Hoopoe\n\n  Blue Tit  \n"})
+    assert p.no_alert == ("Hoopoe", "Blue Tit")
+    assert parse_settings_form(dict(FORM)).no_alert == ()
 
 
 def test_parse_form_cooldown_minutes_int():
@@ -363,9 +358,9 @@ def test_save_creates_private_file(config_path, config):
     assert (config_path.stat().st_mode & 0o777) == 0o600
 
 
-def test_parse_form_watchlist_crlf():
-    p = parse_settings_form({**FORM, "watchlist": "Hoopoe\r\n\r\nBlue Tit\r\n"})
-    assert p.watchlist == ("Hoopoe", "Blue Tit")
+def test_parse_form_no_alert_crlf():
+    p = parse_settings_form({**FORM, "no_alert": "Hoopoe\r\n\r\nBlue Tit\r\n"})
+    assert p.no_alert == ("Hoopoe", "Blue Tit")
 
 
 def test_parse_form_publish_fields():

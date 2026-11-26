@@ -195,17 +195,22 @@ def test_telegram_defaults(tmp_path):
     t = cfg.telegram
     assert t.enabled is False and t.bot_token == "" and t.chat_id == ""
     assert t.base_url == "http://birdy.local:8000"
-    assert t.watchlist == () and t.alert_new_species is True and t.cooldown_minutes == 30
+    assert t.no_alert == () and t.cooldown_minutes == 30
 
 
-def test_telegram_watchlist_trimmed_and_empty_dropped(tmp_path):
-    cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nwatchlist = [" Hoopoe ", "", "Blue Tit"]\n'))
-    assert cfg.telegram.watchlist == ("Hoopoe", "Blue Tit")
+def test_telegram_no_alert_trimmed_and_empty_dropped(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nno_alert = [" Hoopoe ", "", "Blue Tit"]\n'))
+    assert cfg.telegram.no_alert == ("Hoopoe", "Blue Tit")
 
 
-def test_telegram_watchlist_must_be_strings(tmp_path):
-    with pytest.raises(ConfigError, match="telegram.watchlist"):
-        load_config(write(tmp_path, MINIMAL + "\n[telegram]\nwatchlist = [1, 2]\n"))
+def test_telegram_no_alert_must_be_strings(tmp_path):
+    with pytest.raises(ConfigError, match="telegram.no_alert"):
+        load_config(write(tmp_path, MINIMAL + "\n[telegram]\nno_alert = [1, 2]\n"))
+
+
+def test_telegram_old_watchlist_keys_are_ignored(tmp_path):
+    cfg = load_config(write(tmp_path, MINIMAL + '\n[telegram]\nwatchlist = ["Common Hoopoe"]\nalert_new_species = false\n'))
+    assert cfg.telegram.no_alert == ()
 
 
 @pytest.mark.parametrize("missing", ["bot_token", "chat_id"])

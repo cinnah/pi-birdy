@@ -99,8 +99,7 @@ class TelegramConfig:
     bot_token: str = field(repr=False)  # restart-only, secret
     chat_id: str               # restart-only
     base_url: str              # restart-only; link in the alert caption
-    watchlist: tuple[str, ...] # live
-    alert_new_species: bool    # live
+    no_alert: tuple[str, ...]  # live; species that never alert (every other species does)
     cooldown_minutes: int      # live
 
 
@@ -329,8 +328,8 @@ def load_config(path: Path) -> Config:
         tg = {**tg, "chat_id": str(tg["chat_id"])}  # allow an unquoted numeric chat id
     tg_chat = _str(tg, "telegram", "chat_id", "")
     tg_base = _str(tg, "telegram", "base_url", "http://birdy.local:8000").rstrip("/")
-    tg_watch = _str_list(tg, "telegram", "watchlist")
-    tg_new = _bool(tg, "telegram", "alert_new_species", True)
+    # the old watchlist / alert_new_species keys are ignored: every species alerts unless listed here
+    tg_no_alert = _str_list(tg, "telegram", "no_alert")
     tg_cooldown = _num(tg, "telegram", "cooldown_minutes", 30, int)
     _check(tg_cooldown >= 0, "telegram.cooldown_minutes must be >= 0")
     if tg_enabled:
@@ -400,7 +399,7 @@ def load_config(path: Path) -> Config:
         web=WebConfig(host=str(web.get("host", "0.0.0.0")), port=port),
         telegram=TelegramConfig(
             enabled=tg_enabled, bot_token=tg_token, chat_id=tg_chat, base_url=tg_base,
-            watchlist=tg_watch, alert_new_species=tg_new, cooldown_minutes=tg_cooldown,
+            no_alert=tg_no_alert, cooldown_minutes=tg_cooldown,
         ),
         publish=PublishConfig(
             enabled=pub_enabled, host=pub_host, user=pub_user, remote_dir=pub_remote, site_id=pub_site,

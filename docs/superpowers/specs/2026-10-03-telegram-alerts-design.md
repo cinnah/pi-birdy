@@ -7,6 +7,8 @@
 
 ## Goal
 
+> **Changed 2026-11-26:** the watchlist and `alert_new_species` are gone. Every visit with a species alerts (reason `"visit"`, or `"new"` for a first-ever species, which skips the cooldown) unless the species is on `telegram.no_alert`; a listed species never alerts. The old keys are ignored on load. The settings group is now the **Messages** part and the button reads **Send test message**. The rest of this document describes the original watchlist design.
+
 Get a Telegram message with the photo when a bird you care about visits: species on a watchlist, and the first time any species is ever seen. Bounded per-species frequency, never interferes with capture or classification, configurable from the settings page, verifiable with a test button.
 
 ## Decisions made

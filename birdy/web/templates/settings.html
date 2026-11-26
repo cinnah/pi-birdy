@@ -8,8 +8,8 @@
 
   /* ── viewfinder column ── */
   .vf-col { position: sticky; top: var(--strip-h); align-self: start; padding: 20px 24px 24px var(--gutter); border-right: 1px solid var(--rule); }
-  .vf { position: relative; background: #050605; aspect-ratio: {{ lores_w }} / {{ lores_h }}; }
-  .vf canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  .vf { position: relative; aspect-ratio: {{ lores_w }} / {{ lores_h }}; }
+  .vf canvas { display: block; width: 100%; height: 100%; background: #050605; touch-action: none; cursor: crosshair; }
   .vf .brackets {
     position: absolute; inset: 10px; pointer-events: none;
     --c: rgba(242, 242, 238, 0.85); --l: 22px; --t: 2px;
@@ -62,11 +62,47 @@
   .hint:empty { display: none; }
 
   /* ── setup menu ── */
-  .menu { padding: 20px 24px 0; min-width: 0; }
+  .menu { padding: 0 24px; min-width: 0; }
+
+  /* the menu's tabs: one per part, sticky under the strip; the part on screen is the inverted row */
+  .parts {
+    position: sticky; top: var(--strip-h); z-index: 6; display: flex; margin: 0 -24px; padding: 0 24px;
+    background: var(--ground); border-bottom: 1px solid var(--rule-strong);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .parts::-webkit-scrollbar { display: none; }
+  .parts a {
+    flex: none; display: flex; align-items: center; height: 44px; padding: 0 12px; white-space: nowrap;
+    font: 500 11px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--dim); text-decoration: none;
+  }
+  .parts a:hover { color: var(--ink); }
+  .parts a:focus-visible { outline-offset: -2px; }
+  .parts a[aria-current="true"] { background: var(--sel-bg); color: var(--sel-fg); }
+
+  /* a part = one device or job (camera, messages, extra camera, ...): heavy rule, big head, its state */
+  .part { padding-top: 44px; scroll-margin-top: calc(var(--strip-h) + 44px - 24px); }
+  .parts + .part { padding-top: 24px; scroll-margin-top: calc(var(--strip-h) + 44px - 4px); }
+  .part-head {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px 14px;
+    padding: 14px 0 12px; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule-strong);
+  }
+  .part-head h2 { margin: 0; font: 800 18px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.1em; text-transform: uppercase; }
+  .part-head p { grid-column: 1 / -1; margin: 0; font-size: 13px; line-height: 1.4; color: var(--dim); max-width: 62ch; }
+  .part-state {
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+    font: 500 11px/1.3 var(--mono); font-stretch: 87.5%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
+  }
+  .part-state::before { content: ""; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+  .part-state.on { color: var(--ink); }
+  .part-state.on::before { background: var(--signal); }
+  .part-state.bad { color: var(--rec); }
+  .part-state.bad::before { background: var(--rec); }
   .cambar { max-width: 1500px; margin: 0 auto; padding: 10px var(--gutter); border-bottom: 1px solid var(--rule); }
   .msgs { max-width: 1500px; margin: 0 auto; padding: 16px var(--gutter) 0; }
   .msgs .msg:last-child { margin-bottom: 0; }
-  .group { margin-bottom: 28px; }
+  .group { margin-top: 28px; }
+  .part-head + .group { margin-top: 22px; }
   .group > header { display: flex; align-items: baseline; gap: 12px; padding: 0 0 10px; border-bottom: 1px solid var(--rule-strong); }
   .group > header p { margin: 0; font-size: 13px; color: var(--dim); }
 
@@ -152,7 +188,7 @@
 
   .savebar {
     position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
-    margin: 8px -24px 0; padding: 12px 24px; background: var(--ground); border-top: 1px solid var(--rule-strong);
+    margin: 36px -24px 0; padding: 12px 24px; background: var(--ground); border-top: 1px solid var(--rule-strong);
   }
   .savebar .state { flex: 1; min-width: 0; font: 600 12px/1.35 var(--mono); font-stretch: 87.5%; letter-spacing: 0.04em; text-transform: uppercase; }
   .savebar .state small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--dim); font-size: 11px; }
@@ -171,8 +207,10 @@
     .vf .burn { font-size: 11px; letter-spacing: 0.04em; }
     .vf .tl, .vf .tr { top: 16px; } .vf .bl, .vf .br { bottom: 16px; }
     .vf .tl, .vf .bl { left: 16px; } .vf .tr, .vf .br { right: 16px; }
-    .menu { padding: 20px var(--gutter) 0; }
-    .savebar { margin: 8px calc(-1 * var(--gutter)) 0; padding: 10px var(--gutter); }
+    .menu { padding: 0 var(--gutter); }
+    .parts { margin: 0 calc(-1 * var(--gutter)); padding: 0; }
+    .parts a { flex: 1 0 auto; justify-content: center; padding: 0 10px; }
+    .savebar { margin: 36px calc(-1 * var(--gutter)) 0; padding: 10px var(--gutter); }
   }
   @media (max-width: 420px) {
     .vf .tr { display: none; }
@@ -200,7 +238,7 @@
 <form method="post" action="/settings/test-alert" id="test-alert"></form>
 <form method="post" action="/settings/dslr-frame" id="dslr-frame"></form>
 <div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}
-{%- if status.dslr %}<p class="hint">50D: {{ {'off': 'off', 'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] }} · {{ status.dslr.shots_today }} shots today</p>{% endif %}</div>
+</div>
 {% if error_message or test_result %}
 <div class="msgs">
   {% if error_message %}<div class="msg bad" role="alert">{{ error_message }}</div>{% endif %}
@@ -242,107 +280,115 @@
 </section>
 
 <div class="menu">
-  <section class="group">
-    <header><h2 class="head">Motion</h2><p>What counts as movement</p></header>
-    {{ num("pixel_threshold", "motion.pixel_threshold", "Pixel change needed",
-           "How much one pixel must brighten or darken to count as changed. Raise it if shadows or sensor noise take photos.", 0, 100, 1, "lvl") }}
-    {{ num("min_area", "motion.min_area", "Movement to trigger",
-           "How many changed pixels inside the watch area take a photo. This is the trig mark on the walk-test meter.", 0, 20000, 10, "px", true) }}
-    {{ num("background_alpha", "motion.background_alpha", "Background adapt speed",
-           "How quickly slow changes like sun and cloud fade into the background. Higher adapts faster but can miss a bird that sits still.", 0.01, 1, 0.01) }}
-    {{ num("cooldown_seconds", "motion.cooldown_seconds", "Pause between photos",
-           "Minimum gap between two photos.", 0, 60, 0.5, "s") }}
+  <nav class="parts" id="parts" aria-label="Setup sections">
+    <a href="#camera">Camera</a><a href="#messages">Messages</a><a href="#extra-camera">Extra cam</a><a href="#gallery">Gallery</a><a href="#system">System</a>
+  </nav>
+
+  <section class="part" id="camera" aria-labelledby="camera-h">
+    <header class="part-head">
+      <h2 id="camera-h">Camera</h2>
+      <p>The Pi camera at the window: when it takes a photo, what counts as a bird, and what it keeps.</p>
+    </header>
+    <section class="group">
+      <header><h3 class="head">Motion</h3><p>What counts as movement</p></header>
+      {{ num("pixel_threshold", "motion.pixel_threshold", "Pixel change needed",
+             "How much one pixel must brighten or darken to count as changed. Raise it if shadows or sensor noise take photos.", 0, 100, 1, "lvl") }}
+      {{ num("min_area", "motion.min_area", "Movement to trigger",
+             "How many changed pixels inside the watch area take a photo. This is the trig mark on the walk-test meter.", 0, 20000, 10, "px", true) }}
+      {{ num("background_alpha", "motion.background_alpha", "Background adapt speed",
+             "How quickly slow changes like sun and cloud fade into the background. Higher adapts faster but can miss a bird that sits still.", 0.01, 1, 0.01) }}
+      {{ num("cooldown_seconds", "motion.cooldown_seconds", "Pause between photos",
+             "Minimum gap between two photos.", 0, 60, 0.5, "s") }}
+    </section>
+
+    <section class="group">
+      <header><h3 class="head">Bird check</h3><p>What happens to each photo</p></header>
+      {{ num("classifier_threshold", "classifier.threshold", "Bird certainty",
+             "How sure the bird check must be (0–1) before a photo counts as a bird.", 0, 1, 0.01) }}
+      {{ num("detector_threshold", "detector.threshold", "Bird detector",
+             "A second bird check that looks for a bird shape. A photo counts as a bird when this or the bird check above passes. Raise it if non-birds slip through.", 0, 1, 0.01) }}
+      {{ num("species_threshold", "species.threshold", "Species certainty",
+             "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
+      <p class="hint">Local species list: {{ species_list }}</p>
+      <div class="row {{ 'error' if error_field == 'species_include' else '' }}">
+        <label for="species_include">Add to local list</label>
+        <span></span>
+        {{ explain("Birds that should always be a candidate, even if iNaturalist has not seen them near you. Latin or common name, one per line.", "species.include") }}
+        <textarea id="species_include" name="species_include" rows="4" placeholder="one species per line">{{ v['species_include'] }}</textarea>
+      </div>
+      {% if error_field == 'species_include' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+      <div class="row {{ 'error' if error_field == 'species_exclude' else '' }}">
+        <label for="species_exclude">Remove from local list</label>
+        <span></span>
+        {{ explain("Birds that should never be named, even if iNaturalist reports them near you. Latin or common name, one per line.", "species.exclude") }}
+        <textarea id="species_exclude" name="species_exclude" rows="4" placeholder="one species per line">{{ v['species_exclude'] }}</textarea>
+      </div>
+      {% if error_field == 'species_exclude' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    </section>
+
+    <section class="group">
+      <header><h3 class="head">Visits</h3><p>Photos of one bird become one record</p></header>
+      {{ num("visits_gap_seconds", "visits.gap_seconds", "Visit gap",
+             "Photos less than this far apart are the same bird visit: one species, one alert, one correction.", 10, 600, 5, "s") }}
+    </section>
+
+    <section class="group">
+      <header><h3 class="head">Daylight</h3><p>When the camera is awake</p></header>
+      <div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
+        <label for="lat">Location</label>
+        <span class="pair">
+          <label>lat<input type="text" id="lat" name="lat" placeholder="38.72" value="{{ v['lat'] }}" inputmode="decimal"></label>
+          <label>lon<input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}" inputmode="decimal"></label>
+        </span>
+        {{ explain("Used to work out sunrise and sunset. Leave both empty to capture day and night.", "site.lat · site.lon") }}
+      </div>
+      {% if error_field in ('lat', 'lon') %}<div class="hint error">{{ error_message }}</div>{% endif %}
+      {{ num("margin_minutes", "daylight.margin_minutes", "Daylight margin",
+             "Start this long before sunrise and stop this long after sunset.", 0, 180, 5, "min") }}
+    </section>
+
+    <section class="group">
+      <header><h3 class="head">Storage</h3><p>What gets cleaned up</p></header>
+      {{ num("non_bird_days", "retention.non_bird_days", "Keep non-bird photos",
+             "Photos without a bird are deleted after this many days. Bird photos are never deleted automatically.", 1, 365, 1, "days", true) }}
+    </section>
   </section>
 
-  <section class="group">
-    <header><h2 class="head">Bird check</h2><p>What happens to each photo</p></header>
-    {{ num("classifier_threshold", "classifier.threshold", "Bird certainty",
-           "How sure the bird check must be (0–1) before a photo counts as a bird.", 0, 1, 0.01) }}
-    {{ num("detector_threshold", "detector.threshold", "Bird detector",
-           "A second bird check that looks for a bird shape. A photo counts as a bird when this or the bird check above passes. Raise it if non-birds slip through.", 0, 1, 0.01) }}
-    {{ num("species_threshold", "species.threshold", "Species certainty",
-           "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
-    <p class="hint">Local species list: {{ species_list }}</p>
-    <div class="row {{ 'error' if error_field == 'species_include' else '' }}">
-      <label for="species_include">Add to local list</label>
+  <section class="part" id="messages" aria-labelledby="messages-h">
+    <header class="part-head">
+      <h2 id="messages-h">Messages</h2>
+      <span class="part-state {{ 'on' if alerts_enabled else '' }}">Telegram {{ 'on' if alerts_enabled else 'off' }}</span>
+      <p>One Telegram message with the best photo for every bird visit.</p>
+    </header>
+    <div class="row {{ 'error' if error_field == 'no_alert' else '' }}">
+      <label for="no_alert">No message for</label>
       <span></span>
-      {{ explain("Birds that should always be a candidate, even if iNaturalist has not seen them near you. Latin or common name, one per line.", "species.include") }}
-      <textarea id="species_include" name="species_include" rows="4" placeholder="one species per line">{{ v['species_include'] }}</textarea>
-    </div>
-    {% if error_field == 'species_include' %}<div class="hint error">{{ error_message }}</div>{% endif %}
-    <div class="row {{ 'error' if error_field == 'species_exclude' else '' }}">
-      <label for="species_exclude">Remove from local list</label>
-      <span></span>
-      {{ explain("Birds that should never be named, even if iNaturalist reports them near you. Latin or common name, one per line.", "species.exclude") }}
-      <textarea id="species_exclude" name="species_exclude" rows="4" placeholder="one species per line">{{ v['species_exclude'] }}</textarea>
-    </div>
-    {% if error_field == 'species_exclude' %}<div class="hint error">{{ error_message }}</div>{% endif %}
-  </section>
-
-  <section class="group">
-    <header><h2 class="head">Visits</h2><p>Photos of one bird become one record</p></header>
-    {{ num("visits_gap_seconds", "visits.gap_seconds", "Visit gap",
-           "Photos less than this far apart are the same bird visit: one species, one alert, one correction.", 10, 600, 5, "s") }}
-  </section>
-
-  <section class="group">
-    <header><h2 class="head">Daylight</h2><p>When the camera is awake</p></header>
-    <div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
-      <label for="lat">Location</label>
-      <span class="pair">
-        <label>lat<input type="text" id="lat" name="lat" placeholder="38.72" value="{{ v['lat'] }}" inputmode="decimal"></label>
-        <label>lon<input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}" inputmode="decimal"></label>
-      </span>
-      {{ explain("Used to work out sunrise and sunset. Leave both empty to capture day and night.", "site.lat · site.lon") }}
-    </div>
-    {% if error_field in ('lat', 'lon') %}<div class="hint error">{{ error_message }}</div>{% endif %}
-    {{ num("margin_minutes", "daylight.margin_minutes", "Daylight margin",
-           "Start this long before sunrise and stop this long after sunset.", 0, 180, 5, "min") }}
-  </section>
-
-  <section class="group">
-    <header><h2 class="head">Storage</h2><p>What gets cleaned up</p></header>
-    {{ num("non_bird_days", "retention.non_bird_days", "Keep non-bird photos",
-           "Photos without a bird are deleted after this many days. Bird photos are never deleted automatically.", 1, 365, 1, "days", true) }}
-  </section>
-
-  <section class="group">
-    <header><h2 class="head">Alerts</h2><p>Telegram messages</p></header>
-    <div class="row {{ 'error' if error_field == 'watchlist' else '' }}">
-      <label for="watchlist">Watchlist</label>
-      <span></span>
-      {{ explain("Send an alert when one of these species is photographed. One per line.", "telegram.watchlist") }}
-      <textarea id="watchlist" name="watchlist" rows="4" placeholder="one species per line">{{ v['watchlist'] }}</textarea>
+      {{ explain("Every bird that gets a name sends a message. The birds listed here stay quiet. One per line.", "telegram.no_alert") }}
+      <textarea id="no_alert" name="no_alert" rows="4" placeholder="one species per line">{{ v['no_alert'] }}</textarea>
       <div class="chips">
-        <span class="key">{{ 'seen so far · tap to add or remove' if species_seen else 'no species seen yet' }}</span>
+        <span class="key">{{ 'seen so far · tap to silence or bring back' if species_seen else 'no species seen yet' }}</span>
         {% for s in species_seen %}<button type="button" class="chip" data-species="{{ s }}" aria-pressed="false">{{ s }}</button>{% endfor %}
       </div>
     </div>
-    {% if error_field == 'watchlist' %}<div class="hint error">{{ error_message }}</div>{% endif %}
-    <div class="row {{ 'error' if error_field == 'alert_new_species' else '' }}">
-      <label for="alert_new_species">First sightings</label>
-      <input class="switch" type="checkbox" id="alert_new_species" name="alert_new_species" value="on" {{ 'checked' if v['alert_new_species'] else '' }}>
-      {{ explain("Also alert the first time any species is photographed.", "telegram.alert_new_species") }}
-    </div>
+    {% if error_field == 'no_alert' %}<div class="hint error">{{ error_message }}</div>{% endif %}
     {{ num("cooldown_minutes", "telegram.cooldown_minutes", "Quiet time per species",
-           "After an alert, wait this long before alerting for the same species again.", 0, 1440, 5, "min", true) }}
+           "After a message, wait this long before the next one for the same species. 0 sends one for every visit. A species seen for the first time always gets through.", 0, 1440, 5, "min", true) }}
     <div class="action">
-      <button class="btn" type="submit" form="test-alert" {{ '' if alerts_enabled else 'disabled' }}>Send test alert</button>
-      <p class="hint">{{ 'Sends "birdy test alert" to your chat.' if alerts_enabled else 'Alerts are off. Set [telegram] in birdy.toml and restart.' }}</p>
+      <button class="btn" type="submit" form="test-alert" {{ '' if alerts_enabled else 'disabled' }}>Send test message</button>
+      <p class="hint">{{ 'Sends "birdy test alert" to your chat.' if alerts_enabled else 'Messages are off. Set [telegram] in birdy.toml and restart.' }}</p>
     </div>
   </section>
 
-  <section class="group">
-    <header><h2 class="head">Publishing</h2><p>The public gallery</p></header>
-    {{ num("publish_min_confidence", "publish.min_confidence", "Publish certainty",
-           "How sure the species model must be before a photo can go to the gallery on its own.", 0, 1, 0.05) }}
-    {{ num("per_species_per_day", "publish.per_species_per_day", "Photos per species per day",
-           "The best photos of each species each day go to the gallery, up to this many.", 1, 20, 1, "/day") }}
-    <p class="hint group-note">Applies to days ranked from now on; earlier days keep their picks (<code class="key">birdy publish --rerank</code> on the Pi re-ranks history). Publish and Hide on the grid override this per photo.</p>
-  </section>
-
-  <section class="group" id="extra-camera">
-    <header><h2 class="head">Extra camera</h2><p>A 50D on USB, fired once per bird</p></header>
+  <section class="part" id="extra-camera" aria-labelledby="extra-camera-h">
+    <header class="part-head">
+      <h2 id="extra-camera-h">Extra camera</h2>
+      {% if status.dslr %}
+      {% set dslr_lamp = {'ready': 'on', 'not_connected': 'bad', 'error': 'bad'}.get(status.dslr.state, '') %}
+      {% set dslr_word = {'off': 'off', 'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] %}
+      <span class="part-state {{ dslr_lamp }}">50D: {{ dslr_word }} · {{ status.dslr.shots_today }} shots today</span>
+      {% endif %}
+      <p>A Canon 50D on USB at the same window, fired once for each bird the Pi camera sees.</p>
+    </header>
     <div class="row {{ 'error' if error_field == 'dslr_enabled' else '' }}">
       <label for="dslr_enabled">Use the 50D</label>
       <input class="switch" type="checkbox" id="dslr_enabled" name="dslr_enabled" value="on" {{ 'checked' if v['dslr_enabled'] else '' }}>
@@ -372,15 +418,32 @@
            "The 50D stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "shots") }}
   </section>
 
-  <section class="group">
-    <header><h2 class="head">System</h2><p>Read once at startup. To change these, edit birdy.toml on the Pi and restart.</p></header>
+  <section class="part" id="gallery" aria-labelledby="gallery-h">
+    <header class="part-head">
+      <h2 id="gallery-h">Gallery</h2>
+      <span class="part-state {{ 'on' if readonly['publish.enabled'] else '' }}">Publishing {{ 'on' if readonly['publish.enabled'] else 'off' }}</span>
+      <p>Which photos go to the public gallery on their own.</p>
+    </header>
+    {{ num("publish_min_confidence", "publish.min_confidence", "Publish certainty",
+           "How sure the species model must be before a photo can go to the gallery on its own.", 0, 1, 0.05) }}
+    {{ num("per_species_per_day", "publish.per_species_per_day", "Photos per species per day",
+           "The best photos of each species each day go to the gallery, up to this many.", 1, 20, 1, "/day") }}
+    <p class="hint group-note">Applies to days ranked from now on; earlier days keep their picks (<code class="key">birdy publish --rerank</code> on the Pi re-ranks history). Publish and Hide on the grid override this per photo.</p>
+  </section>
+
+  <section class="part" id="system" aria-labelledby="system-h">
+    <header class="part-head">
+      <h2 id="system-h">System</h2>
+      <p>Read once at startup. To change these, edit birdy.toml on the Pi and restart.</p>
+    </header>
     <dl class="sys">
     {% for k, val in readonly.items() %}<div><dt>{{ k }}</dt><dd>{{ val }}</dd></div>{% endfor %}
     </dl>
   </section>
 
   <div class="savebar">
-    <p class="state" id="dirty" aria-live="polite">{% if saved %}Saved · applied live (v{{ version }}){% elif error_message %}Not saved · see the error at the top{% else %}No unsaved changes{% endif %}<small>Writes birdy.toml and applies immediately.</small></p>
+    {% if saved %}{% set save_state = 'Saved · applied live (v' ~ version ~ ')' %}{% elif error_message %}{% set save_state = 'Not saved · see the error at the top' %}{% else %}{% set save_state = 'No unsaved changes' %}{% endif %}
+    <p class="state" id="dirty" aria-live="polite">{{ save_state }}<small>Writes birdy.toml and applies immediately.</small></p>
     <button class="btn primary" type="submit">Save</button>
   </div>
 </div>
@@ -526,8 +589,8 @@
     range.value = toRange(num.value); fill();
   });
 
-  // watchlist chips toggle a species line in the textarea
-  const wl = document.getElementById('watchlist');
+  // no-message chips toggle a species line in the textarea
+  const wl = document.getElementById('no_alert');
   const lines = () => wl.value.split('\n').map(s => s.trim()).filter(Boolean);
   function syncChips() {
     const have = new Set(lines().map(s => s.toLowerCase()));
@@ -544,7 +607,7 @@
 
   // unsaved-changes count in the save bar
   const dirtyEl = document.getElementById('dirty'), small = dirtyEl.querySelector('small').outerHTML;
-  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.alert_new_species) d.alert_new_species = ''; if (!d.dslr_enabled) d.dslr_enabled = ''; if (!d.dslr_auto_shutter) d.dslr_auto_shutter = ''; return d; };
+  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.dslr_enabled) d.dslr_enabled = ''; if (!d.dslr_auto_shutter) d.dslr_auto_shutter = ''; return d; };
   let initial = null;
   function markDirty() {
     if (!initial) return;
@@ -560,6 +623,29 @@
   initial = snapshot();
   setInterval(refreshFrame, 1000);
 })();
+
+  // Menu tabs: mark the part that is on screen.
+  (() => {
+    const links = [...document.querySelectorAll('#parts a')];
+    const parts = links.map(a => document.getElementById(a.hash.slice(1)));
+    const bar = document.getElementById('parts');
+    let queued = false;
+    const mark = () => {
+      queued = false;
+      const line = bar.getBoundingClientRect().bottom + 32;
+      let cur = 0;
+      parts.forEach((p, i) => { if (p.getBoundingClientRect().top <= line) cur = i; });
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) cur = parts.length - 1;
+      links.forEach((a, i) => {
+        if (i === cur) {
+          if (a.getAttribute('aria-current') !== 'true') { a.setAttribute('aria-current', 'true'); bar.scrollLeft = a.offsetLeft - bar.offsetLeft - 16; }
+        } else a.removeAttribute('aria-current');
+      });
+    };
+    addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(mark); } }, { passive: true });
+    addEventListener('resize', mark);
+    mark();
+  })();
 
   // Extra camera: drag a box on the test frame to set the feeder region (fractions of the frame).
   (() => {
