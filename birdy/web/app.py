@@ -21,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from birdy.classifier import CropLoader, Prediction
 from birdy.config import ConfigError
 from birdy.daylight import DaylightGate
-from birdy.dslr import DslrError, species_crop
+from birdy.dslr import MODEL_META, DslrError, short_model, species_crop
 from birdy.live import LiveConfig
 from birdy.motion import crop_box
 from birdy.notify import TelegramError
@@ -159,8 +159,21 @@ def create_app(
         if dslr is not None:
             st = dslr.status()
             state_name = st.state if live.get().dslr.enabled else "off"
-            snap["dslr"] = {"state": state_name, "shots_today": st.shots_today}
+            snap["dslr"] = {"state": state_name, "shots_today": st.shots_today, "model": store.get_meta(MODEL_META)}
         return snap
+
+    def xcam() -> dict:
+        """How the pages name the extra camera: by the model gphoto2 last reported, else generically."""
+        model = store.get_meta(MODEL_META)
+        short = short_model(model)
+        return {
+            "model": model,
+            "short": short,
+            "tag": short or "extra cam",
+            "the": f"the {short}" if short else "the extra camera",
+            "The": f"The {short}" if short else "The extra camera",
+            "frame": f"{short} frame" if short else "Extra camera frame",
+        }
 
     def _species_names(summary) -> list[str]:
         """The Fix panel's datalist: the local list (most observations first), then species seen."""
@@ -201,6 +214,7 @@ def create_app(
                 "species_names": _species_names(summary),
                 "species_rows": summary,
                 "status": status_payload(),
+                "xcam": xcam(),
                 "publishing": publisher is not None,
                 "non_bird_days": live.get().retention.non_bird_days,
             },
@@ -395,6 +409,7 @@ def create_app(
             "saved": saved,
             "version": live.version,
             "status": status_payload(),
+            "xcam": xcam(),
         }
 
     @app.get("/settings", response_class=HTMLResponse)

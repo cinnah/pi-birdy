@@ -169,7 +169,7 @@ def test_capture_sets_the_shutter_speed_in_the_same_call(store, live, tmp_path):
     r = Runner()
     make(store, live, r).capture(tmp_path / "a_eos.jpg", "1/250")
     assert r.calls[0][:4] == ["gphoto2", "--set-config", "shutterspeed=1/250", "--capture-image-and-download"]
-    assert len(r.calls) == 1
+    assert r.calls[1:] == [["gphoto2", "--auto-detect"]]      # only the one-off model lookup follows
 
 
 @pytest.mark.parametrize("lux, k, expected", [
@@ -229,3 +229,45 @@ def test_search_tiles_of_a_small_or_narrow_region():
     assert search_tiles((800, 900, 3), (0.0, 0.0, 1.0, 1.0)) == []       # fits one tile: search it whole
     tiles = search_tiles((800, 1200, 3), (0.0, 0.0, 1.0, 1.0))           # wide, not tall
     assert tiles == [pytest.approx((0.0, 0.0, 0.8, 1.0)), pytest.approx((0.2, 0.0, 0.8, 1.0))]
+
+
+# --- model name ---------------------------------------------------------------
+
+AUTO_DETECT = """Model                          Port
+----------------------------------------------------------
+Canon EOS 50D                  usb:001,005
+"""
+
+
+def test_parse_auto_detect():
+    from birdy.dslr import parse_auto_detect
+    assert parse_auto_detect(AUTO_DETECT) == "Canon EOS 50D"
+    assert parse_auto_detect("Model                          Port\n" + "-" * 58 + "\n") is None
+    assert parse_auto_detect("") is None
+
+
+def test_short_model():
+    from birdy.dslr import short_model
+    assert short_model("Canon EOS 50D") == "50D"
+    assert short_model("Canon EOS 5D Mark II") == "5D Mark II"
+    assert short_model("Nikon DSC D7500") == "D7500"
+    assert short_model("Sony Alpha-A6000 (Control)") == "A6000"
+    assert short_model("GoPro") == "GoPro"
+    assert short_model(None) is None and short_model("  ") is None
+
+
+def test_model_is_read_when_the_camera_answers_and_kept_in_meta(store, live, tmp_path, caplog):
+    d = make(store, live, Runner(stdout=AUTO_DETECT))
+    assert d.model is None and d.name == "extra camera"
+    with caplog.at_level(logging.INFO, logger="birdy.dslr"):
+        d.capture(tmp_path / "a_eos.jpg")
+    assert d.model == "Canon EOS 50D" and d.name == "50D"
+    assert store.get_meta("dslr_model") == "Canon EOS 50D"
+    assert "50D ready" in caplog.text
+    assert make(store, live, Runner()).model == "Canon EOS 50D"      # known at the next start, camera off
+
+
+def test_model_lookup_failure_does_not_fail_the_shot(store, live, tmp_path):
+    d = make(store, live, Runner(stdout="nothing useful"))
+    d.capture(tmp_path / "a_eos.jpg")
+    assert d.status().state == "ready" and d.model is None

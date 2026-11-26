@@ -1,4 +1,4 @@
-"""The second camera: a DSLR (Canon EOS 50D) driven with the `gphoto2` command over USB.
+"""The second camera: a DSLR (first used with a Canon EOS 50D) driven with the `gphoto2` command over USB.
 
 The only module that runs gphoto2. `Dslr` takes one frame per call; the pure helpers below turn
 a detector box in the DSLR frame into the crop the species model sees."""
@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -24,6 +25,8 @@ log = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 15
 MIN_SPECIES_SIDE = 224
 INFO_KEYS = ("capturetarget", "imageformat", "autopoweroff", "focusmode", "autoexposuremode", "iso", "shuttercounter")
+
+MODEL_META = "dslr_model"    # meta key: the model gphoto2 last reported, so pages can name the camera while it is off
 
 NormBox = tuple[float, float, float, float]
 
@@ -60,6 +63,34 @@ def _message(proc: subprocess.CompletedProcess) -> str:
     return lines[-1].strip("* ") if lines else f"gphoto2 exit {proc.returncode}"
 
 
+def parse_auto_detect(out: str) -> str | None:
+    """The model in `gphoto2 --auto-detect` output (a Model / Port table); None when no camera is listed."""
+    lines = (out or "").splitlines()
+    for i, ln in enumerate(lines):
+        if ln.startswith("---"):
+            for row in lines[i + 1:]:
+                parts = row.rsplit(None, 1)
+                if len(parts) == 2 and ":" in parts[1] and parts[0].strip():
+                    return parts[0].strip()
+    return None
+
+
+def short_model(model: str | None) -> str | None:
+    """A model name short enough for a tag: "Canon EOS 50D" -> "50D", "Nikon DSC D7500" -> "D7500",
+    "Sony Alpha-A6000 (Control)" -> "A6000". The brand (first word) and its series word go; a
+    one-word name stays. None for no model."""
+    name = re.sub(r"\([^)]*\)", " ", model or "").strip()
+    words = name.split()
+    if not words:
+        return None
+    if len(words) > 1:
+        words = words[1:]
+        if len(words) > 1 and words[0].casefold() in ("eos", "dsc", "digital"):
+            words = words[1:]
+    short = " ".join(words)
+    return re.sub(r"(?i)^alpha-", "", short) or name
+
+
 def _state_for(message: str) -> str:
     m = message.casefold()
     return "not_connected" if "no camera found" in m or "could not detect any camera" in m else "error"
@@ -80,6 +111,28 @@ class Dslr:
         self._state = "unknown"
         self._last_error: str | None = None
         self._warned: set[str] = set()
+        self._model: str | None = store.get_meta(MODEL_META)
+
+    @property
+    def model(self) -> str | None:
+        """The camera's model as gphoto2 reports it ("Canon EOS 50D"); the last one seen while it is off."""
+        return self._model
+
+    @property
+    def name(self) -> str:
+        """What log lines call it: the short model, or "extra camera" before any was seen."""
+        return short_model(self._model) or "extra camera"
+
+    def _detect_model(self) -> None:
+        """Ask which camera is on USB and remember it. Never raises: the name is a label only."""
+        try:
+            model = parse_auto_detect(self._run(["--auto-detect"]).stdout)
+            if model and model != self._model:
+                self._model = model
+                self._store.set_meta(MODEL_META, model)
+                log.info("extra camera is a %s", model)
+        except Exception:
+            log.debug("could not read the extra camera's model", exc_info=True)
 
     # --- gphoto2 ----------------------------------------------------------
     def _run(self, args: list[str]) -> subprocess.CompletedProcess:
@@ -94,12 +147,13 @@ class Dslr:
         self._state, self._last_error = state, message
         if message not in self._warned:       # one warning per distinct failure, not per bird
             self._warned.add(message)
-            log.warning("50D: %s", message)
+            log.warning("%s: %s", self.name, message)
         raise DslrError(message)
 
     def _ok(self) -> None:
         if self._state != "ready":
-            log.info("50D ready")
+            self._detect_model()              # just (re)connected: it may be another camera now
+            log.info("%s ready", self.name)
         self._state, self._last_error = "ready", None
         self._warned.clear()
 

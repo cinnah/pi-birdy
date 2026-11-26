@@ -191,7 +191,7 @@
       </div>
       <div class="stamp">
         <span class="mot">mot {{ c.motion_score }}</span>
-        {% if c.photo != c.path %}<span class="tag">50D</span>{% endif %}
+        {% if c.photo != c.path %}<span class="tag">{{ xcam.tag }}</span>{% endif %}
         {% if c.species %}<span class="sp">{{ c.species }}</span>{% endif %}
       </div>
     </a>
@@ -218,8 +218,8 @@
     </form>
     {% endif %}
     <a class="pb view" href="/captures/{{ c.id }}/crop.jpg" title="The crop the model classified">Model view</a>
-    {% if c.photo != c.path %}<a class="pb aux" href="/photos/{{ c.path }}" title="The Pi camera's photo that triggered the 50D">Pi photo</a>
-    {% elif c.dslr_path %}<a class="pb aux" href="/photos/{{ c.dslr_path }}" title="The 50D frame: no bird was found in it">50D frame</a>{% endif %}
+    {% if c.photo != c.path %}<a class="pb aux" href="/photos/{{ c.path }}" title="The Pi camera's photo that triggered {{ xcam.the }}">Pi photo</a>
+    {% elif c.dslr_path %}<a class="pb aux" href="/photos/{{ c.dslr_path }}" title="{{ xcam.The }}'s frame: no bird was found in it">{{ xcam.frame }}</a>{% endif %}
     {% if c.status == 'done' %}
     <details class="fix"><summary class="pb">Fix</summary>
       {# the species field comes first: Enter in it submits the form's first button #}
@@ -294,7 +294,7 @@ document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener(
 }));
 
 // Lightbox: a tile's photo (or its Model view, the crop the model classified, or its other camera's
-// photo: the Pi photo / 50D frame link) opens over the grid;
+// photo: the Pi photo / extra-camera frame link) opens over the grid;
 // arrows/keys/swipe step through this page's photos in the current view, MODEL VIEW or M switches it.
 // The links still work as plain links without JS, and a modified click still opens a new tab.
 (function () {

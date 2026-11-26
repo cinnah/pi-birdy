@@ -1159,7 +1159,9 @@ def test_grid_links_the_dslr_photo_for_a_promoted_capture(client, store):
     html = client.get("/?filter=all").text
     assert f'class="photo" href="/photos/{eos}"' in html
     assert f'href="/photos/{store.get(cid).path}"' in html and ">Pi photo<" in html
-    assert '<span class="tag">50D</span>' in html
+    assert '<span class="tag">extra cam</span>' in html        # no model seen yet
+    store.set_meta("dslr_model", "Canon EOS 50D")
+    assert '<span class="tag">50D</span>' in client.get("/?filter=all").text
 
 
 def test_grid_offers_the_unused_dslr_frame(client, store):
@@ -1167,7 +1169,9 @@ def test_grid_offers_the_unused_dslr_frame(client, store):
     eos = _promote(store, cid, box=None)
     html = client.get("/?filter=all").text
     assert f'class="photo" href="/photos/{store.get(cid).path}"' in html
-    assert f'href="/photos/{eos}"' in html and ">50D frame<" in html
+    assert f'href="/photos/{eos}"' in html and ">Extra camera frame<" in html
+    store.set_meta("dslr_model", "Nikon DSC D7500")
+    assert ">D7500 frame<" in client.get("/?filter=all").text
 
 
 def test_crop_jpg_of_a_promoted_capture_is_the_dslr_species_crop(client, store):
@@ -1189,13 +1193,18 @@ def test_status_and_settings_show_the_dslr(store, state, live, config_path):
     cfg = live.get()
     live.replace(dataclasses.replace(cfg, dslr=dataclasses.replace(cfg.dslr, enabled=True)))
     c = TestClient(create_app(store, state, live, config_path, dslr=_StatusDslr()))
-    assert c.get("/status").json()["dslr"] == {"state": "ready", "shots_today": 4}
-    assert "50D: ready · 4 shots today" in c.get("/settings").text
+    assert c.get("/status").json()["dslr"] == {"state": "ready", "shots_today": 4, "model": None}
+    html = c.get("/settings").text
+    assert "camera: ready · 4 shots today" in html and "Use the extra camera" in html and "50D" not in html
+    store.set_meta("dslr_model", "Canon EOS 50D")
+    assert c.get("/status").json()["dslr"]["model"] == "Canon EOS 50D"
+    html = c.get("/settings").text
+    assert "50D: ready · 4 shots today" in html and "Use the 50D" in html and "Canon EOS 50D on USB" in html
 
 
 def test_status_has_no_dslr_when_disabled(client):
     assert "dslr" not in client.get("/status").json()
-    assert "50D:" not in client.get("/settings").text
+    assert "shots today" not in client.get("/settings").text
 
 
 class _SwitchDslr(_StatusDslr):
@@ -1211,7 +1220,7 @@ def test_dslr_switch_on_settings_is_live(store, state, live, config_path):
     dslr = _SwitchDslr()
     c = TestClient(create_app(store, state, live, config_path, dslr=dslr))
     html = c.get("/settings").text
-    assert 'name="dslr_enabled"' in html and "50D: off" in html
+    assert 'name="dslr_enabled"' in html and "camera: off" in html
     assert c.get("/status").json()["dslr"]["state"] == "off"
     post_settings(c, dslr_enabled="on")
     assert live.get().dslr.enabled is True and dslr.probes == 1      # asked the camera once, on switching on

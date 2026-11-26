@@ -385,26 +385,20 @@
       {% if status.dslr %}
       {% set dslr_lamp = {'ready': 'on', 'not_connected': 'bad', 'error': 'bad'}.get(status.dslr.state, '') %}
       {% set dslr_word = {'off': 'off', 'ready': 'ready', 'not_connected': 'not connected', 'cap_reached': 'daily cap reached', 'error': 'error', 'unknown': 'not checked yet'}[status.dslr.state] %}
-      <span class="part-state {{ dslr_lamp }}">50D: {{ dslr_word }} · {{ status.dslr.shots_today }} shots today</span>
+      <span class="part-state {{ dslr_lamp }}">{{ xcam.short or 'camera' }}: {{ dslr_word }} · {{ status.dslr.shots_today }} shots today</span>
       {% endif %}
-      <p>A Canon 50D on USB at the same window, fired once for each bird the Pi camera sees.</p>
+      <p>{{ xcam.model or 'A second camera' }} on USB at the same window, fired once for each bird the Pi camera sees.</p>
     </header>
     <div class="row {{ 'error' if error_field == 'dslr_enabled' else '' }}">
-      <label for="dslr_enabled">Use the 50D</label>
+      <label for="dslr_enabled">Use {{ xcam.the }}</label>
       <input class="switch" type="checkbox" id="dslr_enabled" name="dslr_enabled" value="on" {{ 'checked' if v['dslr_enabled'] else '' }}>
-      {{ explain("When a bird is seen, also take a photo with the 50D and use it when the bird is in it. Off: the Pi camera works alone.", "dslr.enabled") }}
+      {{ explain("When a bird is seen, also take a photo with " ~ xcam.the ~ " and use it when the bird is in it. Off: the Pi camera works alone.", "dslr.enabled") }}
     </div>
     <div class="row {{ 'error' if error_field == 'dslr_auto_shutter' else '' }}">
       <label for="dslr_auto_shutter">Shutter speed by light</label>
       <input class="switch" type="checkbox" id="dslr_auto_shutter" name="dslr_auto_shutter" value="on" {{ 'checked' if v['dslr_auto_shutter'] else '' }}>
       {{ explain("Before each shot, set the fastest shutter speed the light allows (1/500 in good light down to 1/60 at dusk), from the Pi camera's light reading. The camera must be in Tv mode. Off: the speed set on the camera is used.", "dslr.auto_shutter") }}
     </div>
-    <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
-      <label for="dslr_region">Feeder region</label>
-      <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
-      {{ explain("The part of the 50D frame searched for the bird: x, y, width, height as fractions of the frame. Frame the feeder tightly: take a test frame below and drag a box on it.", "dslr.region") }}
-    </div>
-    {% if error_field == 'dslr_region' %}<div class="hint error">{{ error_message }}</div>{% endif %}
     <div class="action">
       <button class="btn" type="submit" form="dslr-frame" {{ '' if dslr_available else 'disabled' }}>Take a test frame</button>
       <p class="hint">Fires the extra camera once and shows its frame here. Unsaved changes on this page are lost.</p>
@@ -412,10 +406,16 @@
     {% if dslr_frame %}
     <div class="xcam" id="xcam"><img src="/settings/dslr-frame.jpg?t={{ dslr_frame }}" alt="Last test frame from the extra camera" draggable="false"><div class="xbox" id="xbox"></div></div>
     <dialog class="xlb" id="xlb" aria-label="Test frame, full size"><img id="xlb-img" alt="Test frame from the extra camera, full size" data-src="/settings/dslr-frame.jpg?full=1&t={{ dslr_frame }}"></dialog>
-    <p class="hint">Test frame from {{ dslr_frame_at | local_time("minute") }}. The box is the feeder region: drag on the frame to redraw it, then Save. Click the frame to see it full size.</p>
+    <p class="hint">Test frame from {{ dslr_frame_at | local_time("minute") }}. The box is the feeder region below: drag on the frame to redraw it, then Save. Click the frame to see it full size.</p>
     {% endif %}
+    <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
+      <label for="dslr_region">Feeder region</label>
+      <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
+      {{ explain("The part of " ~ xcam.the ~ "'s frame searched for the bird: x, y, width, height as fractions of the frame. Frame the feeder tightly: take a test frame above and drag a box on it; the numbers fill in by themselves.", "dslr.region") }}
+    </div>
+    {% if error_field == 'dslr_region' %}<div class="hint error">{{ error_message }}</div>{% endif %}
     {{ num("dslr_daily_cap", "dslr.daily_cap", "Shots per day, at most",
-           "The 50D stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "shots") }}
+           xcam.The ~ " stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "shots") }}
   </section>
 
   <section class="part" id="gallery" aria-labelledby="gallery-h">

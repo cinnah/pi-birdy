@@ -169,7 +169,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     if config.dslr.enabled:
         try:
             info = dslr.info()
-            log.info("50D connected: %s", ", ".join(f"{k}={v}" for k, v in info.items()))
+            log.info("%s connected: %s", getattr(dslr, "model", None) or "extra camera", ", ".join(f"{k}={v}" for k, v in info.items()))
         except DslrError:
             pass   # logged by Dslr; captures fall back to the Pi photo until it answers
     # Getattr: test doubles have no species model; Visits then votes by the stored model species.
@@ -340,6 +340,7 @@ def cmd_dslr(config: Config, action: str, out: str | None = None) -> int:
         try:
             if action == "info":
                 values = dslr.info()
+                print(f"model: {getattr(dslr, 'model', None) or 'unknown'}")
                 for k, v in values.items():
                     print(f"{k}: {v}")
                 for k, want in _DSLR_EXPECTED.items():
@@ -350,11 +351,11 @@ def cmd_dslr(config: Config, action: str, out: str | None = None) -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             took = dslr.capture(dest)
         except DslrError as e:
-            print(f"50D: {e}", file=sys.stderr)
+            print(f"{getattr(dslr, 'name', 'extra camera')}: {e}", file=sys.stderr)
             return 1
         frame = cv2.imread(str(dest))
         if frame is None:
-            print(f"50D: {dest} could not be decoded", file=sys.stderr)
+            print(f"{getattr(dslr, 'name', 'extra camera')}: {dest} could not be decoded", file=sys.stderr)
             return 1
         h, w = frame.shape[:2]
         x, y, rw, rh = config.dslr.region

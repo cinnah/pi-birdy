@@ -160,7 +160,7 @@ class Pipeline:
         try:
             (self._store.photos_dir / dslr_rel(path.relative_to(self._store.photos_dir))).unlink(missing_ok=True)
         except (OSError, ValueError):
-            log.exception("could not remove the 50D frame of %s", path)
+            log.exception("could not remove the extra-camera frame of %s", path)
 
     def _classify_with_dslr(
         self, capture_id: int, path: Path, captured_at: datetime, crop, cfg, manual: bool = False, lux: float | None = None
@@ -181,16 +181,16 @@ class Pipeline:
             frame, took = self._dslr_frame(capture_id, rel, cfg, lux)
         if not v.is_bird:
             if frame is not None:
-                log.info("capture %d: 50D %.2f s (by hand, not a bird)", capture_id, took)
+                log.info("capture %d: extra camera %.2f s (by hand, not a bird)", capture_id, took)
             return clf.prediction(v, [], None), (str(rel) if frame is not None else None), None
         species_rgb = crop_rgb
         if frame is not None:
             score, box = self._find_bird(frame, cfg.dslr.region, cfg.detector.threshold)
             if box is not None:
                 species_rgb = species_crop(frame, box)
-                log.info("capture %d: 50D %.2f s, bird %.2f", capture_id, took, score)
+                log.info("capture %d: extra camera %.2f s, bird %.2f", capture_id, took, score)
             else:
-                log.info("capture %d: 50D %.2f s, no bird in frame", capture_id, took)
+                log.info("capture %d: extra camera %.2f s, no bird in frame", capture_id, took)
         top, emb = clf.name(species_rgb)
         return clf.prediction(v, top, emb), (str(rel) if frame is not None else None), box
 
@@ -232,12 +232,12 @@ class Pipeline:
         bgr = cv2.imread(str(dest))
         if bgr is None:
             dest.unlink(missing_ok=True)
-            log.warning("capture %d: the 50D frame could not be decoded; using the Pi photo", capture_id)
+            log.warning("capture %d: the extra-camera frame could not be decoded; using the Pi photo", capture_id)
             return None, 0.0
         if shutter is not None:
             brightness = frame_brightness(bgr, cfg.dslr.region)
             new_k = adapt_exposure_k(k, brightness, shutter)
-            log.info("capture %d: 50D at %s for %.0f lux, brightness %.0f (k %.2f -> %.2f)",
+            log.info("capture %d: extra camera at %s for %.0f lux, brightness %.0f (k %.2f -> %.2f)",
                      capture_id, shutter, lux, brightness, k, new_k)
             if new_k != k:
                 try:

@@ -136,4 +136,4 @@ def test_run_once_drops_unused_dslr_frames(store, caplog):
         run_once(store, 7, now=now)
     c = store.get(cid)
     assert c is not None and c.dslr_path is None and not (store.photos_dir / eos).exists()
-    assert "1 unused 50D frames" in caplog.text
+    assert "1 unused extra-camera frames" in caplog.text
