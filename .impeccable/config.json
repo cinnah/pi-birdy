@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-color",
+        "value": "rgb(0, 0, 0)",
+        "createdAt": "2026-11-26T11:15:57.198Z",
+        "reason": "agent triage: the detector checks each Jinja child template on its own, without the shared osd.css that _base.html links, so text falls back to the browser default black; rendered pages take their colour from the --ink / --dim tokens"
+      }
+    ]
+  }
+}

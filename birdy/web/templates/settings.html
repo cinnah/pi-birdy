@@ -45,7 +45,10 @@
   .meter i { flex: 1; background: var(--seg-off); transition: background-color 120ms ease-out; }
   .meter i.on { background: var(--signal); opacity: 0.55; }
   .meter i.on.over { background: var(--primary); opacity: 1; }
-  .meter .tick { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--ink); transition: left 150ms ease-out; }
+  .meter .tick { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--ink); transition: left 150ms ease-out; cursor: ew-resize; touch-action: none; }
+  /* the mark is 2px wide: this is what a finger or the pointer actually grabs */
+  .meter .tick::before { content: ""; position: absolute; top: -18px; bottom: -6px; left: -18px; right: -18px; }
+  .meter .tick.drag { width: 4px; margin-left: -2px; transition: none; }
   .meter .tick::after {
     content: "trig"; position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
     font: 700 11px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink);
@@ -191,7 +194,7 @@
     margin: 36px -24px 0; padding: 12px 24px; background: var(--ground); border-top: 1px solid var(--rule-strong);
   }
   .savebar .state { flex: 1; min-width: 0; font: 600 12px/1.35 var(--mono); font-stretch: 87.5%; letter-spacing: 0.04em; text-transform: uppercase; }
-  .savebar .state small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--dim); font-size: 11px; }
+  .savebar .state small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--dim); font-size: 12px; }
   .savebar .state.dirty { color: var(--ink); }
   .savebar .state.dirty::before {
     content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 1px;
@@ -268,7 +271,7 @@
       <span class="tick" id="tick"></span>
     </div>
     <div class="scale" aria-hidden="true"><span style="left:0">10</span><span style="left:33.3%">100</span><span style="left:66.6%">1k</span><span style="left:100%">10k</span></div>
-    <p class="hint">Move a hand in front of the feeder: the bar should pass the <b>trig</b> mark. With nothing moving it should stay well below it.</p>
+    <p class="hint">Move a hand in front of the feeder: the bar should pass the <b>trig</b> mark. With nothing moving it should stay well below it. Drag the mark to move the trigger.</p>
   </div>
 
   <div class="roi-tools">
@@ -572,6 +575,20 @@
     scoreEl.className = hot ? 'hot' : '';
     meter.setAttribute('aria-valuenow', lastScore);
   }
+  // the TRIG mark is a handle: dragging it sets "Movement to trigger" (same log scale as the meter)
+  const trigStep = +minArea.step || 10;
+  const dragTrig = e => {
+    const r = meter.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    minArea.value = Math.round(10 * Math.pow(10, 3 * f) / trigStep) * trigStep;
+    minArea.dispatchEvent(new Event('input', { bubbles: true }));   // moves the row's slider, the mark and the unsaved count
+  };
+  tick.addEventListener('pointerdown', e => { try { tick.setPointerCapture(e.pointerId); } catch {} tick.classList.add('drag'); e.preventDefault(); });
+  tick.addEventListener('pointermove', e => { if (tick.classList.contains('drag')) dragTrig(e); });
+  const dropTrig = () => tick.classList.remove('drag');
+  tick.addEventListener('pointerup', dropTrig);
+  tick.addEventListener('pointercancel', dropTrig);
+
   document.addEventListener('birdy:status', e => { lastScore = e.detail.motion_score; scoreEl.textContent = lastScore; paintMeter(); });
 
   // sliders <-> number fields; --p drives the segmented fill.

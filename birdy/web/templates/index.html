@@ -21,7 +21,7 @@
   .seg a:hover { color: var(--ink); }
   .seg a.active { background: var(--sel-bg); color: var(--sel-fg); }
   .filters select { min-height: 38px; max-width: 100%; }
-  .filters .count { font: 500 12px/1 var(--mono); font-stretch: 87.5%; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .filters .count { font: 500 12px/1.3 var(--mono); font-stretch: 87.5%; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
   .filters .count b { color: var(--ink); }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
@@ -33,8 +33,9 @@
   .acts {
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: auto;
     padding: 5px 6px 6px; border-top: 1px solid #2b2f2c; background: var(--osd-bar);
-    font: 700 11px/1 var(--mono); font-stretch: 81%; letter-spacing: 0.06em; text-transform: uppercase;
   }
+  /* the type sits on the labels themselves (badge, buttons), not on the bar that holds them */
+  .acts .badge, .acts .pb { font: 700 11px/1.3 var(--mono); font-stretch: 81%; letter-spacing: 0.06em; text-transform: uppercase; }
   .acts form { display: contents; }
   .acts .badge { width: 100%; margin: 2px 0 3px; color: var(--osd-amber); }
   .acts .badge.forced { width: auto; margin-right: 100%; color: var(--osd-bar); background: var(--osd-amber); padding: 3px 4px; }
@@ -42,7 +43,7 @@
   .acts .pb {
     flex: 1; min-height: 28px; padding: 0 6px; cursor: pointer; border-radius: 0;
     border: 1px solid #4a504b; background: transparent; color: var(--osd);
-    font: inherit; letter-spacing: inherit; text-transform: inherit; white-space: nowrap;
+    white-space: nowrap;
   }
   .acts .pb:hover { border-color: var(--osd); }
   .acts .pb:active { background: var(--osd); color: var(--osd-bar); }
@@ -73,7 +74,7 @@
   .empty { padding: 48px 0; max-width: 52ch; }
   .empty p { margin: 8px 0 0; color: var(--dim); }
 
-  .pager { display: flex; align-items: center; gap: 12px; margin-top: 24px; font: 600 12px/1 var(--mono); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: 0.08em; }
+  .pager { display: flex; align-items: center; gap: 12px; margin-top: 24px; font: 600 12px/1.3 var(--mono); font-stretch: 87.5%; text-transform: uppercase; letter-spacing: 0.08em; }
   .pager .at { color: var(--dim); }
 
   /* lightbox: the photo on the OSD-black frame, stamps burned underneath (fixed OSD colours in both lights) */
@@ -85,8 +86,7 @@
   .lb[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
   .lb .bar {
     display: flex; align-items: center; gap: 12px; padding: 0 0 0 var(--gutter); height: var(--strip-h);
-    border-bottom: 1px solid #2b2f2c;
-    font: 500 12px/1 var(--mono); font-stretch: 87.5%; letter-spacing: 0.06em; text-transform: uppercase;
+    font: 500 12px/1.3 var(--mono); font-stretch: 87.5%; letter-spacing: 0.06em; text-transform: uppercase;
   }
   .lb .bar > * { white-space: nowrap; }
   .lb .bar .at { margin-right: auto; color: #a3aaa5; }
@@ -100,9 +100,9 @@
   .lb .mode { color: #a3aaa5; }
   .lb .mode[aria-pressed="true"] { color: var(--osd-amber); }
   .lb .close:hover, .lb .mode:hover, .lb .nav:hover { background: var(--osd); color: var(--osd-bar); }
-  .lb .view { position: relative; min-height: 0; overflow: hidden; }
+  .lb .view { position: relative; min-height: 0; overflow: hidden; border-top: 1px solid #2b2f2c; }
   .lb .view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-  .lb .nav { position: absolute; top: 0; bottom: 0; width: 64px; font-size: 32px; font-weight: 400; }
+  .lb .nav { position: absolute; top: 0; bottom: 0; width: 64px; font-size: 22px; font-weight: 700; }
   .lb .nav.prev { left: 0; }
   .lb .nav.next { right: 0; }
   .lb .nav:disabled { visibility: hidden; }
@@ -133,14 +133,16 @@
 
 {% block body %}
 {% set up = status.uptime_seconds %}
+{% set up_text = ((up // 86400) ~ 'd ' if up >= 86400 else '') ~ ((up % 86400) // 3600) ~ 'h ' ~ ((up % 3600) // 60) ~ 'm' %}
+{% set camera_next = request.url.path + ('?' + request.url.query if request.url.query else '') %}
 <main class="wrap">
   <div class="stats" aria-label="Camera status">
     <span>last capture<b>{{ status.last_capture_at | local_time }}</b></span>
     <span>queue<b>{{ status.queue_depth }}</b></span>
     <span>pending<b>{{ status.pending_count }}</b></span>
     <span>disk free<b>{{ (status.disk_free_bytes / 1e9) | round(1) }} GB</b></span>
-    <span>up<b>{% if up >= 86400 %}{{ up // 86400 }}d {% endif %}{{ (up % 86400) // 3600 }}h {{ (up % 3600) // 60 }}m</b></span>
-    <div class="cam">{% with camera_next = request.url.path + ('?' + request.url.query if request.url.query else '') %}{% include "_camera.html" %}{% endwith %}</div>
+    <span>up<b>{{ up_text }}</b></span>
+    <div class="cam">{% include "_camera.html" %}</div>
   </div>
 
   <nav class="filters" aria-label="Filter photos">
@@ -197,12 +199,11 @@
     </a>
     {% set vn = sizes.get(c.visit_id, 1) if c.visit_id is not none else 1 %}
     {% set model_line = c.manual_at and c.model_species %}
+    {% set model_text = ('model: ' ~ c.model_species ~ ((' ' ~ ((c.model_species_confidence * 100) | round(0) | int) ~ '%') if c.model_species_confidence is not none else '')) if model_line else '' %}
     {% if model_line or vn > 1 %}
     {# outside the photo link: a link can't hold the visit link #}
-    <div class="stamp extra">
-      <span class="sp model">{% if model_line %}model: {{ c.model_species }}{% if c.model_species_confidence is not none %} {{ (c.model_species_confidence * 100) | round(0) | int }}%{% endif %}{% endif %}</span>
-      {% if vn > 1 %}<a class="visit" href="/?visit={{ c.visit_id }}">visit · {{ vn }}</a>{% endif %}
-    </div>
+    {% set visit_link %}{% if vn > 1 %}<a class="visit" href="/?visit={{ c.visit_id }}">visit · {{ vn }}</a>{% endif %}{% endset %}
+    <div class="stamp extra"><span class="sp model">{{ model_text }}</span><span>{{ visit_link }}</span></div>
     {% endif %}
     {% set here = request.url.path + ('?' + request.url.query if request.url.query else '') %}
     <div class="acts">
@@ -266,7 +267,6 @@
       <button class="close" type="button" id="lb-close" aria-label="Close" autofocus>close ×</button>
     </div>
     <div class="view">
-      <img id="lb-img" alt="">
       <button class="nav prev" type="button" id="lb-prev" aria-label="Newer photo">‹</button>
       <button class="nav next" type="button" id="lb-next" aria-label="Older photo">›</button>
     </div>
@@ -298,7 +298,10 @@ document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener(
 // arrows/keys/swipe step through this page's photos in the current view, MODEL VIEW or M switches it.
 // The links still work as plain links without JS, and a modified click still opens a new tab.
 (function () {
-  const lb = document.getElementById('lb'), img = document.getElementById('lb-img');
+  const lb = document.getElementById('lb');
+  // the photo element is made here: it has no source until a tile is opened
+  const img = Object.assign(document.createElement('img'), { id: 'lb-img', alt: '' });
+  lb.querySelector('.view').prepend(img);
   const at = document.getElementById('lb-at'), orig = document.getElementById('lb-orig');
   const stamps = document.getElementById('lb-stamps');
   const prev = document.getElementById('lb-prev'), next = document.getElementById('lb-next');
