@@ -156,14 +156,12 @@ def cmd_run(config: Config, config_path: Path) -> int:
         eta_min = max(queued * 3.5 / 60, -(-queued // 50) * 5)
         log.info("visits: built %d visits over history; %d photos queued for embeddings (~%d min)",
                  built, queued, round(eta_min))
-    notifier = None
-    if config.telegram.enabled:
-        notifier = TelegramNotifier(live, HttpTelegramTransport(config.telegram.bot_token))
-        notifier.start()
-    publisher = None
-    if config.publish.enabled:
-        publisher = Publisher(live, store, config.storage.data_dir / "publish")
-        publisher.start()
+    # Always built: the whole [telegram] section is live on /settings. Idle while messages are off.
+    notifier = TelegramNotifier(live, HttpTelegramTransport(lambda: live.get().telegram.bot_token))
+    notifier.start()
+    # Always built: `publish.enabled` and the gallery connection are live on /settings. Idle while off.
+    publisher = Publisher(live, store, config.storage.data_dir / "publish")
+    publisher.start()
     # Always built: `dslr.enabled` is a live switch on /settings. Nothing runs gphoto2 while it is off.
     dslr = Dslr(store, live)
     if config.dslr.enabled:
@@ -177,7 +175,7 @@ def cmd_run(config: Config, config_path: Path) -> int:
     visits = Visits(store, live, bank=bank, species_list=species_list, notifier=notifier, publisher=publisher)
     pipeline = Pipeline(store, clf, live, lores_size=config.camera.lores_size, visits=visits, dslr=dslr)
     pipeline.start()
-    if store.migrated_visits and publisher is not None:
+    if store.migrated_visits and publisher.enabled:
         publisher.evaluate_all()   # the migration re-grouped history; re-rank every day once
     retention = RetentionJob(store, live, visits=visits)
     retention.start()

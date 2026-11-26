@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +25,8 @@ from birdy.daylight import DaylightGate
 from birdy.dslr import MODEL_META, DslrError, short_model, species_crop
 from birdy.live import LiveConfig
 from birdy.motion import crop_box
-from birdy.notify import TelegramError
+from birdy.notify import TelegramError, fetch_chat_ids
+from birdy.publish import authorized_keys_line, check_connection, create_publish_key
 from birdy.settings import FIELD_KEYS, parse_settings_form, save_settings
 from birdy.state import RuntimeState
 from birdy.store import FILTERS, Store
@@ -78,9 +80,11 @@ def create_app(
     `classifier` is an object with `classify_image(img_rgb) -> (Prediction, top)`, normally a
     `TwoStageClassifier`; None disables `/classify`.
 
-    `notifier` is an object with `send_test()`; normally a `TelegramNotifier`; None = alerts disabled.
+    `notifier` is an object with `send_test()`; normally a `TelegramNotifier`; None = no test message
+    (the service always builds one: the [telegram] settings are live).
 
-    `publisher` has `set_manual(capture_id, state)`; None = publishing disabled.
+    `publisher` has `set_manual(capture_id, state)`; None = no publisher. Publishing is on when there is
+    one and `publish.enabled` is true (a live switch on /settings).
 
     `visits` is a `birdy.visits.Visits` (`correct`, `photo_removed`); None = no visits: the grid
     still takes `not_bird`/`clear` corrections photo by photo, and species corrections are 503.
@@ -162,6 +166,9 @@ def create_app(
             snap["dslr"] = {"state": state_name, "shots_today": st.shots_today, "model": store.get_meta(MODEL_META)}
         return snap
 
+    def publishing() -> bool:
+        return publisher is not None and live.get().publish.enabled
+
     def xcam() -> dict:
         """How the pages name the extra camera: by the model gphoto2 last reported, else generically."""
         model = store.get_meta(MODEL_META)
@@ -215,7 +222,7 @@ def create_app(
                 "species_rows": summary,
                 "status": status_payload(),
                 "xcam": xcam(),
-                "publishing": publisher is not None,
+                "publishing": publishing(),
                 "non_bird_days": live.get().retention.non_bird_days,
             },
         )
@@ -329,6 +336,7 @@ def create_app(
         error: tuple[str | None, str] | None = None,
         saved: bool = False,
         test: tuple[bool, str] | None = None,
+        chats: list[tuple[int, str, str]] | None = None,
     ) -> dict:
         cfg = live.get()
         values = (
@@ -346,10 +354,20 @@ def create_app(
                 "species_exclude": "\n".join(cfg.species.exclude),
                 "detector_threshold": cfg.detector.threshold,
                 "visits_gap_seconds": cfg.visits.gap_seconds,
+                "site_name": cfg.site.name,
+                "region_radius_km": cfg.species.region_radius_km,
+                "publish_enabled": cfg.publish.enabled,
+                "publish_host": cfg.publish.host,
+                "publish_user": cfg.publish.user,
+                "publish_remote_dir": cfg.publish.remote_dir,
+                "publish_site_id": cfg.publish.site_id,
                 "lat": "" if cfg.site.lat is None else cfg.site.lat,
                 "lon": "" if cfg.site.lon is None else cfg.site.lon,
                 "margin_minutes": cfg.daylight.margin_minutes,
                 "non_bird_days": cfg.retention.non_bird_days,
+                "telegram_enabled": cfg.telegram.enabled,
+                "chat_id": cfg.telegram.chat_id,
+                "base_url": cfg.telegram.base_url,
                 "no_alert": "\n".join(cfg.telegram.no_alert),
                 "cooldown_minutes": cfg.telegram.cooldown_minutes,
                 "publish_min_confidence": cfg.publish.min_confidence,
@@ -383,21 +401,19 @@ def create_app(
                 "classifier.model": str(cfg.classifier.model),
                 "species.model": str(cfg.species.model),
                 "species.bank": str(cfg.species.bank),
-                "species.region_radius_km": cfg.species.region_radius_km,
-                "telegram.enabled": cfg.telegram.enabled,
-                "telegram.chat_id": cfg.telegram.chat_id or "–",
-                # never the token itself
-                "telegram.bot_token": "set" if cfg.telegram.bot_token else "not set",
-                "telegram.base_url": cfg.telegram.base_url,
-                "publish.enabled": cfg.publish.enabled,
-                "publish.host": cfg.publish.host or "–",
-                "publish.user": cfg.publish.user,
-                "publish.remote_dir": cfg.publish.remote_dir,
-                "publish.site_id": cfg.publish.site_id,
+                "publish.ssh_key": str(cfg.publish.ssh_key),
             },
             "species_seen": [r.species for r in store.species_summary()],
             "species_list": _species_list_state(),
-            "alerts_enabled": notifier is not None,
+            "alerts_enabled": cfg.telegram.enabled,
+            # never the token itself: only whether one is stored
+            "token_set": bool(cfg.telegram.bot_token),
+            "alerts_ready": notifier is not None and bool(cfg.telegram.bot_token) and bool(cfg.telegram.chat_id),
+            "chat_candidates": chats or [],
+            "publish_on": cfg.publish.enabled,
+            # the line the gallery's keeper adds for this feeder; None until a key exists
+            "publish_key_line": authorized_keys_line(cfg.publish),
+            "has_species_list": getattr(classifier, "species_list", None) is not None,
             "dslr_available": dslr is not None,
             # mtime of the last test frame: its presence, its caption and the image's cache buster
             "dslr_frame": int(dslr_test.stat().st_mtime) if dslr_test.exists() else None,
@@ -443,8 +459,14 @@ def create_app(
         except OSError as e:
             ctx = settings_context(form=form, error=(None, f"could not write {config_path}: {e}"))
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=500)
-        was_on = live.get().dslr.enabled
+        old = live.get()
+        was_on = old.dslr.enabled
         live.replace(new)
+        sl = getattr(classifier, "species_list", None)
+        place = lambda c: (c.site.lat, c.site.lon, c.species.region_radius_km)  # noqa: E731
+        if sl is not None and place(new) != place(old):
+            # The feeder moved or the radius changed: fetch its species list in the background.
+            sl.start_refresh(new.site.lat, new.site.lon, new.species.region_radius_km)
         if dslr is not None and new.dslr.enabled and not was_on:
             # Just switched on: ask the camera once, so the page says ready / not connected right away.
             try:
@@ -481,14 +503,9 @@ def create_app(
 
     @app.post("/settings/test-alert", response_class=HTMLResponse)
     async def settings_test_alert(request: Request):
-        if notifier is None:
-            ctx = settings_context(
-                test=(
-                    False,
-                    "alerts are disabled: set [telegram] enabled = true (with bot_token and chat_id) "
-                    "in birdy.toml and restart",
-                )
-            )
+        tg = live.get().telegram
+        if notifier is None or not tg.bot_token or not tg.chat_id:
+            ctx = settings_context(test=(False, "no test message sent: save a bot token and a chat under Messages first"))
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=503)
         try:
             await run_in_threadpool(notifier.send_test)
@@ -497,6 +514,61 @@ def create_app(
             # TelegramError also wraps transport failures (DNS, timeouts, connection resets)
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
         ctx = settings_context(test=(True, "test alert sent — check Telegram"))
+        return templates.TemplateResponse(request, "settings.html", ctx)
+
+    @app.post("/settings/publish-key", response_class=HTMLResponse)
+    async def settings_publish_key(request: Request):
+        """Make the key this Pi shows the gallery server, when the installer has not."""
+        try:
+            await run_in_threadpool(create_publish_key, live.get().publish)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+            ctx = settings_context(test=(False, f"could not create the key: {e}"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+        return RedirectResponse("/settings#gallery", status_code=303)
+
+    @app.post("/settings/publish-check", response_class=HTMLResponse)
+    async def settings_publish_check(request: Request):
+        """Check connection: list this feeder's folder on the gallery server with the saved settings."""
+        cfg = live.get().publish
+        if not cfg.host:
+            ctx = settings_context(test=(False, "save the gallery server's address first"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=422)
+        ok, line = await run_in_threadpool(check_connection, cfg)
+        if ok:
+            return templates.TemplateResponse(request, "settings.html", settings_context(test=(True, f"gallery: {line}")))
+        ctx = settings_context(test=(False, f"gallery: {line}. Has the gallery's keeper added this feeder's key?"))
+        return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+
+    @app.post("/settings/species-refresh", response_class=HTMLResponse)
+    async def settings_species_refresh(request: Request):
+        """Refresh the list now: fetch the local species list from iNaturalist with the saved place and radius."""
+        sl = getattr(classifier, "species_list", None)
+        cfg = live.get()
+        if sl is None or cfg.site.lat is None:
+            ctx = settings_context(test=(False, "no list fetched: save the feeder's location first"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=422)
+        saved = await run_in_threadpool(sl.refresh_if_needed, cfg.site.lat, cfg.site.lon, cfg.species.region_radius_km, True)
+        if not saved:
+            ctx = settings_context(test=(False, "the species list could not be fetched; the current one is kept"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+        return templates.TemplateResponse(request, "settings.html", settings_context(test=(True, f"species list: {_species_list_state()}")))
+
+    @app.post("/settings/telegram-chats", response_class=HTMLResponse)
+    async def settings_telegram_chats(request: Request):
+        """Find my chat: the chats that have messaged the bot (saved token), offered under the Chat field."""
+        token = live.get().telegram.bot_token
+        if not token:
+            ctx = settings_context(test=(False, "save a bot token first, then send your bot a message in Telegram"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=422)
+        try:
+            chats = await run_in_threadpool(fetch_chat_ids, token)
+        except (TelegramError, OSError) as e:
+            ctx = settings_context(test=(False, f"Telegram error: {getattr(e, 'description', e)}"))
+            return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)
+        if not chats:
+            ctx = settings_context(test=(False, "no chat yet: open your bot in Telegram, send it any message, then press Find my chat again"))
+            return templates.TemplateResponse(request, "settings.html", ctx)
+        ctx = settings_context(test=(True, f"found {len(chats)} chat{'s' if len(chats) > 1 else ''}: pick one under Chat, then Save"), chats=chats)
         return templates.TemplateResponse(request, "settings.html", ctx)
 
     @app.post("/camera")
@@ -533,8 +605,8 @@ def create_app(
 
     @app.post("/captures/{capture_id}/publish")
     async def capture_publish(capture_id: int, request: Request):
-        if publisher is None:
-            raise HTTPException(status_code=503, detail="publishing is disabled: set [publish] in birdy.toml and restart")
+        if not publishing():
+            raise HTTPException(status_code=503, detail="publishing is off: switch it on under Gallery on the settings page")
         form = await request.form()
         state = str(form.get("state", ""))
         if state not in ("forced", "hidden", "auto"):

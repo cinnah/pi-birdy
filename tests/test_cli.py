@@ -332,9 +332,9 @@ def test_cmd_run_passes_live_everywhere(config, config_path, monkeypatch):
     # The pipeline crops with the camera's lores size, not a hard-coded default.
     assert seen["pipeline_lores_size"] == config.camera.lores_size
     assert seen["pipeline_dslr"] is not None      # always built: dslr.enabled is a live switch
-    # Alerts are off in the default config: no notifier anywhere.
-    assert seen["pipeline_obj"].visits._notifier is None
-    assert seen["web_notifier"] is None
+    # Always built, even with messages off: the [telegram] settings are live on /settings.
+    assert seen["pipeline_obj"].visits._notifier is not None
+    assert seen["web_notifier"] is seen["pipeline_obj"].visits._notifier
     # One Visits for the pipeline, the web app (and retention).
     assert seen["pipeline_visits"] is not None and seen["pipeline_obj"].visits is seen["pipeline_visits"]
     assert seen["web_visits"] is seen["pipeline_visits"]
@@ -371,7 +371,7 @@ def test_parser_telegram_chat_id():
     assert a.command == "telegram-chat-id" and a.token == "x"
 
 
-def test_cmd_run_builds_notifier_when_enabled(config_path, monkeypatch):
+def test_cmd_run_builds_a_notifier_that_reads_the_live_token(config_path, monkeypatch):
     import dataclasses
 
     from birdy import cli
@@ -393,7 +393,7 @@ def test_cmd_run_builds_notifier_when_enabled(config_path, monkeypatch):
             built["stopped"] = True
 
     monkeypatch.setattr(cli, "TelegramNotifier", FakeNotifier)
-    monkeypatch.setattr(cli, "HttpTelegramTransport", lambda token: ("transport", token))
+    monkeypatch.setattr(cli, "HttpTelegramTransport", lambda token: ("transport", token()))   # a getter, not a copy
     monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
     seen = {}
     monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: seen.update(pipeline=pipeline))
@@ -420,6 +420,8 @@ def test_cmd_run_builds_publisher_when_enabled(config_path, monkeypatch):
     order = []
 
     class FakePublisher:
+        enabled = True
+
         def __init__(self, live, store, mirror_dir):
             built["mirror_dir"] = mirror_dir
             built["self"] = self
@@ -466,6 +468,8 @@ def test_cmd_run_reranks_after_the_visits_migration(config_path, monkeypatch):
     calls = []
 
     class FakePublisher:
+        enabled = True
+
         def __init__(self, live, store, mirror_dir):
             pass
 
@@ -498,14 +502,13 @@ def test_cmd_run_reranks_after_the_visits_migration(config_path, monkeypatch):
     assert calls.count("evaluate_all") == 1 and calls.index("start") < calls.index("evaluate_all")
 
 
-def test_cmd_run_no_publisher_when_disabled(config_path, monkeypatch):
+def test_cmd_run_builds_an_idle_publisher_when_disabled(config_path, monkeypatch):
     import dataclasses
 
     from birdy import cli
     from birdy.config import load_config
 
     cfg = load_config(config_path)
-    monkeypatch.setattr(cli, "Publisher", lambda *a, **k: pytest.fail("Publisher built while disabled"))
     monkeypatch.setattr(cli, "_classifier", lambda c, l: object())
     seen = {}
     monkeypatch.setattr("birdy.capture.run_capture", lambda live, store, pipeline, state, stop: seen.update(pipeline=pipeline))
@@ -515,7 +518,10 @@ def test_cmd_run_no_publisher_when_disabled(config_path, monkeypatch):
     monkeypatch.setattr(webapp, "create_app", lambda *a, **k: seen.update(publisher=k.get("publisher")) or real_create_app(*a, **k))
     cfg = dataclasses.replace(cfg, web=dataclasses.replace(cfg.web, port=_free_port()))
     assert cli.cmd_run(cfg, config_path) == 0
-    assert seen["publisher"] is None and seen["pipeline"].visits._publisher is None
+    # Built and wired, but off: publish.enabled is a live switch on /settings.
+    assert seen["publisher"] is not None and seen["pipeline"].visits._publisher is seen["publisher"]
+    assert seen["publisher"].enabled is False
+    assert not (cfg.storage.data_dir / "publish").exists()      # nothing mirrored while off
 
 
 def test_publish_command_runs_once(tmp_path, monkeypatch, capsys):

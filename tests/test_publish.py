@@ -645,3 +645,92 @@ def test_mirror_uses_the_dslr_photo_of_a_promoted_capture(live, store, config):
     web = cv2.imread(str(pub.photos_dir / eos))
     assert max(web.shape[:2]) == 1600
     assert (pub.thumbs_dir / eos).exists()
+
+
+# --- a live switch -------------------------------------------------------------
+
+def test_nothing_is_ranked_while_publishing_is_off(live, store, config):
+    pub = make(live, store, config)
+    live.replace(enabled(config, enabled=False))
+    c = bird(store, datetime(2026, 10, 3, 9, 0, tzinfo=timezone.utc), "Robin", 0.9)
+    assert pub.enabled is False
+    assert pub.evaluate(c) is False and pub.evaluate_day("Robin", c.captured_at) is False
+    assert store.get(c.id).published is None
+    live.replace(enabled(config))
+    assert pub.evaluate(store.get(c.id)) is True and store.get(c.id).published == "auto"
+
+
+def test_thread_idles_while_off_then_ranks_history_and_pushes_when_switched_on(live, store, config):
+    runner = FakeRunner()
+    pub = make(live, store, config, runner=runner, max_interval=60)
+    pub._idle = 0.05
+    live.replace(enabled(config, enabled=False))
+    c = bird(store, datetime(2026, 10, 3, 9, 0, tzinfo=timezone.utc), "Robin", 0.9)
+    pub.start()
+    try:
+        time.sleep(0.4)
+        assert runner.calls == [] and not pub.mirror_dir.exists()      # off: no mirror, no rsync
+        live.replace(enabled(config))                                   # the switch on /settings
+        assert wait_until(lambda: len(runner.calls) == 1, timeout=3.0)
+        assert store.get(c.id).published == "auto"                      # history ranked on switch-on
+        live.replace(enabled(config, enabled=False))
+        time.sleep(0.4)
+        pub.notify()
+        time.sleep(0.4)
+        assert len(runner.calls) == 1                                   # off again: a notify pushes nothing
+    finally:
+        pub.stop()
+
+
+# --- the key and the connection check --------------------------------------------
+
+def test_public_key_and_authorized_keys_line(config, tmp_path):
+    from birdy.publish import authorized_keys_line, public_key
+    cfg = enabled(config, ssh_key=tmp_path / "k", site_id="garden").publish
+    assert public_key(cfg) is None and authorized_keys_line(cfg) is None
+    (tmp_path / "k.pub").write_text("ssh-ed25519 AAAA birdy-publish@pi\n")
+    assert public_key(cfg) == "ssh-ed25519 AAAA birdy-publish@pi"
+    assert authorized_keys_line(cfg) == 'command="/usr/bin/rrsync /srv/birdy/sites/garden",restrict ssh-ed25519 AAAA birdy-publish@pi'
+
+
+def test_create_publish_key_runs_ssh_keygen_once(config, tmp_path):
+    import subprocess
+
+    from birdy.publish import create_publish_key
+    cfg = enabled(config, ssh_key=tmp_path / "ssh" / "k").publish
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        Path(cmd[cmd.index("-f") + 1]).write_text("private")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    create_publish_key(cfg, run=run)
+    assert calls[0][:5] == ["ssh-keygen", "-t", "ed25519", "-N", ""] and (tmp_path / "ssh" / "k").exists()
+    create_publish_key(cfg, run=run)
+    assert len(calls) == 1                                              # never overwrites a key
+    cfg2 = enabled(config, ssh_key=tmp_path / "other").publish
+    with pytest.raises(RuntimeError, match="no space"):
+        create_publish_key(cfg2, run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "ssh-keygen: no space left\n"))
+
+
+def test_check_connection(config):
+    import subprocess
+
+    from birdy.publish import check_connection
+    cfg = enabled(config).publish
+    seen = []
+
+    def ok(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "drwxr-xr-x .\n", "")
+
+    assert check_connection(cfg, run=ok) == (True, "connected to gallery.example")
+    assert seen[0][:2] == ["rsync", "--list-only"] and seen[0][-1] == "birdy@gallery.example:/" and "/keys/pub" in seen[0][seen[0].index("-e") + 1]
+    denied = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 255, "", "birdy@gallery.example: Permission denied (publickey).\nrsync error: unexplained error (code 255)\n")  # noqa: E731
+    assert check_connection(cfg, run=denied) == (False, "birdy@gallery.example: Permission denied (publickey).")
+
+    def slow(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 45)
+
+    assert check_connection(cfg, run=slow)[0] is False

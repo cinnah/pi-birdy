@@ -20,10 +20,21 @@ def default_patch(config, **overrides) -> SettingsPatch:
         species_exclude=config.species.exclude,
         detector_threshold=config.detector.threshold,
         visits_gap_seconds=config.visits.gap_seconds,
+        site_name=config.site.name,
+        region_radius_km=config.species.region_radius_km,
+        publish_enabled=config.publish.enabled,
+        publish_host=config.publish.host,
+        publish_user=config.publish.user,
+        publish_remote_dir=config.publish.remote_dir,
+        publish_site_id=config.publish.site_id,
         lat=config.site.lat,
         lon=config.site.lon,
         margin_minutes=config.daylight.margin_minutes,
         non_bird_days=config.retention.non_bird_days,
+        telegram_enabled=config.telegram.enabled,
+        bot_token=None,
+        chat_id=config.telegram.chat_id,
+        base_url=config.telegram.base_url,
         no_alert=config.telegram.no_alert,
         cooldown_minutes=config.telegram.cooldown_minutes,
         publish_min_confidence=config.publish.min_confidence,
@@ -106,10 +117,18 @@ FORM = {
     "species_exclude": "",
     "detector_threshold": "0.2",
     "visits_gap_seconds": "60",
+    "site_name": "test",
+    "region_radius_km": "50",
+    "publish_host": "",
+    "publish_user": "birdy",
+    "publish_remote_dir": "/",
+    "publish_site_id": "home",
     "lat": "",
     "lon": "",
     "margin_minutes": "30",
     "non_bird_days": "7",
+    "chat_id": "",
+    "base_url": "http://birdy.local:8000",
     "no_alert": "",
     "cooldown_minutes": "30",
     "publish_min_confidence": "0.6",
@@ -373,13 +392,30 @@ def test_parse_form_publish_requires_integer():
         parse_settings_form({**FORM, "per_species_per_day": "2.5"})
 
 
-def test_save_applies_publish_fields_and_keeps_restart_only(config_path):
-    config_path.write_text(config_path.read_text() + '\n[publish]\nenabled = false\nhost = "h"\nsite_id = "abc"\n')
+def test_save_applies_publish_fields_and_keeps_the_key_path(config_path):
+    config_path.write_text(config_path.read_text() + '\n[publish]\nenabled = false\nhost = "h"\nsite_id = "abc"\nssh_key = "/keys/k"\n')
     cfg = load_config(config_path)
-    patch = parse_settings_form({**FORM, "publish_min_confidence": "0.8", "per_species_per_day": "4"})
+    patch = parse_settings_form({**FORM, "publish_min_confidence": "0.8", "per_species_per_day": "4", "publish_enabled": "on",
+                                 "publish_host": " gallery.example ", "publish_site_id": "garden", "publish_user": "", "publish_remote_dir": ""})
     new = save_settings(config_path, cfg, patch)
     assert new.publish.min_confidence == 0.8 and new.publish.per_species_per_day == 4
-    assert new.publish.host == "h" and new.publish.site_id == "abc"
+    assert new.publish.enabled and new.publish.host == "gallery.example" and new.publish.site_id == "garden"
+    assert new.publish.user == "birdy" and new.publish.remote_dir == "/"        # emptied: the defaults
+    assert str(new.publish.ssh_key) == "/keys/k"                                # not on the page: kept
+
+
+def test_publish_cannot_be_switched_on_without_a_server(config_path, config):
+    with pytest.raises(ConfigError, match="publish.host is required"):
+        save_settings(config_path, config, default_patch(config, publish_enabled=True))
+
+
+def test_site_name_and_radius_roundtrip(config_path, config):
+    new = save_settings(config_path, config, default_patch(config, site_name="Kitchen window", region_radius_km=120))
+    assert new.site.name == "Kitchen window" and new.species.region_radius_km == 120
+    with pytest.raises(ConfigError, match="site.name is required"):
+        parse_settings_form({**FORM, "site_name": "  "})
+    with pytest.raises(ConfigError, match="species.region_radius_km"):
+        save_settings(config_path, config, default_patch(config, region_radius_km=0))
 
 
 def test_detector_threshold_roundtrip(config_path, config):

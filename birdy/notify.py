@@ -168,10 +168,16 @@ def _telegram_call(token: str, method: str, body: bytes, content_type: str, urlo
 
 
 class HttpTelegramTransport:
-    def __init__(self, token: str, timeout: float = 20.0, urlopen: Callable = urllib.request.urlopen) -> None:
-        self._token = token.strip()
+    def __init__(self, token: str | Callable[[], str], timeout: float = 20.0, urlopen: Callable = urllib.request.urlopen) -> None:
+        """`token`: the bot token, or a function returning the current one (it is a live setting)."""
+        self._token_source = token
         self._timeout = timeout
         self._urlopen = urlopen
+
+    @property
+    def _token(self) -> str:
+        t = self._token_source
+        return (t() if callable(t) else t).strip()
 
     def send_text(self, chat_id: str, text: str) -> None:
         body = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
@@ -209,9 +215,6 @@ class TelegramNotifier:
     ) -> None:
         self._live = live
         self._transport = transport
-        tg = live.get().telegram  # chat_id/base_url are restart-only, like the token in the transport
-        self._chat_id = tg.chat_id
-        self._base_url = tg.base_url
         self._policy = policy or AlertPolicy()
         self._queue: queue.Queue[Alert] = queue.Queue(maxsize=maxsize)
         self._stop = threading.Event()
@@ -250,7 +253,8 @@ class TelegramNotifier:
 
     def send_test(self) -> None:
         """Synchronous; raises TelegramError to the caller (the settings page shows it)."""
-        self._transport.send_text(self._chat_id, f"birdy test alert from {self._live.get().site.name}")
+        cfg = self._live.get()
+        self._transport.send_text(cfg.telegram.chat_id, f"birdy test alert from {cfg.site.name}")
 
     def start(self) -> None:
         self._thread.start()
@@ -271,8 +275,9 @@ class TelegramNotifier:
                 log.exception("alert delivery crashed for capture %d; dropping", alert.capture_id)
 
     def _deliver(self, alert: Alert) -> None:
-        chat_id = self._chat_id
-        caption = caption_for(alert, self._base_url)
+        tg = self._live.get().telegram      # chat and link are live settings: read per message
+        chat_id = tg.chat_id
+        caption = caption_for(alert, tg.base_url)
         last: Exception | None = None
         for attempt, delay in enumerate((0.0, *RETRY_DELAYS), start=1):
             if delay:

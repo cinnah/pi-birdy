@@ -14,6 +14,7 @@ import logging
 import os
 import shlex
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -103,15 +104,61 @@ def rsync_command(mirror_dir: Path, cfg: PublishConfig) -> list[str]:
     serves a manifest that lists photos not yet uploaded, and a timeout leaves it consistent.
     The cross-process `.lock` file and any half-written `*.tmp*` file never leave the Pi.
     """
-    ssh = (
-        f"ssh -i {shlex.quote(str(cfg.ssh_key))} -o BatchMode=yes -o ConnectTimeout=20"
-        " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-    )
     return [
         "rsync", "-az", "--delete", "--delete-after", "--delay-updates", "--timeout=120",
         "--exclude", ".lock", "--exclude", "*.tmp*",
-        "-e", ssh, f"{mirror_dir}/", f"{cfg.user}@{cfg.host}:{cfg.remote_dir}",
+        "-e", _ssh(cfg), f"{mirror_dir}/", f"{cfg.user}@{cfg.host}:{cfg.remote_dir}",
     ]
+
+
+def _ssh(cfg: PublishConfig) -> str:
+    return (
+        f"ssh -i {shlex.quote(str(cfg.ssh_key))} -o BatchMode=yes -o ConnectTimeout=20"
+        " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    )
+
+
+def public_key(cfg: PublishConfig) -> str | None:
+    """The publish key's public half (one line), or None when no key has been made yet."""
+    try:
+        return Path(str(cfg.ssh_key) + ".pub").read_text().strip() or None
+    except OSError:
+        return None
+
+
+def authorized_keys_line(cfg: PublishConfig) -> str | None:
+    """What the gallery's keeper adds to the server for this feeder: the key, pinned to its folder."""
+    key = public_key(cfg)
+    return None if key is None else f'command="/usr/bin/rrsync /srv/birdy/sites/{cfg.site_id}",restrict {key}'
+
+
+def create_publish_key(cfg: PublishConfig, run: Callable = subprocess.run) -> None:
+    """Make the publish key pair if there is none (what `deploy/install.sh` does). Raises OSError
+    or RuntimeError with ssh-keygen's message; never overwrites an existing key."""
+    key = Path(cfg.ssh_key)
+    if key.exists():
+        return
+    key.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    proc = run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key), "-C", f"birdy-publish@{socket.gethostname()}"],
+               capture_output=True, text=True, timeout=30)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "ssh-keygen failed").strip().splitlines()[-1])
+
+
+def check_connection(cfg: PublishConfig, run: Callable = subprocess.run) -> tuple[bool, str]:
+    """Can this Pi reach its folder on the gallery server with its key? (ok, one line to show).
+    Lists the folder; nothing is written."""
+    cmd = ["rsync", "--list-only", "--timeout=20", "-e", _ssh(cfg), f"{cfg.user}@{cfg.host}:{cfg.remote_dir}"]
+    try:
+        proc = run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        return False, "no answer from the server within 45 s"
+    except OSError as e:
+        return False, f"rsync could not be run: {e}"
+    if proc.returncode == 0:
+        return True, f"connected to {cfg.host}"
+    lines = [ln.strip() for ln in (proc.stderr or "").splitlines() if ln.strip() and not ln.startswith("rsync error")]
+    return False, (lines[0] if lines else f"rsync exit {proc.returncode}")
 
 
 def _default_runner(cmd: list[str], timeout: float = RSYNC_TIMEOUT) -> int:
@@ -152,12 +199,18 @@ class Publisher:
         self._runner = runner or functools.partial(_default_runner, timeout=rsync_timeout)
         self._debounce = debounce
         self._max_interval = max_interval
+        self._idle = 2.0          # how often the worker looks at the switch while publishing is off
         self._lock = threading.Lock()
         self._run_lock = threading.Lock()
         self._last_published_ids: set[int] | None = None
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="publisher", daemon=True)
+
+    @property
+    def enabled(self) -> bool:
+        """`publish.enabled` right now: a live switch on /settings. Off = nothing is ranked or pushed."""
+        return self._live.get().publish.enabled
 
     # --- decisions -----------------------------------------------------------
 
@@ -168,10 +221,13 @@ class Publisher:
         return self.evaluate_day(capture.species, capture.captured_at)
 
     def evaluate_day(self, species: str, when: datetime) -> bool:
-        """Re-rank one species on the local day of `when`; ranks unconditionally — callers guard.
+        """Re-rank one species on the local day of `when`; callers guard what counts as a candidate.
 
-        Returns True if any published state changed.
+        Returns True if any published state changed. Does nothing while publishing is off: a photo
+        ranked then would carry a publish state (and be kept by retention) for a gallery nobody feeds.
         """
+        if not self.enabled:
+            return False
         with self._lock:
             changed = self._rank(species, when)
         if changed:
@@ -421,14 +477,25 @@ class Publisher:
             log.warning("publisher did not stop within %.1fs (rsync still running)", timeout)
 
     def _run(self) -> None:
-        if not self.mirror_dir.exists():  # first time publishing is enabled: rank the history
-            try:
-                self.evaluate_all()
-            except Exception:
-                log.exception("publish: ranking history failed")
-            self._wake.clear()  # the first run below happens right away anyway
-        last_run = time.monotonic() - self._max_interval  # first run right after start: reconcile
+        on = False          # was publishing on at the last look?
+        seen_off = False    # has it been off since this thread started?
+        last_run = 0.0
         while not self._stop.is_set():
+            if not self.enabled:
+                on, seen_off = False, True
+                self._stop.wait(self._idle)
+                continue
+            if not on:
+                on = True
+                # Just switched on, or the first time ever (no mirror yet): rank the history, since
+                # nothing was ranked while it was off. A plain restart with it on keeps its picks.
+                if seen_off or not self.mirror_dir.exists():
+                    try:
+                        self.evaluate_all()
+                    except Exception:
+                        log.exception("publish: ranking history failed")
+                self._wake.clear()  # the first run below happens right away anyway
+                last_run = time.monotonic() - self._max_interval  # reconcile now
             remaining = last_run + self._max_interval - time.monotonic()
             woke = self._wake.wait(max(0.0, remaining))
             if self._stop.is_set():
@@ -438,6 +505,8 @@ class Publisher:
                 if self._stop.wait(self._debounce):
                     break
             self._wake.clear()
+            if not self.enabled:      # switched off while waiting: push nothing
+                continue
             try:
                 self.run_once()
             except Exception:

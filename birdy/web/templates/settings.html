@@ -101,6 +101,23 @@
   .part-state.on::before { background: var(--signal); }
   .part-state.bad { color: var(--rec); }
   .part-state.bad::before { background: var(--rec); }
+
+  /* how-to: the steps for a part, folded away once it is set up */
+  .howto { border-bottom: 1px solid var(--rule-strong); }
+  .howto > summary {
+    display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; list-style: none;
+    font: 700 12px/1.3 var(--mono); font-stretch: 87.5%; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .howto > summary::-webkit-details-marker { display: none; }
+  .howto > summary::before { content: "+"; width: 1ch; font-weight: 500; color: var(--dim); }
+  .howto[open] > summary::before { content: "\2212"; }
+  .howto > summary:hover::before { color: var(--ink); }
+  .howto ol { margin: 0; padding: 0 0 16px; list-style: none; counter-reset: step; max-width: 62ch; }
+  .howto li { counter-increment: step; display: grid; grid-template-columns: 3ch minmax(0, 1fr); padding: 5px 0; font-size: 14px; line-height: 1.45; }
+  .howto li::before { content: counter(step); font: 700 12px/1.7 var(--mono); font-stretch: 87.5%; color: var(--dim); }
+  .howto li b { font-weight: 600; }
+  .howto p { margin: 0 0 14px; font-size: 13px; line-height: 1.4; color: var(--dim); max-width: 62ch; }
+  .part-head:has(+ .howto) { border-bottom-color: var(--rule); }
   .cambar { max-width: 1500px; margin: 0 auto; padding: 10px var(--gutter); border-bottom: 1px solid var(--rule); }
   .msgs { max-width: 1500px; margin: 0 auto; padding: 16px var(--gutter) 0; }
   .msgs .msg:last-child { margin-bottom: 0; }
@@ -130,7 +147,9 @@
   .pair { display: flex; gap: 8px; }
   .pair label { display: flex; flex-direction: column; gap: 3px; font: 600 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
   .pair input { width: 11ch; text-align: right; padding: 6px 8px; }
-  .row textarea { grid-column: 1 / -1; width: 100%; margin-top: 10px; resize: vertical; }
+  .row textarea, .row input.wide { grid-column: 1 / -1; width: 100%; margin-top: 10px; }
+  .row textarea { resize: vertical; }
+  .val input.id { width: 16ch; }
 
   input[type=range] {
     --p: 50%;
@@ -200,7 +219,9 @@
     content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 1px;
     background: var(--primary); outline: 1px solid var(--ink);
   }
+  .savebar .state.bad { color: var(--rec); }
   .savebar .btn.primary { min-width: 120px; }
+  .savebar [hidden] { display: none; }
 
   @media (max-width: 900px) {
     .setup { grid-template-columns: minmax(0, 1fr); }
@@ -239,6 +260,10 @@
 
 {% block body %}
 <form method="post" action="/settings/test-alert" id="test-alert"></form>
+<form method="post" action="/settings/telegram-chats" id="telegram-chats"></form>
+<form method="post" action="/settings/species-refresh" id="species-refresh"></form>
+<form method="post" action="/settings/publish-key" id="publish-key"></form>
+<form method="post" action="/settings/publish-check" id="publish-check"></form>
 <form method="post" action="/settings/dslr-frame" id="dslr-frame"></form>
 <div class="cambar">{% with camera_next = '/settings' %}{% include "_camera.html" %}{% endwith %}
 </div>
@@ -292,6 +317,16 @@
       <h2 id="camera-h">Camera</h2>
       <p>The Pi camera at the window: when it takes a photo, what counts as a bird, and what it keeps.</p>
     </header>
+    <details class="howto">
+      <summary>How to set this up</summary>
+      <ol>
+        <li><span>Point the camera at the feeder and look at the live picture on this page.</span></li>
+        <li><span>Draw the <b>watch area</b> on the picture: tap to add corners around the feeder and the perches, and leave out the sky, moving branches and the street.</span></li>
+        <li><span>Do the <b>walk test</b>: wave a hand at the feeder. The bar should pass the <b>trig</b> mark, and stay well below it when nothing moves. Drag the mark until both are true.</span></li>
+        <li><span>Under <b>Place</b>, give the feeder a name and its location, so birdy sleeps at night and knows which birds live near you.</span></li>
+        <li><span>Press <b>Save</b>. The other settings can stay as they are until the photos show a reason to change them.</span></li>
+      </ol>
+    </details>
     <section class="group">
       <header><h3 class="head">Motion</h3><p>What counts as movement</p></header>
       {{ num("pixel_threshold", "motion.pixel_threshold", "Pixel change needed",
@@ -312,7 +347,12 @@
              "A second bird check that looks for a bird shape. A photo counts as a bird when this or the bird check above passes. Raise it if non-birds slip through.", 0, 1, 0.01) }}
       {{ num("species_threshold", "species.threshold", "Species certainty",
              "How sure the species model must be before a bird gets a name. Below this it stays unnamed.", 0, 1, 0.01) }}
-      <p class="hint">Local species list: {{ species_list }}</p>
+      {{ num("region_radius_km", "species.region_radius_km", "Local list radius",
+           "Birds are named from the species other people have recorded this close to the feeder (on iNaturalist). A wider circle knows more species but makes more wrong guesses.", 1, 500, 1, "km", true) }}
+    <div class="action">
+      <button class="btn" type="submit" form="species-refresh" {{ '' if has_species_list else 'disabled' }}>Refresh the list now</button>
+      <p class="hint">Local species list: {{ species_list }}. It is fetched again by itself when the location or radius changes.</p>
+    </div>
       <div class="row {{ 'error' if error_field == 'species_include' else '' }}">
         <label for="species_include">Add to local list</label>
         <span></span>
@@ -336,14 +376,21 @@
     </section>
 
     <section class="group">
-      <header><h3 class="head">Daylight</h3><p>When the camera is awake</p></header>
+      <header><h3 class="head">Place</h3><p>Where the feeder is, and when the camera is awake</p></header>
+    <div class="row {{ 'error' if error_field == 'site_name' else '' }}">
+      <label for="site_name">Feeder name</label>
+      <span></span>
+      {{ explain("What this feeder is called, in messages and on the gallery.", "site.name") }}
+      <input class="wide" type="text" id="site_name" name="site_name" value="{{ v['site_name'] }}" autocomplete="off" placeholder="Kitchen window">
+    </div>
+    {% if error_field == 'site_name' %}<div class="hint error">{{ error_message }}</div>{% endif %}
       <div class="row {{ 'error' if error_field in ('lat', 'lon') else '' }}">
         <label for="lat">Location</label>
         <span class="pair">
           <label>lat<input type="text" id="lat" name="lat" placeholder="38.72" value="{{ v['lat'] }}" inputmode="decimal"></label>
           <label>lon<input type="text" id="lon" name="lon" placeholder="-9.14" value="{{ v['lon'] }}" inputmode="decimal"></label>
         </span>
-        {{ explain("Used to work out sunrise and sunset. Leave both empty to capture day and night.", "site.lat · site.lon") }}
+        {{ explain("Used to work out sunrise and sunset, and which birds live near you. Leave both empty to capture day and night.", "site.lat · site.lon") }}
       </div>
       {% if error_field in ('lat', 'lon') %}<div class="hint error">{{ error_message }}</div>{% endif %}
       {{ num("margin_minutes", "daylight.margin_minutes", "Daylight margin",
@@ -363,6 +410,49 @@
       <span class="part-state {{ 'on' if alerts_enabled else '' }}">Telegram {{ 'on' if alerts_enabled else 'off' }}</span>
       <p>One Telegram message with the best photo for every bird visit.</p>
     </header>
+    <details class="howto" {{ '' if (token_set and v['chat_id']) else 'open' }}>
+      <summary>How to set this up</summary>
+      <ol>
+        <li><span>Install <b>Telegram</b> on your phone if you don't have it.</span></li>
+        <li><span>In Telegram, search for <b>@BotFather</b>, open it and send <b>/newbot</b>. Answer its two questions: a name, then a user name ending in "bot".</span></li>
+        <li><span>BotFather replies with a long <b>token</b>. Paste it into <b>Bot token</b> below and press <b>Save</b>.</span></li>
+        <li><span>Still in Telegram, open your new bot and send it any message, for example "hello".</span></li>
+        <li><span>Back here, press <b>Find my chat</b> and tap the chat with your name.</span></li>
+        <li><span>Switch <b>Send messages</b> on and press <b>Save</b>.</span></li>
+        <li><span>Press <b>Send test message</b>. It should arrive in Telegram within a few seconds.</span></li>
+      </ol>
+      <p>For several people: make a Telegram group, add the bot to it, write a message in the group, then pick the group with Find my chat.</p>
+    </details>
+    <div class="row {{ 'error' if error_field == 'telegram_enabled' else '' }}">
+      <label for="telegram_enabled">Send messages</label>
+      <input class="switch" type="checkbox" id="telegram_enabled" name="telegram_enabled" value="on" {{ 'checked' if v['telegram_enabled'] else '' }}>
+      {{ explain("One Telegram message per bird visit. Needs the bot token and the chat below.", "telegram.enabled") }}
+    </div>
+    {% if error_field == 'telegram_enabled' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field == 'bot_token' else '' }}">
+      <label for="bot_token">Bot token</label>
+      <span class="part-state {{ 'on' if token_set else '' }}">{{ 'set' if token_set else 'not set' }}</span>
+      {{ explain("In Telegram, open @BotFather, send it /newbot and paste the token it gives you. It stays on the Pi and is never shown again.", "telegram.bot_token") }}
+      <input class="wide" type="password" id="bot_token" name="bot_token" value="" autocomplete="new-password" spellcheck="false" placeholder="{{ 'leave empty to keep the stored token' if token_set else 'paste the token' }}">
+    </div>
+    {% if error_field == 'bot_token' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field == 'chat_id' else '' }}">
+      <label for="chat_id">Chat</label>
+      <span class="val"><input class="id" type="text" id="chat_id" name="chat_id" value="{{ v['chat_id'] }}" inputmode="numeric" autocomplete="off" placeholder="chat id"></span>
+      {{ explain("Who gets the messages. Save the token, send your bot any message in Telegram, then press Find my chat.", "telegram.chat_id") }}
+      <div class="chips">
+        <button class="btn sm" type="submit" form="telegram-chats" {{ '' if token_set else 'disabled' }}>Find my chat</button>
+        {% for cid, name, text in chat_candidates %}<button type="button" class="chip" data-chat="{{ cid }}" aria-pressed="false">{{ name or 'chat' }} · {{ cid }}</button>{% endfor %}
+      </div>
+    </div>
+    {% if error_field == 'chat_id' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field == 'base_url' else '' }}">
+      <label for="base_url">Link in messages</label>
+      <span></span>
+      {{ explain("The address of this site as your phone reaches it at home. Each message links back to the photos of that bird.", "telegram.base_url") }}
+      <input class="wide" type="text" id="base_url" name="base_url" value="{{ v['base_url'] }}" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://birdy.local:8000">
+    </div>
+    {% if error_field == 'base_url' %}<div class="hint error">{{ error_message }}</div>{% endif %}
     <div class="row {{ 'error' if error_field == 'no_alert' else '' }}">
       <label for="no_alert">No message for</label>
       <span></span>
@@ -377,8 +467,8 @@
     {{ num("cooldown_minutes", "telegram.cooldown_minutes", "Quiet time per species",
            "After a message, wait this long before the next one for the same species. 0 sends one for every visit. A species seen for the first time always gets through.", 0, 1440, 5, "min", true) }}
     <div class="action">
-      <button class="btn" type="submit" form="test-alert" {{ '' if alerts_enabled else 'disabled' }}>Send test message</button>
-      <p class="hint">{{ 'Sends "birdy test alert" to your chat.' if alerts_enabled else 'Messages are off. Set [telegram] in birdy.toml and restart.' }}</p>
+      <button class="btn" type="submit" form="test-alert" {{ '' if alerts_ready else 'disabled' }}>Send test message</button>
+      <p class="hint">{{ 'Sends "birdy test alert" to your chat, using the saved token and chat.' if alerts_ready else 'Save a bot token and a chat first.' }}</p>
     </div>
   </section>
 
@@ -393,6 +483,17 @@
       {% endif %}
       <p>{{ xcam.model or 'A second camera' }} on USB at the same window, fired once for each bird the Pi camera sees.</p>
     </header>
+    <details class="howto">
+      <summary>How to set this up</summary>
+      <ol>
+        <li><span>Put the camera on a tripod at the same window, aimed at the feeder, and plug it into the Pi with a <b>USB cable</b>. Power it from the mains: a battery runs out within a day.</span></li>
+        <li><span>On the camera: switch <b>auto power off</b> off, set the lens to <b>manual focus</b> and focus on the feeder by hand.</span></li>
+        <li><span>Switch <b>Use {{ xcam.the }}</b> on below and press <b>Save</b>. The line at the top of this part should say <b>ready</b>.</span></li>
+        <li><span>Press <b>Take a test frame</b>. Check the feeder is sharp and well lit; adjust the camera and repeat until it is.</span></li>
+        <li><span>Drag a box around the feeder on the test frame, with some room for a bird beside it, and press <b>Save</b>.</span></li>
+      </ol>
+      <p>Optional: put the camera in <b>Tv</b> mode and switch on <b>Shutter speed by light</b>, so birds stay sharp when the light changes.</p>
+    </details>
     <div class="row {{ 'error' if error_field == 'dslr_enabled' else '' }}">
       <label for="dslr_enabled">Use {{ xcam.the }}</label>
       <input class="switch" type="checkbox" id="dslr_enabled" name="dslr_enabled" value="on" {{ 'checked' if v['dslr_enabled'] else '' }}>
@@ -414,20 +515,76 @@
     {% endif %}
     <div class="row {{ 'error' if error_field == 'dslr_region' else '' }}">
       <label for="dslr_region">Feeder region</label>
-      <span class="val"><input type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" placeholder="0, 0, 1, 1"></span>
+      <span></span>
       {{ explain("The part of " ~ xcam.the ~ "'s frame searched for the bird: x, y, width, height as fractions of the frame. Frame the feeder tightly: take a test frame above and drag a box on it; the numbers fill in by themselves.", "dslr.region") }}
+      <input class="wide" type="text" id="dslr_region" name="dslr_region" value="{{ v['dslr_region'] }}" autocomplete="off" spellcheck="false" placeholder="0, 0, 1, 1">
     </div>
     {% if error_field == 'dslr_region' %}<div class="hint error">{{ error_message }}</div>{% endif %}
     {{ num("dslr_daily_cap", "dslr.daily_cap", "Shots per day, at most",
-           xcam.The ~ " stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "shots") }}
+           xcam.The ~ " stops firing for the day after this many shots; the Pi camera carries on.", 1, 2000, 1, "/day") }}
   </section>
 
   <section class="part" id="gallery" aria-labelledby="gallery-h">
     <header class="part-head">
       <h2 id="gallery-h">Gallery</h2>
-      <span class="part-state {{ 'on' if readonly['publish.enabled'] else '' }}">Publishing {{ 'on' if readonly['publish.enabled'] else 'off' }}</span>
-      <p>Which photos go to the public gallery on their own.</p>
+      <span class="part-state {{ 'on' if publish_on else '' }}">Publishing {{ 'on' if publish_on else 'off' }}</span>
+      <p>The best photos of each day, sent to a public gallery page shared with other feeders.</p>
     </header>
+    <details class="howto" {{ '' if publish_on else 'open' }}>
+      <summary>How to set this up</summary>
+      <ol>
+        <li><span>Ask the gallery's keeper to add your feeder. Agree on a short <b>feeder id</b> with them and ask for the <b>server address</b>.</span></li>
+        <li><span>Fill in <b>Gallery server</b> and <b>Feeder id</b> below and press <b>Save</b>.</span></li>
+        <li><span>Under <b>This feeder's key</b>, press <b>Create the key</b> if there is none, then <b>Copy the line</b> and send it to the keeper.</span></li>
+        <li><span>When the keeper says it is added, press <b>Check connection</b>.</span></li>
+        <li><span>Switch <b>Publish to the gallery</b> on and press <b>Save</b>. The first photos appear on the gallery within a few minutes.</span></li>
+      </ol>
+      <p>On the photo grid, <b>Publish</b> and <b>Hide</b> under each photo overrule birdy's own pick.</p>
+    </details>
+    <div class="row {{ 'error' if error_field == 'publish_enabled' else '' }}">
+      <label for="publish_enabled">Publish to the gallery</label>
+      <input class="switch" type="checkbox" id="publish_enabled" name="publish_enabled" value="on" {{ 'checked' if v['publish_enabled'] else '' }}>
+      {{ explain("Send the best bird photos to the gallery, a few minutes after they are taken. Needs the server below and its keeper's go-ahead.", "publish.enabled") }}
+    </div>
+    {% if error_field == 'publish_enabled' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field == 'publish_host' else '' }}">
+      <label for="publish_host">Gallery server</label>
+      <span></span>
+      {{ explain("The address of the gallery's server, as its keeper gave it to you.", "publish.host") }}
+      <input class="wide" type="text" id="publish_host" name="publish_host" value="{{ v['publish_host'] }}" autocomplete="off" spellcheck="false" inputmode="url" placeholder="gallery.example.org">
+    </div>
+    {% if error_field == 'publish_host' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field == 'publish_site_id' else '' }}">
+      <label for="publish_site_id">Feeder id</label>
+      <span class="val"><input class="id" type="text" id="publish_site_id" name="publish_site_id" value="{{ v['publish_site_id'] }}" autocomplete="off" spellcheck="false" placeholder="home"></span>
+      {{ explain("This feeder's short name on the gallery, agreed with its keeper: lowercase letters, digits and dashes.", "publish.site_id") }}
+    </div>
+    {% if error_field == 'publish_site_id' %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row {{ 'error' if error_field in ('publish_user', 'publish_remote_dir') else '' }}">
+      <label for="publish_user">Account and folder</label>
+      <span class="pair">
+        <label>user<input type="text" id="publish_user" name="publish_user" value="{{ v['publish_user'] }}" autocomplete="off" spellcheck="false" placeholder="birdy"></label>
+        <label>folder<input type="text" id="publish_remote_dir" name="publish_remote_dir" value="{{ v['publish_remote_dir'] }}" autocomplete="off" spellcheck="false" placeholder="/"></label>
+      </span>
+      {{ explain("Leave these as they are unless the gallery's keeper says otherwise.", "publish.user · publish.remote_dir") }}
+    </div>
+    {% if error_field in ('publish_user', 'publish_remote_dir') %}<div class="hint error">{{ error_message }}</div>{% endif %}
+    <div class="row">
+      <label for="publish_key_line">This feeder's key</label>
+      <span></span>
+      {% if publish_key_line %}
+      <p class="explain">Send this line to the gallery's keeper. It lets this feeder write to its own folder there and nothing else. Save the feeder id first: the line contains it.</p>
+      <textarea id="publish_key_line" rows="4" readonly spellcheck="false">{{ publish_key_line }}</textarea>
+      <div class="chips"><button type="button" class="btn sm" id="copy-key">Copy the line</button><span class="key" id="copy-key-note" role="status"></span></div>
+      {% else %}
+      <p class="explain">This feeder has no key yet. The gallery's keeper needs one line from it before photos can be sent.</p>
+      <div class="chips"><button class="btn sm" type="submit" form="publish-key">Create the key</button></div>
+      {% endif %}
+    </div>
+    <div class="action">
+      <button class="btn" type="submit" form="publish-check" {{ '' if (publish_key_line and v['publish_host']) else 'disabled' }}>Check connection</button>
+      <p class="hint">Tries to reach this feeder's folder on the server with the saved settings. Nothing is sent.</p>
+    </div>
     {{ num("publish_min_confidence", "publish.min_confidence", "Publish certainty",
            "How sure the species model must be before a photo can go to the gallery on its own.", 0, 1, 0.05) }}
     {{ num("per_species_per_day", "publish.per_species_per_day", "Photos per species per day",
@@ -445,10 +602,17 @@
     </dl>
   </section>
 
-  <div class="savebar">
-    {% if saved %}{% set save_state = 'Saved · applied live (v' ~ version ~ ')' %}{% elif error_message %}{% set save_state = 'Not saved · see the error at the top' %}{% else %}{% set save_state = 'No unsaved changes' %}{% endif %}
-    <p class="state" id="dirty" aria-live="polite">{{ save_state }}<small>Writes birdy.toml and applies immediately.</small></p>
-    <button class="btn primary" type="submit">Save</button>
+  {% if saved %}
+    {% set save_state, save_note = 'Saved · applied live', 'birdy.toml written · settings v' ~ version %}
+  {% elif error_message %}
+    {% set save_state, save_note = 'Not saved', 'See the error at the top. Your changes are still in the form.' %}
+  {% else %}
+    {% set save_state, save_note = 'No unsaved changes', 'Change a setting, then save. It applies without a restart.' %}
+  {% endif %}
+  <div class="savebar" id="savebar" data-failed="{{ 'yes' if error_message else '' }}">
+    <p class="state {{ 'bad' if error_message else '' }}" id="dirty" aria-live="polite"><span id="dirty-text">{{ save_state }}</span><small id="dirty-note">{{ save_note }}</small></p>
+    <a class="btn" id="discard" href="/settings" hidden>Discard</a>
+    <button class="btn primary" type="submit" id="save">Save</button>
   </div>
 </div>
 </form>
@@ -612,33 +776,62 @@
   const lines = () => wl.value.split('\n').map(s => s.trim()).filter(Boolean);
   function syncChips() {
     const have = new Set(lines().map(s => s.toLowerCase()));
-    document.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', have.has(c.dataset.species.toLowerCase())));
+    document.querySelectorAll('.chip[data-species]').forEach(c => c.setAttribute('aria-pressed', have.has(c.dataset.species.toLowerCase())));
   }
-  document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.chip[data-species]').forEach(c => c.addEventListener('click', () => {
     const name = c.dataset.species, cur = lines();
     const idx = cur.findIndex(s => s.toLowerCase() === name.toLowerCase());
     if (idx >= 0) cur.splice(idx, 1); else cur.push(name);
     wl.value = cur.join('\n'); syncChips(); markDirty();
   }));
   wl.addEventListener('input', syncChips);
+
+  // Gallery: copy the key line for the gallery's keeper
+  const copyKey = document.getElementById('copy-key');
+  if (copyKey) copyKey.addEventListener('click', async () => {
+    const line = document.getElementById('publish_key_line'), note = document.getElementById('copy-key-note');
+    try { await navigator.clipboard.writeText(line.value); note.textContent = 'copied'; }
+    catch { line.focus(); line.select(); note.textContent = 'select all is done: copy it with your keyboard or the menu'; }   // http pages have no clipboard access
+  });
+
+  // Find my chat: a found chat fills the Chat field
+  const chatField = document.getElementById('chat_id');
+  const syncChats = () => document.querySelectorAll('.chip[data-chat]').forEach(c => c.setAttribute('aria-pressed', c.dataset.chat === chatField.value.trim()));
+  document.querySelectorAll('.chip[data-chat]').forEach(c => c.addEventListener('click', () => { chatField.value = c.dataset.chat; syncChats(); markDirty(); }));
+  chatField.addEventListener('input', syncChats);
+  syncChats();
   syncChips();
 
   // unsaved-changes count in the save bar
-  const dirtyEl = document.getElementById('dirty'), small = dirtyEl.querySelector('small').outerHTML;
-  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.dslr_enabled) d.dslr_enabled = ''; if (!d.dslr_auto_shutter) d.dslr_auto_shutter = ''; return d; };
+  // Save is live only when there is something to save; a rejected save keeps it live.
+  const dirtyEl = document.getElementById('dirty'), dirtyText = document.getElementById('dirty-text'), dirtyNote = document.getElementById('dirty-note');
+  const saveBtn = document.getElementById('save'), discard = document.getElementById('discard');
+  const failed = document.getElementById('savebar').dataset.failed === 'yes';
+  const atLoad = { cls: dirtyEl.className, text: dirtyText.textContent, note: dirtyNote.textContent };   // what the server said
+  const snapshot = () => { const d = {}; new FormData(form).forEach((v, k) => { d[k] = v; }); if (!d.dslr_enabled) d.dslr_enabled = ''; if (!d.telegram_enabled) d.telegram_enabled = ''; if (!d.publish_enabled) d.publish_enabled = ''; if (!d.dslr_auto_shutter) d.dslr_auto_shutter = ''; return d; };
   let initial = null;
   function markDirty() {
     if (!initial) return;
     const now = snapshot();
     const n = Object.keys(now).filter(k => k === 'roi' ? JSON.stringify(JSON.parse(now[k])) !== JSON.stringify(JSON.parse(initial[k])) : now[k] !== initial[k]).length;
-    if (n) { dirtyEl.className = 'state dirty'; dirtyEl.innerHTML = `${n} unsaved change${n > 1 ? 's' : ''}` + small; }
-    else if (dirtyEl.classList.contains('dirty')) { dirtyEl.className = 'state'; dirtyEl.innerHTML = 'No unsaved changes' + small; }
+    if (n) {
+      dirtyEl.className = 'state dirty';
+      dirtyText.textContent = `${n} unsaved change${n > 1 ? 's' : ''}`;
+      dirtyNote.textContent = 'Save writes birdy.toml and applies at once.';
+    } else if (dirtyEl.classList.contains('dirty')) {
+      dirtyEl.className = atLoad.cls;
+      dirtyText.textContent = atLoad.text;
+      dirtyNote.textContent = atLoad.note;
+    }
+    saveBtn.disabled = !n && !failed;
+    discard.hidden = !n && !failed;
   }
   form.addEventListener('input', markDirty);
   form.addEventListener('change', markDirty);
 
   draw(); paintMeter(); refreshFrame();
   initial = snapshot();
+  markDirty();
   setInterval(refreshFrame, 1000);
 })();
 

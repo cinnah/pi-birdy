@@ -488,3 +488,24 @@ def test_telegram_jpeg_missing_file_raises_file_not_found(tmp_path):
     from birdy.notify import _telegram_jpeg
     with pytest.raises(FileNotFoundError):
         _telegram_jpeg(tmp_path / "gone.jpg")
+
+
+def test_token_chat_and_link_follow_the_live_config(live, config, store):
+    seen = []
+
+    def urlopen(req, timeout):
+        seen.append(req.full_url)
+        return FakeResponse({"ok": True})
+
+    live.replace(enabled_config(config, bot_token="OLD", chat_id="1"))
+    t = FakeTransport()
+    n = TelegramNotifier(live, t)
+    HttpTelegramTransport(lambda: live.get().telegram.bot_token, urlopen=urlopen).send_text("1", "a")
+    live.replace(enabled_config(config, bot_token="NEW", chat_id="2", base_url="http://new"))
+    HttpTelegramTransport(lambda: live.get().telegram.bot_token, urlopen=urlopen).send_text("2", "b")
+    assert "/botOLD/" in seen[0] and "/botNEW/" in seen[1]
+    n.send_test()
+    assert t.texts[-1][0] == "2"                       # the chat saved a moment ago
+    n._deliver(Alert(1, Path("missing.jpg"), "Robin", 0.9, NOW, "visit"))
+    chat, _photo, caption = t.photos[-1]
+    assert chat == "2" and "http://new/?species=Robin" in caption

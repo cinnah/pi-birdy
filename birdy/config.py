@@ -95,10 +95,10 @@ class WebConfig:
 
 @dataclass(frozen=True)
 class TelegramConfig:
-    enabled: bool              # restart-only
-    bot_token: str = field(repr=False)  # restart-only, secret
-    chat_id: str               # restart-only
-    base_url: str              # restart-only; link in the alert caption
+    enabled: bool              # live
+    bot_token: str = field(repr=False)  # live, secret
+    chat_id: str               # live
+    base_url: str              # live; link in the alert caption
     no_alert: tuple[str, ...]  # live; species that never alert (every other species does)
     cooldown_minutes: int      # live
 

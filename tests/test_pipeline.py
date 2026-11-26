@@ -739,7 +739,7 @@ def test_backfill_detector_pass_keeps_species_and_does_not_forget(store, live):
 
 def real_publisher(store, live, **kw):
     cfg = live.get()
-    live.replace(dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, **kw)))
+    live.replace(dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, enabled=True, host="gallery.example", **kw)))
     return Publisher(live, store, store.data_dir / "publish")      # never started: no rsync
 
 

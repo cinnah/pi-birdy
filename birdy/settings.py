@@ -30,10 +30,21 @@ FIELD_KEYS = {
     "species_exclude": "species.exclude",
     "detector_threshold": "detector.threshold",
     "visits_gap_seconds": "visits.gap_seconds",
+    "site_name": "site.name",
+    "region_radius_km": "species.region_radius_km",
+    "publish_enabled": "publish.enabled",
+    "publish_host": "publish.host",
+    "publish_user": "publish.user",
+    "publish_remote_dir": "publish.remote_dir",
+    "publish_site_id": "publish.site_id",
     "lat": "site.lat",
     "lon": "site.lon",
     "margin_minutes": "daylight.margin_minutes",
     "non_bird_days": "retention.non_bird_days",
+    "telegram_enabled": "telegram.enabled",
+    "bot_token": "telegram.bot_token",
+    "chat_id": "telegram.chat_id",
+    "base_url": "telegram.base_url",
     "no_alert": "telegram.no_alert",
     "cooldown_minutes": "telegram.cooldown_minutes",
     "publish_min_confidence": "publish.min_confidence",
@@ -60,10 +71,21 @@ class SettingsPatch:
     species_exclude: tuple[str, ...]
     detector_threshold: float
     visits_gap_seconds: int
+    site_name: str
+    region_radius_km: int
+    publish_enabled: bool
+    publish_host: str
+    publish_user: str
+    publish_remote_dir: str
+    publish_site_id: str
     lat: float | None
     lon: float | None
     margin_minutes: int
     non_bird_days: int
+    telegram_enabled: bool
+    bot_token: str | None      # None = keep the stored token (the page never shows it, so it can't send it back)
+    chat_id: str
+    base_url: str
     no_alert: tuple[str, ...]
     cooldown_minutes: int
     publish_min_confidence: float
@@ -159,6 +181,8 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
     data["species"]["exclude"] = list(patch.species_exclude)
     data["detector"]["threshold"] = patch.detector_threshold
     data.setdefault("visits", {})["gap_seconds"] = patch.visits_gap_seconds
+    data["site"]["name"] = patch.site_name
+    data["species"]["region_radius_km"] = patch.region_radius_km
     data["site"].pop("lat", None)
     data["site"].pop("lon", None)
     # Write whichever is given; load_config rejects one-without-the-other with a clear message.
@@ -169,10 +193,23 @@ def apply_patch(data: dict, patch: SettingsPatch) -> dict:
     data["daylight"]["margin_minutes"] = patch.margin_minutes
     data["retention"]["non_bird_days"] = patch.non_bird_days
     data["telegram"].update(
+        enabled=patch.telegram_enabled,
+        chat_id=patch.chat_id,
         no_alert=list(patch.no_alert),
         cooldown_minutes=patch.cooldown_minutes,
     )
+    if patch.bot_token:
+        data["telegram"]["bot_token"] = patch.bot_token
+    if patch.base_url:
+        data["telegram"]["base_url"] = patch.base_url
+    else:
+        data["telegram"].pop("base_url", None)      # emptied: back to the default
     data["publish"].update(
+        enabled=patch.publish_enabled,
+        host=patch.publish_host,
+        user=patch.publish_user or "birdy",
+        remote_dir=patch.publish_remote_dir or "/",
+        site_id=patch.publish_site_id,
         min_confidence=patch.publish_min_confidence,
         per_species_per_day=patch.per_species_per_day,
     )
@@ -242,6 +279,13 @@ def _roi(form: Mapping[str, str]) -> tuple[Point, ...]:
     return tuple(out)
 
 
+def _required(form: Mapping[str, str], field: str) -> str:
+    value = form.get(field, "").strip()
+    if not value:
+        raise ConfigError(f"{FIELD_KEYS[field]} is required")
+    return value
+
+
 def _lines(form: Mapping[str, str], field: str) -> tuple[str, ...]:
     return tuple(s.strip() for s in form.get(field, "").splitlines() if s.strip())
 
@@ -271,10 +315,21 @@ def parse_settings_form(form: Mapping[str, str]) -> SettingsPatch:
         species_exclude=_lines(form, "species_exclude"),
         detector_threshold=_num(form, "detector_threshold", float),
         visits_gap_seconds=_num(form, "visits_gap_seconds", int),
+        site_name=_required(form, "site_name"),
+        region_radius_km=_num(form, "region_radius_km", int),
+        publish_enabled=form.get("publish_enabled") is not None,
+        publish_host=form.get("publish_host", "").strip(),
+        publish_user=form.get("publish_user", "").strip(),
+        publish_remote_dir=form.get("publish_remote_dir", "").strip(),
+        publish_site_id=form.get("publish_site_id", "").strip(),
         lat=_num(form, "lat", float, optional=True),
         lon=_num(form, "lon", float, optional=True),
         margin_minutes=_num(form, "margin_minutes", int),
         non_bird_days=_num(form, "non_bird_days", int),
+        telegram_enabled=form.get("telegram_enabled") is not None,
+        bot_token=form.get("bot_token", "").strip() or None,
+        chat_id=form.get("chat_id", "").strip(),
+        base_url=form.get("base_url", "").strip(),
         no_alert=_lines(form, "no_alert"),
         cooldown_minutes=_num(form, "cooldown_minutes", int),
         publish_min_confidence=_num(form, "publish_min_confidence", float),

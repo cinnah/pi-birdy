@@ -50,6 +50,15 @@ class FakeSpeciesModel:
 
 class FakeSpeciesList:
     version = 1
+    refreshes: list = []          # (lat, lon, radius_km, how) per background or forced refresh
+    refresh_ok = True
+
+    def start_refresh(self, lat, lon, radius_km):
+        FakeSpeciesList.refreshes.append((lat, lon, radius_km, "background"))
+
+    def refresh_if_needed(self, lat, lon, radius_km, force=False):
+        FakeSpeciesList.refreshes.append((lat, lon, radius_km, "forced" if force else "if needed"))
+        return FakeSpeciesList.refresh_ok
 
     def current(self):
         from birdy.species_list import LocalList
@@ -248,10 +257,18 @@ def _base_form():
         "species_exclude": "",
         "detector_threshold": "0.2",
         "visits_gap_seconds": "60",
+        "site_name": "test",
+        "region_radius_km": "50",
+        "publish_host": "",
+        "publish_user": "birdy",
+        "publish_remote_dir": "/",
+        "publish_site_id": "home",
         "lat": "",
         "lon": "",
         "margin_minutes": "30",
         "non_bird_days": "7",
+        "chat_id": "",
+        "base_url": "http://birdy.local:8000",
         "no_alert": "",
         "cooldown_minutes": "30",
         "publish_min_confidence": "0.6",
@@ -582,19 +599,80 @@ def test_settings_failed_post_never_leaks_token(client, live, config):
     assert r.status_code == 422 and "telegram.bot_token" in r.text and "SECRET123" not in r.text
 
 
-def test_settings_button_disabled_without_notifier(store, state, live, config, config_path, classifier):
+def _with_telegram(live, **tg):
     import dataclasses
 
-    tg = dataclasses.replace(config.telegram, enabled=True, bot_token="SECRET123", chat_id="42")
-    live.replace(dataclasses.replace(config, telegram=tg))
-    c = TestClient(create_app(store, state, live, config_path, classifier=classifier))
-    r = c.get("/settings").text
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, telegram=dataclasses.replace(cfg.telegram, **tg)))
+
+
+def test_test_button_needs_a_saved_token_and_chat(client, live):
+    r = client.get("/settings").text
     assert re.search(r'<button class="btn" type="submit" form="test-alert"\s+disabled>Send test message</button>', r)
-    assert "Messages are off. Set [telegram] in birdy.toml and restart." in r
+    assert "Save a bot token and a chat first." in r
+    assert client.post("/settings/test-alert").status_code == 503
+    _with_telegram(live, bot_token="SECRET123", chat_id="42")
+    r = client.get("/settings").text
+    assert re.search(r'<button class="btn" type="submit" form="test-alert"\s+>Send test message</button>', r)
     assert "SECRET123" not in r
 
 
-def test_test_alert_success(client, notifier):
+def test_messages_can_be_set_up_from_the_page(client, live, config_path):
+    html = client.get("/settings").text
+    assert 'name="telegram_enabled"' in html and 'name="bot_token"' in html and 'name="chat_id"' in html and 'name="base_url"' in html
+    assert ">not set<" in html and "Telegram off" in html
+    # switching on without a token is refused, on the token row
+    r = post_settings(client, telegram_enabled="on", chat_id="42")
+    assert r.status_code == 422 and "telegram.bot_token is required" in r.text
+    # token + chat + switch: saved, live, no restart
+    r = post_settings(client, telegram_enabled="on", bot_token=" SECRET123 ", chat_id="42", base_url="http://192.168.1.5:8000/")
+    assert r.status_code == 303
+    t = live.get().telegram
+    assert t.enabled and t.bot_token == "SECRET123" and t.chat_id == "42" and t.base_url == "http://192.168.1.5:8000"
+    html = client.get("/settings").text
+    assert "SECRET123" not in html and ">set<" in html and "Telegram on" in html
+    assert 'name="bot_token" value=""' in html and 'value="42"' in html
+    # an empty token field keeps the stored token; an emptied link goes back to the default
+    r = post_settings(client, telegram_enabled="on", chat_id="43", base_url="")
+    assert r.status_code == 303
+    t = live.get().telegram
+    assert t.bot_token == "SECRET123" and t.chat_id == "43" and t.base_url == "http://birdy.local:8000"
+    assert "SECRET123" in config_path.read_text()          # the file is where it lives
+    # and off again
+    post_settings(client, chat_id="43")
+    assert live.get().telegram.enabled is False and live.get().telegram.bot_token == "SECRET123"
+
+
+def test_a_rejected_save_never_echoes_the_token(client):
+    r = post_settings(client, bot_token="SECRET123", cooldown_minutes="x")
+    assert r.status_code == 422 and "SECRET123" not in r.text
+
+
+def test_find_my_chat(client, live, monkeypatch):
+    import birdy.web.app as webapp
+
+    assert 'form="telegram-chats" disabled' in client.get("/settings").text
+    assert client.post("/settings/telegram-chats").status_code == 422          # no token saved yet
+    _with_telegram(live, bot_token="SECRET123")
+    seen = []
+    monkeypatch.setattr(webapp, "fetch_chat_ids", lambda token: seen.append(token) or [(1115, "Yazz", "hi")])
+    r = client.post("/settings/telegram-chats")
+    assert r.status_code == 200 and seen == ["SECRET123"] and "SECRET123" not in r.text
+    assert 'data-chat="1115"' in r.text and "Yazz · 1115" in r.text and "found 1 chat" in r.text
+    monkeypatch.setattr(webapp, "fetch_chat_ids", lambda token: [])
+    r = client.post("/settings/telegram-chats")
+    assert r.status_code == 200 and "no chat yet" in r.text and 'data-chat="' not in r.text
+
+    def boom(token):
+        raise TelegramError("Unauthorized", 401)
+
+    monkeypatch.setattr(webapp, "fetch_chat_ids", boom)
+    r = client.post("/settings/telegram-chats")
+    assert r.status_code == 502 and "Unauthorized" in r.text
+
+
+def test_test_alert_success(client, notifier, live):
+    _with_telegram(live, bot_token="T", chat_id="42")
     r = client.post("/settings/test-alert")
     assert r.status_code == 200 and "test alert sent" in r.text and notifier.tests == 1
     # result banner sits at the top, before the main form
@@ -603,6 +681,7 @@ def test_test_alert_success(client, notifier):
 
 def test_test_alert_telegram_error(store, state, live, config_path, classifier):
     bad = FakeNotifier(raise_exc=TelegramError("Unauthorized", 401))
+    _with_telegram(live, bot_token="T", chat_id="42")
     c = TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=bad))
     r = c.post("/settings/test-alert")
     assert r.status_code == 502 and "Unauthorized" in r.text
@@ -611,8 +690,8 @@ def test_test_alert_telegram_error(store, state, live, config_path, classifier):
 def test_test_alert_disabled_503(store, state, live, config_path, classifier):
     c = TestClient(create_app(store, state, live, config_path, classifier=classifier))
     r = c.post("/settings/test-alert")
-    assert r.status_code == 503 and "disabled" in r.text
-    assert "disabled" in c.get("/settings").text  # button state explained
+    assert r.status_code == 503 and "save a bot token and a chat" in r.text
+    assert "Save a bot token and a chat first." in c.get("/settings").text  # button state explained
 
 
 def test_settings_page_shows_publishing_group(client):
@@ -661,6 +740,8 @@ def publisher():
 
 @pytest.fixture
 def pclient(store, state, live, config_path, classifier, notifier, publisher):
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, enabled=True, host="gallery.example")))
     return TestClient(create_app(store, state, live, config_path, classifier=classifier, notifier=notifier, publisher=publisher))
 
 
@@ -1305,3 +1386,89 @@ def test_settings_has_the_auto_shutter_switch(client, live):
     assert 'name="dslr_auto_shutter"' in client.get("/settings").text
     post_settings(client, dslr_auto_shutter="on")
     assert live.get().dslr.auto_shutter is True
+
+
+# --- everything from the setup page: gallery, feeder name, species list ---------------
+
+def test_gallery_can_be_set_up_from_the_page(client, live, tmp_path, monkeypatch):
+    import birdy.web.app as webapp
+
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, ssh_key=tmp_path / "k")))
+    html = client.get("/settings").text
+    assert 'name="publish_enabled"' in html and 'name="publish_host"' in html and 'name="publish_site_id"' in html
+    assert "Publishing off" in html and "Create the key" in html and 'form="publish-check" disabled' in html
+    # switching on without a server is refused on the server row
+    r = post_settings(client, publish_enabled="on")
+    assert r.status_code == 422 and "publish.host is required" in r.text
+    # the key: made from the page, then shown as the line for the gallery's keeper
+    made = []
+    monkeypatch.setattr(webapp, "create_publish_key", lambda cfg: made.append(cfg.ssh_key) or (tmp_path / "k.pub").write_text("ssh-ed25519 AAAA me@pi\n"))
+    assert client.post("/settings/publish-key", follow_redirects=False).status_code == 303 and made == [tmp_path / "k"]
+    r = post_settings(client, publish_enabled="on", publish_host="gallery.example", publish_site_id="garden")
+    assert r.status_code == 303
+    p = live.get().publish
+    assert p.enabled and p.host == "gallery.example" and p.site_id == "garden" and p.ssh_key == tmp_path / "k"
+    html = client.get("/settings").text
+    assert "Publishing on" in html and "/srv/birdy/sites/garden&#34;,restrict ssh-ed25519 AAAA me@pi" in html
+    assert "Copy the line" in html and 'form="publish-check" >' in html
+    # the connection check reports what rsync said
+    monkeypatch.setattr(webapp, "check_connection", lambda cfg: (True, "connected to gallery.example"))
+    r = client.post("/settings/publish-check")
+    assert r.status_code == 200 and "gallery: connected to gallery.example" in r.text
+    monkeypatch.setattr(webapp, "check_connection", lambda cfg: (False, "Permission denied (publickey)."))
+    r = client.post("/settings/publish-check")
+    assert r.status_code == 502 and "Permission denied" in r.text and "added this feeder" in r.text
+
+
+def test_publish_check_needs_a_saved_server(client):
+    assert client.post("/settings/publish-check").status_code == 422
+
+
+def test_publish_buttons_follow_the_live_switch(pclient, store, live):
+    add(store, 0, True)
+    assert "Publish</button>" in pclient.get("/").text
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, publish=dataclasses.replace(cfg.publish, enabled=False)))
+    assert "Publish</button>" not in pclient.get("/").text
+    assert pclient.post("/captures/1/publish", data={"state": "forced"}).status_code == 503
+
+
+def test_feeder_name_and_radius_are_on_the_page(client, live):
+    FakeSpeciesList.refreshes.clear()
+    html = client.get("/settings").text
+    assert 'name="site_name"' in html and 'name="region_radius_km"' in html and "Refresh the list now" in html
+    r = post_settings(client, site_name="Kitchen window", region_radius_km="120")
+    assert r.status_code == 303
+    cfg = live.get()
+    assert cfg.site.name == "Kitchen window" and cfg.species.region_radius_km == 120
+    assert FakeSpeciesList.refreshes == [(None, None, 120, "background")]       # the radius changed: refetch
+    post_settings(client, site_name="Kitchen window", region_radius_km="120")
+    assert len(FakeSpeciesList.refreshes) == 1                                  # nothing changed: no refetch
+    assert post_settings(client, site_name=" ").status_code == 422
+
+
+def test_refresh_the_species_list_now(client, live):
+    FakeSpeciesList.refreshes.clear()
+    assert client.post("/settings/species-refresh").status_code == 422          # no location yet
+    post_settings(client, lat="38.8", lon="-9.39")
+    FakeSpeciesList.refreshes.clear()
+    r = client.post("/settings/species-refresh")
+    assert r.status_code == 200 and "species list: 1 species within 50 km" in r.text
+    assert FakeSpeciesList.refreshes == [(38.8, -9.39, 50, "forced")]
+    FakeSpeciesList.refresh_ok = False
+    try:
+        r = client.post("/settings/species-refresh")
+        assert r.status_code == 502 and "could not be fetched" in r.text
+    finally:
+        FakeSpeciesList.refresh_ok = True
+
+
+def test_each_part_has_its_how_to(client, live):
+    html = client.get("/settings").text
+    assert html.count('<details class="howto"') == 4 and html.count("How to set this up") == 4
+    assert "@BotFather" in html and "Find my chat" in html
+    assert '<details class="howto" open>' in html                               # messages: not set up yet, so unfolded
+    _with_telegram(live, bot_token="T", chat_id="42")
+    html = client.get("/settings").text
+    assert html.count('<details class="howto" open>') == 1                      # only the gallery guide is still open

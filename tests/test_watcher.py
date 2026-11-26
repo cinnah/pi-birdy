@@ -135,10 +135,21 @@ def test_save_settings_then_watch_is_noop(config_path, live):
         species_include=cur.species.include, species_exclude=cur.species.exclude,
         detector_threshold=cur.detector.threshold,
         visits_gap_seconds=cur.visits.gap_seconds,
+        site_name=cur.site.name,
+        region_radius_km=cur.species.region_radius_km,
+        publish_enabled=cur.publish.enabled,
+        publish_host=cur.publish.host,
+        publish_user=cur.publish.user,
+        publish_remote_dir=cur.publish.remote_dir,
+        publish_site_id=cur.publish.site_id,
         lat=cur.site.lat,
         lon=cur.site.lon,
         margin_minutes=cur.daylight.margin_minutes,
         non_bird_days=cur.retention.non_bird_days,
+        telegram_enabled=cur.telegram.enabled,
+        bot_token=None,
+        chat_id=cur.telegram.chat_id,
+        base_url=cur.telegram.base_url,
         no_alert=cur.telegram.no_alert,
         cooldown_minutes=cur.telegram.cooldown_minutes,
         publish_min_confidence=cur.publish.min_confidence,
@@ -153,22 +164,22 @@ def test_save_settings_then_watch_is_noop(config_path, live):
     assert live.get().motion.min_area == 200
 
 
-def test_telegram_token_change_warns(config_path, live, caplog):
+def test_telegram_settings_apply_live_without_a_restart_warning(config_path, live, caplog):
     w = ConfigWatcher(config_path, live)
     config_path.write_text(config_path.read_text() + '\n[telegram]\nbot_token = "new"\n')
     bump_mtime(config_path)
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
-    assert "restart" in caplog.text and live.get().telegram.bot_token == "new"
+    assert "restart" not in caplog.text and live.get().telegram.bot_token == "new"
 
 
-def test_publish_restart_only_keys_warn(config_path, live, caplog):
+def test_publish_keys_apply_live_without_a_restart_warning(config_path, live, caplog):
     w = ConfigWatcher(config_path, live)
     config_path.write_text(config_path.read_text() + '\n[publish]\nsite_id = "other"\n')
     bump_mtime(config_path)
     with caplog.at_level(logging.WARNING):
         assert w.check_once() is True
-    assert "restart" in caplog.text and live.get().publish.site_id == "other"
+    assert "restart" not in caplog.text and live.get().publish.site_id == "other"
 
 
 def test_detector_model_change_warns(config_path, live, caplog):

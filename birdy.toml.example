@@ -40,7 +40,7 @@ threshold = 0.5            # P(bird) at or above this = bird
 model = "models/bioclip2-vision-int8.onnx"   # BioCLIP 2 image tower; built by deploy/build-species-model.sh; restart-only
 bank = "models/bioclip2-birds.npz"           # name embeddings for every iNaturalist bird species; same script; restart-only
 threshold = 0.5            # name a bird at or above this confidence; applies without a restart
-region_radius_km = 50      # the local species list = birds seen on iNaturalist within this radius of [site] lat/lon; a change refetches at the next start
+region_radius_km = 50      # the local species list = birds seen on iNaturalist within this radius of [site] lat/lon; live on /settings (a change there refetches the list)
 include = []               # names to add to the local list (latin or common), e.g. ["Common Hoopoe"]; live
 exclude = []               # names to drop from it; live
 
@@ -63,9 +63,10 @@ host = "0.0.0.0"          # restart-only; "::" = IPv4 + IPv6 (birdy.local also r
 port = 8000
 
 [telegram]
-enabled = false            # restart-only; set true once bot_token and chat_id are filled in
-bot_token = ""             # restart-only, SECRET — from @BotFather; this file is gitignored
-chat_id = ""               # restart-only — `birdy telegram-chat-id` prints it after you message the bot
+# All of [telegram] is live and on /settings (Messages): no restart, no need to edit it here.
+enabled = false            # needs bot_token and chat_id
+bot_token = ""             # SECRET — from @BotFather; this file is gitignored
+chat_id = ""               # "Find my chat" on /settings (or `birdy telegram-chat-id`) lists it after you message the bot
 base_url = "http://birdy.local:8000"   # link in the alert caption
 no_alert = []              # every species alerts, except these: common names (as on /species), e.g. ["Black Redstart"]
 cooldown_minutes = 30      # at most one alert per species per this many minutes (a first-ever species skips it); 0 = every visit
@@ -73,13 +74,13 @@ cooldown_minutes = 30      # at most one alert per species per this many minutes
 [publish]
 # Public gallery (https://birdy.akibeo.com). The Pi rsyncs web-sized copies of its best
 # bird photos to the server; see CLAUDE.md "Gallery setup".
-enabled = false                   # restart-only; when false nothing is published
-host = ""                         # restart-only; the gallery server, e.g. "gallery.example.org"
-user = "birdy"                    # restart-only; SSH user on the server
-remote_dir = "/"                  # restart-only; rsync target as the server key sees it: "/" with the
+enabled = false                   # live, on /settings (Gallery); when false nothing is ranked or published
+host = ""                         # live; the gallery server, e.g. "gallery.example.org"
+user = "birdy"                    # live; SSH user on the server
+remote_dir = "/"                  # live; rsync target as the server key sees it: "/" with the
                                   # rrsync-restricted key, or the full path if the key is unrestricted
-site_id = "home"                  # restart-only; this site's id: folder under sites/ and id in sites.json; [a-z0-9-]{1,32}
-ssh_key = "~/.ssh/birdy_publish"  # restart-only; private key (install.sh generates it); ~ is expanded,
+site_id = "home"                  # live; this site's id: folder under sites/ and id in sites.json; [a-z0-9-]{1,32}
+ssh_key = "~/.ssh/birdy_publish"  # not on /settings; private key (install.sh or "Create the key" on /settings makes it); ~ is expanded,
                                   # a relative path is relative to this file
 min_confidence = 0.6              # live; species confidence needed to be auto-published (0-1)
 per_species_per_day = 3           # live; best N photos per species per local day (1-20)
