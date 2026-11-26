@@ -905,42 +905,58 @@ class Store:
         return [(int(r["id"]), r["web_path"]) for r in rows]
 
     def publish_stats(self, now: datetime | None = None, days: int = 30) -> dict:
-        """Aggregate numbers for the gallery dashboard, over ALL bird captures (published or not).
+        """Aggregate numbers for the gallery, in VISITS, over all bird photos (published or not).
+
+        A visit is one bird's stay at the feeder (the `visits` table): however many photos it
+        left, it counts once, at the time of its first photo. A visit whose photos carry two
+        names (a second bird in frame) counts once for each name and once in the totals; a bird
+        photo with no visit (none should exist) counts as a visit of its own.
 
         Times are local (the Pi's zone); `per_day` has `days` entries ending today, `per_hour` 24;
-        each species carries `days`: {local day: count} for the days in that window it was seen.
+        each species carries `days`: {local day: visits} for the days in that window it was seen,
+        and `hours`: 24 visit counts by local hour of day over all time (when it tends to come).
+        The keys `total_birds` and `per_day[].birds` keep their names from when they counted photos.
         """
         now = (now or datetime.now(timezone.utc)).astimezone()
         with self._lock:
-            rows = self._conn.execute("SELECT captured_at, species FROM captures WHERE is_bird = 1").fetchall()
+            rows = self._conn.execute(
+                "SELECT id, captured_at, species, visit_id FROM captures WHERE is_bird = 1 ORDER BY captured_at, id"
+            ).fetchall()
         today = now.date()
         per_day = {today - timedelta(days=i): 0 for i in range(days)}
         per_hour = [0] * 24
-        by_species: dict[str, list] = {}  # name -> [count, first, last, {day: count} within the window]
+        by_species: dict[str, list] = {}  # name -> [visits, first, last, {day: visits} within the window, per hour]
+        seen_visits: set = set()          # visits already counted in the totals
+        seen_named: set = set()           # (visit, species) already counted for that species
         first = last = None
         for r in rows:
             t = _from_db_time(r["captured_at"]).astimezone()
             d = t.date()
-            if d in per_day:
-                per_day[d] += 1
-            per_hour[t.hour] += 1
+            visit = r["visit_id"] if r["visit_id"] is not None else ("photo", r["id"])
             first = t if first is None or t < first else first
             last = t if last is None or t > last else last
-            if r["species"]:
-                s = by_species.setdefault(r["species"], [0, t, t, {}])
-                s[0] += 1
-                s[1] = min(s[1], t)
-                s[2] = max(s[2], t)
+            if visit not in seen_visits:              # rows come oldest first: this is the visit's first photo
+                seen_visits.add(visit)
                 if d in per_day:
-                    s[3][d.isoformat()] = s[3].get(d.isoformat(), 0) + 1
+                    per_day[d] += 1
+                per_hour[t.hour] += 1
+            if r["species"]:
+                s = by_species.setdefault(r["species"], [0, t, t, {}, [0] * 24])
+                s[2] = max(s[2], t)                   # last seen: its latest photo
+                if (visit, r["species"]) not in seen_named:
+                    seen_named.add((visit, r["species"]))
+                    s[0] += 1
+                    s[4][t.hour] += 1
+                    if d in per_day:
+                        s[3][d.isoformat()] = s[3].get(d.isoformat(), 0) + 1
         species = [
             {"name": n, "count": c, "first": f.date().isoformat(), "last": l.isoformat(timespec="seconds"),
-             "days": dict(sorted(ds.items()))}
-            for n, (c, f, l, ds) in by_species.items()
+             "days": dict(sorted(ds.items())), "hours": hs}
+            for n, (c, f, l, ds, hs) in by_species.items()
         ]
         species.sort(key=lambda s: (-s["count"], s["name"]))
         return {
-            "total_birds": len(rows),
+            "total_birds": len(seen_visits),
             "species_count": len(by_species),
             "first_capture": None if first is None else first.date().isoformat(),
             "last_capture_at": None if last is None else last.isoformat(timespec="seconds"),

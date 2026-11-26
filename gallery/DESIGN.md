@@ -64,6 +64,11 @@ typography:
     fontSize: "15px"
     fontWeight: 400
     lineHeight: 1.5
+  typed-compact:
+    fontFamily: "Courier Prime, Courier New, Courier, monospace"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.3
   typed-entry:
     fontFamily: "Courier Prime, Courier New, Courier, monospace"
     fontSize: "15px"
@@ -327,7 +332,8 @@ A two-ink ledger palette: blue-black ink and blue rule ink printed on eye-ease g
 - **Typed note** (`typed-note`; italic 15px Courier Prime, rule ink): the optional note under the head and every "nothing here" line.
 - **Body** (`body`; 400, 15px, 1.5, Libre Franklin, tabular numerals): the page default; little text reaches it unstyled.
 - **Label** (`label`; 600, 11px, 1.3, tracked 0.14em, uppercase, Libre Franklin, rule ink): printed field names: SPECIES, SHEET, section headings, ledger heads, weekday beside a log day, the scroll hint, the filter's "Show", the feeder name typed under a cell on a phone.
-- **Grid head** (`grid-head`; 600, 11px, tracked 0.06em, Libre Franklin, rule ink): the day numbers and hours across the monthly sheet; their 10px month abbreviation is uppercase and tracked 0.14em like a label.
+- **Typed, compact** (`typed-compact`; 400, 14px, 1.3, Courier Prime): typed text where a phone's width is short: species names down the monthly sheet, ledger cells, the caption in the photo dialog.
+- **Grid head** (`grid-head`; 600, 11px, tracked 0.06em, Libre Franklin, rule ink): the day numbers and hours across the monthly sheet; their month abbreviation is uppercase and tracked 0.14em like a label.
 - **Small print** (`small-print`; 13px/1.4 Libre Franklin, rule ink): place and local time under a feeder's name; the time itself is typed.
 - **Foot** (`foot`; 12px/1.5 Libre Franklin, rule ink): the provenance line and "record kept since" under the closing red rule.
 
@@ -342,7 +348,7 @@ The sheet is a single column of ruled rows, 1320px wide at most, centred, full v
 
 **Daily sheet (`.daily .row`).** Each row is a grid: a species column `minmax(150px, 230px)` then one `minmax(0, 1fr)` column per feeder (`--n`). Rows are separated by a 1px rule beneath; columns by a 1px rule to the left of every cell after the first. Cells pad `10px 12px 12px 0` (12px left when ruled). The column-head row is the same grid with 8px vertical padding; the totals row too, with 10px. Rows are ordered by visits and the top row is the tallest: print widths are capped by rank at 460 / 340 / 250px when there are several feeders, and at 100% / 76% / 58% of the column when there is one. Hovering a row washes it with `tint` across every feeder.
 
-**Monthly sheet (`.mgrid`).** A grid of `minmax(150px, 190px)` species column, one `minmax(28px, 1fr)` column per day (`--d`, 30 by default) and a 56px total column, 1040px minimum, inside a horizontally scrolling `.month` that opens scrolled to today at the right edge. The species column is sticky on the left with the paper as backing and a 1px rule to its right; the total column has a 1px rule to its left. The hour grid is the same with 24 columns and 880px minimum.
+**Monthly sheet (`.mgrid`).** A grid of `minmax(150px, 190px)` species column, one `minmax(28px, 1fr)` column per day (`--d`, 30 by default) and a 56px total column, 1040px minimum, inside a horizontally scrolling `.month` that opens scrolled to today at the right edge. The species column is sticky on the left with the paper as backing and a 1px rule to its right; the total column has a 1px rule to its left. The hour grid is the same with 24 columns and 880px minimum. Count cells carry an **ink wash**: `data-w` 1–4 lays rule ink over the cell at 9 / 20 / 32 / 46 % (a `background-image`, so today's tint shows through), stepped by the cell's share of the busiest cell in its own row, so a rare bird's pattern reads as clearly as a common one's; the number stays in every cell and a `.washkey` line under the hour table explains the steps. **By hour (`.hgrid`)** is the same grid turned to hours: one row per species (from `stats.species[].hours`, all time) and an **All birds** row (`stats.per_hour`), only the hours between the first and last active one plus one on each side (`--h` columns), then a 72px **Busiest** column (the hour with the most visits, typed `7 h`) before the total. On a phone it opens on the morning while the days open on today. A manifest without per-species hours keeps the single **Visits** row.
 
 **Ledger (`.ledger`).** Species card: `minmax(150px, 1fr) 7ch 10ch 10ch`, each cell ruled beneath, numbers right-aligned with a 32px right inset.
 

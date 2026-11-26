@@ -169,7 +169,8 @@ def test_capture_sets_the_shutter_speed_in_the_same_call(store, live, tmp_path):
     r = Runner()
     make(store, live, r).capture(tmp_path / "a_eos.jpg", "1/250")
     assert r.calls[0][:4] == ["gphoto2", "--set-config", "shutterspeed=1/250", "--capture-image-and-download"]
-    assert r.calls[1:] == [["gphoto2", "--auto-detect"]]      # only the one-off model lookup follows
+    # only the one-off questions to a camera that just connected follow: what it is, what it can do
+    assert r.calls[1:] == [["gphoto2", "--auto-detect"], ["gphoto2", "--abilities"], ["gphoto2", "--get-config", "shutterspeed"]]
 
 
 @pytest.mark.parametrize("lux, k, expected", [
@@ -271,3 +272,101 @@ def test_model_lookup_failure_does_not_fail_the_shot(store, live, tmp_path):
     d = make(store, live, Runner(stdout="nothing useful"))
     d.capture(tmp_path / "a_eos.jpg")
     assert d.status().state == "ready" and d.model is None
+
+
+# --- what the connected camera can do -----------------------------------------------
+
+ABILITIES = """Abilities for camera             : Canon EOS 50D
+Serial port support              : no
+USB support                      : yes
+Capture choices                  :
+                                 : Image
+                                 : Preview
+Configuration support            : yes
+"""
+NO_CAPTURE = """Abilities for camera             : Some Compact
+USB support                      : yes
+Capture choices                  : Capture not supported by the driver
+Configuration support            : no
+"""
+SHUTTER_TV = """Label: Shutter Speed
+Readonly: 0
+Type: RADIO
+Current: 1/250
+Choice: 0 30
+Choice: 1 1/250
+Choice: 2 1/500
+END
+"""
+SHUTTER_AV = """Label: Shutter Speed
+Readonly: 0
+Type: RADIO
+Current: auto
+Choice: 0 auto
+END
+"""
+
+
+def test_parse_can_capture():
+    from birdy.dslr import parse_can_capture
+    assert parse_can_capture(ABILITIES) is True
+    assert parse_can_capture(NO_CAPTURE) is False
+    assert parse_can_capture("Capture choices                  : Preview\n") is False
+    assert parse_can_capture("nothing here") is None and parse_can_capture("") is None
+
+
+def test_parse_shutter_support():
+    from birdy.dslr import parse_shutter_support
+    done = lambda rc, out: subprocess.CompletedProcess([], rc, out, "")  # noqa: E731
+    assert parse_shutter_support(done(0, SHUTTER_TV)) == "ok"
+    assert parse_shutter_support(done(0, SHUTTER_AV)) == "mode"          # the dial is not on Tv
+    assert parse_shutter_support(done(0, SHUTTER_TV.replace("Readonly: 0", "Readonly: 1"))) == "mode"
+    assert parse_shutter_support(done(1, "")) == "no"                    # no such setting on this camera
+
+
+class Scripted:
+    """A gphoto2 that answers each question with its own output."""
+
+    def __init__(self, abilities=ABILITIES, shutter=(0, SHUTTER_TV)):
+        self.abilities, self.shutter, self.calls = abilities, shutter, []
+
+    def __call__(self, cmd, capture_output=True, text=True, timeout=None):
+        self.calls.append(cmd)
+        if "--filename" in cmd:
+            Path(cmd[cmd.index("--filename") + 1]).write_bytes(b"jpeg")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if "--auto-detect" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, AUTO_DETECT, "")
+        if "--abilities" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, self.abilities, "")
+        if cmd[1:] == ["--get-config", "shutterspeed"]:
+            return subprocess.CompletedProcess(cmd, self.shutter[0], self.shutter[1], "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+
+def test_a_connecting_camera_is_asked_what_it_can_do(store, live, tmp_path):
+    d = make(store, live, Scripted())
+    assert d.status().can_capture is None and d.status().shutter is None and d.accepts_shutter
+    d.capture(tmp_path / "a_eos.jpg")
+    st = d.status()
+    assert st.can_capture is True and st.shutter == "ok" and d.accepts_shutter
+
+
+def test_a_camera_off_tv_is_fired_at_its_own_speed(store, live, tmp_path):
+    r = Scripted(shutter=(0, SHUTTER_AV))
+    d = make(store, live, r)
+    d.capture(tmp_path / "a_eos.jpg")                  # connects; the probe finds the dial off Tv
+    assert d.status().shutter == "mode" and not d.accepts_shutter
+    d.capture(tmp_path / "b_eos.jpg", "1/250")
+    assert "--set-config" not in r.calls[-1] and (tmp_path / "b_eos.jpg").exists()   # the shot is not lost
+    r.shutter = (0, SHUTTER_TV)                        # the dial is turned to Tv; a test frame asks again
+    d.probe()
+    d.capture(tmp_path / "c_eos.jpg", "1/250")
+    assert r.calls[-1][1:3] == ["--set-config", "shutterspeed=1/250"]
+
+
+def test_a_camera_without_the_setting_or_that_cannot_be_fired(store, live, tmp_path):
+    d = make(store, live, Scripted(abilities=NO_CAPTURE, shutter=(1, "")))
+    d.probe()
+    st = d.status()
+    assert st.can_capture is False and st.shutter == "no" and not d.accepts_shutter

@@ -52,6 +52,8 @@ class DslrStatus:
     state: str            # 'ready' | 'not_connected' | 'error' | 'cap_reached' | 'unknown'
     shots_today: int
     last_error: str | None
+    can_capture: bool | None = None   # can gphoto2 fire this camera? None = not asked yet / no clear answer
+    shutter: str | None = None        # auto shutter: 'ok' | 'mode' (not in this dial position) | 'no' (no such setting) | None
 
 
 def _message(proc: subprocess.CompletedProcess) -> str:
@@ -73,6 +75,37 @@ def parse_auto_detect(out: str) -> str | None:
                 if len(parts) == 2 and ":" in parts[1] and parts[0].strip():
                     return parts[0].strip()
     return None
+
+
+def parse_can_capture(abilities: str) -> bool | None:
+    """From `gphoto2 --abilities`: whether the driver can take a picture ("Capture choices: Image").
+    None when the output has no such section."""
+    lines = (abilities or "").splitlines()
+    for i, ln in enumerate(lines):
+        if ln.strip().casefold().startswith("capture choices"):
+            block = [ln.split(":", 1)[1] if ":" in ln else ""]
+            for nxt in lines[i + 1:]:
+                if nxt.split(":", 1)[0].strip():      # the next ability's own label ends the list
+                    break
+                block.append(nxt.split(":", 1)[1] if ":" in nxt else nxt)
+            text = " ".join(block).casefold()
+            if "not supported" in text:
+                return False
+            return "image" in text
+    return None
+
+
+def parse_shutter_support(proc: subprocess.CompletedProcess) -> str:
+    """From `gphoto2 --get-config shutterspeed`: 'ok' when the camera offers speeds birdy sets,
+    'mode' when the setting exists but not with those choices (the dial is not on Tv/S or M),
+    'no' when the camera has no such setting."""
+    if proc.returncode != 0:
+        return "no"
+    choices = {ln.split(None, 2)[2].strip() for ln in (proc.stdout or "").splitlines()
+               if ln.startswith("Choice:") and len(ln.split(None, 2)) == 3}
+    wanted = {name for _, name in SHUTTER_LADDER}
+    readonly = any(ln.strip() == "Readonly: 1" for ln in (proc.stdout or "").splitlines())
+    return "ok" if choices & wanted and not readonly else "mode"
 
 
 def short_model(model: str | None) -> str | None:
@@ -112,6 +145,8 @@ class Dslr:
         self._last_error: str | None = None
         self._warned: set[str] = set()
         self._model: str | None = store.get_meta(MODEL_META)
+        self._can_capture: bool | None = None
+        self._shutter: str | None = None
 
     @property
     def model(self) -> str | None:
@@ -123,6 +158,11 @@ class Dslr:
         """What log lines call it: the short model, or "extra camera" before any was seen."""
         return short_model(self._model) or "extra camera"
 
+    @property
+    def accepts_shutter(self) -> bool:
+        """False once the camera is known to refuse the speeds auto shutter sets."""
+        return self._shutter in (None, "ok")
+
     def _detect_model(self) -> None:
         """Ask which camera is on USB and remember it. Never raises: the name is a label only."""
         try:
@@ -133,6 +173,22 @@ class Dslr:
                 log.info("extra camera is a %s", model)
         except Exception:
             log.debug("could not read the extra camera's model", exc_info=True)
+
+    def probe(self) -> None:
+        """Ask the connected camera what it is and what it can do: its model, whether it can be
+        fired over USB, and whether it takes the shutter speeds auto shutter sets. Run when it
+        (re)connects and after a test frame (the mode dial may have moved). Never raises."""
+        self._detect_model()
+        try:
+            can = parse_can_capture(self._run(["--abilities"]).stdout)
+            shutter = parse_shutter_support(self._run(["--get-config", "shutterspeed"]))
+        except Exception:
+            log.debug("could not read what the extra camera can do", exc_info=True)
+            return
+        if (can, shutter) != (self._can_capture, self._shutter):
+            log.info("%s: fired over USB %s; shutter speed setting: %s", self.name,
+                     {True: "yes", False: "NO", None: "unknown"}[can], shutter)
+        self._can_capture, self._shutter = can, shutter
 
     # --- gphoto2 ----------------------------------------------------------
     def _run(self, args: list[str]) -> subprocess.CompletedProcess:
@@ -152,7 +208,7 @@ class Dslr:
 
     def _ok(self) -> None:
         if self._state != "ready":
-            self._detect_model()              # just (re)connected: it may be another camera now
+            self.probe()                      # just (re)connected: it may be another camera now
             log.info("%s ready", self.name)
         self._state, self._last_error = "ready", None
         self._warned.clear()
@@ -173,7 +229,9 @@ class Dslr:
         tmp = dest.with_name(dest.name + ".tmp")
         t0 = time.monotonic()
         try:
-            setting = ["--set-config", f"shutterspeed={shutter}"] if shutter else []
+            # A camera that would refuse the speed (no such setting, or the dial is not on Tv) is
+            # fired at its own speed: a refused setting would cost the whole shot.
+            setting = ["--set-config", f"shutterspeed={shutter}"] if shutter and self.accepts_shutter else []
             proc = self._run([*setting, "--capture-image-and-download", "--filename", str(tmp), "--force-overwrite"])
             # gphoto2 can exit 0 after printing an error: the file is the proof.
             if proc.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
@@ -213,7 +271,8 @@ class Dslr:
         state = self._state
         if state == "cap_reached" and shots < self._live.get().dslr.daily_cap:
             state = "ready"                   # a new day, or the cap was raised
-        return DslrStatus(state=state, shots_today=shots, last_error=self._last_error)
+        return DslrStatus(state=state, shots_today=shots, last_error=self._last_error,
+                          can_capture=self._can_capture, shutter=self._shutter)
 
 
 # --- geometry (pure) --------------------------------------------------------

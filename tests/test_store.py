@@ -437,9 +437,33 @@ def test_publish_stats(store):
         "name": "Robin", "count": 2,
         "first": today9.date().isoformat(), "last": (today9 + timedelta(minutes=5)).isoformat(timespec="seconds"),
         "days": {today.isoformat(): 2},
+        "hours": [0] * 9 + [2] + [0] * 14,
     }
+    assert s["species"][1]["hours"][9] == 2 and sum(s["species"][1]["hours"]) == 2    # all time, not only the window
     assert s["species"][1]["name"] == "Wren" and s["species"][1]["count"] == 2
     assert s["species"][1]["days"] == {yday9.date().isoformat(): 1}   # the 40-day-old one is outside the window
+
+
+def test_publish_stats_count_visits_not_photos(store):
+    now = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc).astimezone()
+    today = now.date()
+    t9, t15 = _local(today, 9), _local(today, 15)
+    # one long visit: three Robin photos and, in the same visit, a second bird named by its own photo
+    v1 = store.create_visit(t9, t9 + timedelta(seconds=40), alert="skipped")
+    for i, sp in enumerate(["Robin", "Robin", "Wren", "Robin"]):
+        store.attach_to_visit(_bird(store, t9 + timedelta(seconds=10 * i), sp, 0.9), v1)
+    # a second Robin visit in the afternoon, two photos, one of them unnamed
+    v2 = store.create_visit(t15, t15 + timedelta(seconds=10), alert="skipped")
+    store.attach_to_visit(_bird(store, t15, None, None), v2)
+    store.attach_to_visit(_bird(store, t15 + timedelta(seconds=10), "Robin", 0.9), v2)
+    s = store.publish_stats(now)
+    assert s["total_birds"] == 2                                   # two visits, not six photos
+    assert s["per_day"][-1]["birds"] == 2 and s["per_hour"][9] == 1 and s["per_hour"][15] == 1
+    robin, wren = s["species"]
+    assert robin["name"] == "Robin" and robin["count"] == 2 and robin["days"] == {today.isoformat(): 2}
+    assert robin["hours"][9] == 1 and robin["hours"][15] == 1 and sum(robin["hours"]) == 2
+    assert robin["last"] == (t15 + timedelta(seconds=10)).isoformat(timespec="seconds")
+    assert wren["count"] == 1 and wren["hours"][9] == 1          # the second bird in frame: one visit of its own name
 
 
 def test_publish_stats_empty(store):

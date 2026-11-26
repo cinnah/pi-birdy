@@ -99,7 +99,9 @@ const BIRDY = (() => {
   function evidence() {
     const dlg = document.getElementById("lightbox");
     if (!dlg) return () => false;
-    const img = dlg.querySelector("img"), cap = dlg.querySelector(".cap"), cnt = dlg.querySelector(".count");
+    // the print is made here: it has no source until a cell is opened
+    const img = dlg.querySelector("img") || dlg.querySelector("figure").insertAdjacentElement("afterbegin", Object.assign(document.createElement("img"), { alt: "" }));
+    const cap = dlg.querySelector(".cap"), cnt = dlg.querySelector(".count");
     const thumbs = dlg.querySelector(".thumbs");
     let items = [], i = 0, token = 0;
     const show = () => {
@@ -277,15 +279,32 @@ const BIRDY = (() => {
       const inner = `<small>${first ? esc(MONTHS[p[1] - 1]) : ""}</small>${p[2]}`;
       return `<div class="mh ${d === todayDay ? "today" : ""}">${photoDays.has(d) ? `<a href="${sheetHref(d)}" aria-label="${esc(dayLong(d))}, daily record">${inner}</a>` : inner}</div>`;
     };
+    // A row of count cells with an ink wash: four steps, darker = busier within that row, so a
+    // rare bird's pattern reads as clearly as a common one's. The number stays in every cell.
+    const washed = (counts, cls = "", extra = () => "") => {
+      const top = Math.max(0, ...counts);
+      return counts.map((c, i) => `<div class="mc ${cls} ${extra(i)}"${c ? ` data-w="${Math.max(1, Math.ceil((c / top) * 4))}"` : ""}>${c || ""}</div>`).join("");
+    };
+    const isToday = (i) => (days[i] === todayDay ? "today" : "");
     const colTotals = days.map((d) => species.reduce((a, sp) => a + cellCount(sp, d), 0));
     const mgrid = species.length ? `<div class="mgrid" style="--d:${days.length}">
         <div class="mh sp"><small>Species</small>${counted ? "visits per day" : "published photos per day"}</div>${days.map(dayHead).join("")}<div class="mh mt"><small>&nbsp;</small>Total</div>
-        ${species.map((sp) => `<div class="sp"><a href="${speciesHref(sp.name)}">${esc(sp.name)}</a></div>${days.map((d) => { const c = cellCount(sp, d); return `<div class="mc ${d === todayDay ? "today" : ""}">${c || ""}</div>`; }).join("")}<div class="mt">${esc(sp.month)}</div>`).join("")}
-        <div class="sp tot">All species</div>${colTotals.map((c, i) => `<div class="mc tot ${days[i] === todayDay ? "today" : ""}">${c || ""}</div>`).join("")}<div class="mt">${esc(colTotals.reduce((a, b) => a + b, 0))}</div>
+        ${species.map((sp) => `<div class="sp"><a href="${speciesHref(sp.name)}">${esc(sp.name)}</a></div>${washed(days.map((d) => cellCount(sp, d)), "", isToday)}<div class="mt">${esc(sp.month)}</div>`).join("")}
+        <div class="sp tot">All species</div>${washed(colTotals, "tot", isToday)}<div class="mt">${esc(colTotals.reduce((a, b) => a + b, 0))}</div>
       </div>` : `<p class="empty">Nothing recorded in the last 30 days.</p>`;
-    const hgrid = `<div class="mgrid hgrid" style="--i:1">
-        <div class="mh sp"><small>Hour of day</small>all time</div>${st.per_hour.map((_, h) => `<div class="mh">${h}</div>`).join("")}<div class="mh mt"><small>&nbsp;</small>Total</div>
-        <div class="sp">Visits</div>${st.per_hour.map((v) => `<div class="mc">${v || ""}</div>`).join("")}<div class="mt">${esc(st.per_hour.reduce((a, b) => a + b, 0))}</div>
+    // By hour: species × hour of day over all time, so each bird's habits show. Hours nobody came
+    // at either end of the day are left off; an older Pi's manifest has no per-species hours and
+    // gets the single row it always had.
+    const active = st.per_hour.map((v, h) => (v ? h : -1)).filter((h) => h >= 0);
+    const h0 = active.length ? Math.max(0, active[0] - 1) : 0, h1 = active.length ? Math.min(23, active.at(-1) + 1) : 23;
+    const hours = Array.from({ length: h1 - h0 + 1 }, (_, i) => h0 + i);
+    const busiest = (row) => { const top = Math.max(...row); return top ? `${row.indexOf(top)} h` : ""; };
+    const hourRow = (label, row, cls = "") => `<div class="sp ${cls}">${label}</div>${washed(hours.map((h) => row[h]), cls)}<div class="mt mb">${esc(busiest(row))}</div><div class="mt">${esc(row.reduce((a, b) => a + b, 0))}</div>`;
+    const hourly = st.species.filter((sp) => Array.isArray(sp.hours) && sp.hours.length === 24);
+    const hgrid = `<div class="mgrid hgrid" style="--i:1;--h:${hours.length}">
+        <div class="mh sp"><small>Species</small>visits per hour of day</div>${hours.map((h) => `<div class="mh">${h}</div>`).join("")}<div class="mh mt mb"><small>&nbsp;</small>Busiest</div><div class="mh mt"><small>&nbsp;</small>Total</div>
+        ${hourly.map((sp) => hourRow(`<a href="${speciesHref(sp.name)}">${esc(sp.name)}</a>`, sp.hours)).join("")}
+        ${hourRow(hourly.length ? "All birds" : "Visits", st.per_hour, hourly.length ? "tot" : "")}
       </div>`;
     // the latest day's entries, as prints
     const latestDay = m.photos.length ? day(m.photos[0].captured_at) : null;
@@ -305,8 +324,9 @@ const BIRDY = (() => {
       ${latest}
       <h3 class="sec"><span>Last 30 days</span><span class="typed">${esc(dayShort(days[0]))} – ${esc(dayShort(days.at(-1)))}</span></h3>
       <div class="month">${mgrid}</div><p class="scrollhint">Today is at the right edge · scroll sideways for earlier days</p>
-      <h3 class="sec"><span>By hour</span></h3>
+      <h3 class="sec"><span>By hour</span><span class="typed">all time · ${esc(hours[0])} h – ${esc(hours.at(-1))} h</span></h3>
       <div class="month">${hgrid}</div><p class="scrollhint">Scroll sideways for the other hours</p>
+      <p class="washkey"><span>Shading</span><i data-w="1"></i><i data-w="2"></i><i data-w="3"></i><i data-w="4"></i><span class="typed">darker = busier, within each row</span></p>
       <h3 class="sec"><span>Photo log</span><label class="filter">Show <select id="flt"><option value="">all species</option>${options}</select></label></h3>
       <div id="log"></div>
       ${foot(RECORDED, `<a class="hit" href="index.html">Daily record</a>`)}`;
@@ -314,7 +334,8 @@ const BIRDY = (() => {
     const draw = (f) => { log.innerHTML = photoLog(m.photos.filter((p) => !f || name(p) === f).map((p) => ({ site: s, p })), todayDay, false) || `<p class="empty">Nothing published yet.</p>`; };
     document.getElementById("flt").addEventListener("change", (e) => draw(e.target.value));
     draw("");
-    for (const el of document.querySelectorAll(".month")) el.scrollLeft = el.scrollWidth;   // open on today, not on the empty left edge
+    const monthEl = document.querySelector(".month");
+    if (monthEl) monthEl.scrollLeft = monthEl.scrollWidth;   // the days open on today, not on the empty left edge; the hours open on the morning
     evidence();
   }
 

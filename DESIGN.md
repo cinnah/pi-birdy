@@ -80,6 +80,12 @@ typography:
     lineHeight: 1
     letterSpacing: "0.06em"
     fontVariation: "'wdth' 87.5"
+  field-phone:
+    fontFamily: "Martian Mono, ui-monospace, SF Mono, Menlo, monospace"
+    fontSize: "16px"
+    fontWeight: 500
+    lineHeight: 1.3
+    fontVariation: "'wdth' 87.5"
   key:
     fontFamily: "Martian Mono, ui-monospace, SF Mono, Menlo, monospace"
     fontSize: "11px"
@@ -249,6 +255,7 @@ A near-achromatic instrument palette (two grounds with a faint green cast) with 
 - **Body** (sans 400, 15px/1.45): default text.
 - **Explain** (sans 400, 13px/1.4, dim, max 62ch): the sentence under each setting.
 - **Value** (mono 500, 14px/1.3, width 87.5%): numbers and text inside fields and selects, right-aligned in numeric fields (9ch).
+- **Field on a phone** (mono 500, 16px): a text field a phone types into (the Fix panel's species field at 640px and below); under 16px iOS Safari zooms the page when it takes focus.
 - **Button label** (mono 700, 12px, 0.1em, uppercase): buttons, segmented filters (11px), file picker.
 - **OSD strip** (mono 500, 12px, 0.06em, uppercase): nav, lamp, score, clock; the brand is 800 at 13px, 0.12em, width 100%.
 - **Key** (mono 400, 11px, 0.02em, dim): the `birdy.toml` key after each explanation, units, captions.

@@ -1092,6 +1092,16 @@ def test_auto_shutter_picks_the_speed_from_the_light_and_learns_from_a_dark_fram
     assert dslr.shutters[-1] == "1/100"
 
 
+def test_auto_shutter_leaves_a_camera_alone_that_refuses_the_setting(store, live):
+    auto_shutter_on(live)
+    dslr = FakeDslr()
+    dslr.accepts_shutter = False                      # not on Tv, or no such setting (Dslr.probe found out)
+    dslr.level = 50
+    shoot(store, live, dslr, lux=300)
+    assert dslr.shutters == [None]                    # fired at its own speed
+    assert store.get_meta("dslr_exposure_k") is None  # and a frame at an unknown speed teaches k nothing
+
+
 def test_auto_shutter_creeps_faster_after_a_bright_frame(store, live):
     auto_shutter_on(live)
     dslr = FakeDslr()

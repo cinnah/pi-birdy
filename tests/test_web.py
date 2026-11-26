@@ -1274,7 +1274,7 @@ def test_status_and_settings_show_the_dslr(store, state, live, config_path):
     cfg = live.get()
     live.replace(dataclasses.replace(cfg, dslr=dataclasses.replace(cfg.dslr, enabled=True)))
     c = TestClient(create_app(store, state, live, config_path, dslr=_StatusDslr()))
-    assert c.get("/status").json()["dslr"] == {"state": "ready", "shots_today": 4, "model": None}
+    assert c.get("/status").json()["dslr"] == {"state": "ready", "shots_today": 4, "model": None, "can_capture": None, "shutter": None}
     html = c.get("/settings").text
     assert "camera: ready · 4 shots today" in html and "Use the extra camera" in html and "50D" not in html
     store.set_meta("dslr_model", "Canon EOS 50D")
@@ -1472,3 +1472,36 @@ def test_each_part_has_its_how_to(client, live):
     _with_telegram(live, bot_token="T", chat_id="42")
     html = client.get("/settings").text
     assert html.count('<details class="howto" open>') == 1                      # only the gallery guide is still open
+
+
+class _CapsDslr:
+    def __init__(self, can_capture=True, shutter="ok"):
+        self.can_capture, self.shutter = can_capture, shutter
+
+    def status(self):
+        from birdy.dslr import DslrStatus
+        return DslrStatus(state="ready", shots_today=0, last_error=None, can_capture=self.can_capture, shutter=self.shutter)
+
+
+def _caps_page(store, state, live, config_path, **caps):
+    cfg = live.get()
+    live.replace(dataclasses.replace(cfg, dslr=dataclasses.replace(cfg.dslr, enabled=True, auto_shutter=True)))
+    c = TestClient(create_app(store, state, live, config_path, dslr=_CapsDslr(**caps)))
+    return c, c.get("/settings").text
+
+
+def test_extra_camera_part_says_what_the_camera_can_do(store, state, live, config_path):
+    _, html = _caps_page(store, state, live, config_path)
+    assert "cannot be fired over USB" not in html and "capnote" not in html.split("</style>")[1]
+    assert re.search(r'name="dslr_auto_shutter" value="on" checked\s*>', html)
+
+    _, html = _caps_page(store, state, live, config_path, shutter="mode")
+    assert "turn its mode dial to Tv" in html and re.search(r'name="dslr_auto_shutter" value="on" checked\s*>', html)
+
+    c, html = _caps_page(store, state, live, config_path, shutter="no")
+    assert "does not offer its shutter speed over USB" in html
+    assert re.search(r'name="dslr_auto_shutter" value="on"\s+disabled>', html)      # off and not switchable
+    assert c.get("/status").json()["dslr"]["shutter"] == "no"
+
+    _, html = _caps_page(store, state, live, config_path, can_capture=False)
+    assert "cannot be fired over USB" in html

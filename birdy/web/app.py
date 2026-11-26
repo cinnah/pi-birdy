@@ -163,7 +163,9 @@ def create_app(
         if dslr is not None:
             st = dslr.status()
             state_name = st.state if live.get().dslr.enabled else "off"
-            snap["dslr"] = {"state": state_name, "shots_today": st.shots_today, "model": store.get_meta(MODEL_META)}
+            snap["dslr"] = {"state": state_name, "shots_today": st.shots_today, "model": store.get_meta(MODEL_META),
+                            # what the connected camera can do (None = not asked yet); see Dslr.probe
+                            "can_capture": getattr(st, "can_capture", None), "shutter": getattr(st, "shutter", None)}
         return snap
 
     def publishing() -> bool:
@@ -495,6 +497,9 @@ def create_app(
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=503)
         try:
             await run_in_threadpool(dslr.capture, dslr_test)
+            probe = getattr(dslr, "probe", None)
+            if probe is not None:
+                await run_in_threadpool(probe)   # the mode dial may have moved since it connected
         except DslrError as e:
             ctx = settings_context(test=(False, f"extra camera: {e}"))
             return templates.TemplateResponse(request, "settings.html", ctx, status_code=502)

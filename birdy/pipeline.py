@@ -222,7 +222,8 @@ class Pipeline:
         frame's brightness then corrects the exposure constant for the next shot."""
         dest = self._store.photos_dir / rel
         shutter, k = None, None
-        if cfg is not None and cfg.dslr.auto_shutter and lux is not None:
+        # getattr: test doubles; a camera known to refuse the setting keeps its own speed (and k is left alone)
+        if cfg is not None and cfg.dslr.auto_shutter and lux is not None and getattr(self._dslr, "accepts_shutter", True):
             k = self._exposure_k()
             shutter = pick_shutter(lux, k)
         try:

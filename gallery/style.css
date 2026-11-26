@@ -103,12 +103,20 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoratio
 .mgrid .sp a { display: block; padding: 11px 0; margin: -11px 0; }
 .mgrid .tot { font-weight: 700; }
 .mgrid .mh { font: 600 11px/1.3 var(--print); letter-spacing: .06em; color: var(--rule-ink); padding-top: 10px; }
-.mgrid .mh small { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; min-height: 13px; }
+.mgrid .mh small { display: block; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; min-height: 13px; }
 .mgrid .mh a { display: block; padding: 10px 0 7px; margin: -10px 0 -7px; }
 .mgrid .mh.today { color: var(--red); }
 .mgrid .mc.today { background: var(--tint); }
 .mgrid .mt { font-weight: 700; border-left: 1px solid var(--rule); }
-.hgrid { grid-template-columns: minmax(150px, 190px) repeat(24, minmax(28px, 1fr)) 56px; min-width: 880px; }
+.mgrid .mb:not(.mh) { font-weight: 400; }
+/* ink wash: four printed steps of rule ink, laid over the cell (and over today's tint) */
+.mgrid .mc[data-w], .washkey i { background-image: linear-gradient(rgb(70 96 138 / var(--w)), rgb(70 96 138 / var(--w))); }
+[data-w="1"] { --w: .09; } [data-w="2"] { --w: .2; } [data-w="3"] { --w: .32; } [data-w="4"] { --w: .46; }
+.washkey { display: flex; align-items: center; gap: 4px; margin: 0; padding: 10px 0 0; font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); }
+.washkey i { width: 18px; height: 12px; border: 1px solid var(--rule); }
+.washkey span:first-child { margin-right: 6px; }
+.washkey .typed { margin-left: 8px; font: 13px/1.3 var(--type); letter-spacing: 0; text-transform: none; }
+.hgrid { grid-template-columns: minmax(150px, 190px) repeat(var(--h, 24), minmax(28px, 1fr)) 72px 56px; min-width: calc(330px + var(--h, 24) * 30px); }
 
 /* simple ledger: label, numbers, dates */
 .ledger { display: grid; grid-template-columns: minmax(150px, 1fr) 7ch 10ch 10ch; }
@@ -156,7 +164,7 @@ dialog .close:hover { color: var(--red); }
 /* about: a typed note tucked into the record. One measured column, printed labels, typed text. */
 .about article { max-width: 62ch; font-family: var(--type); }
 .about .head .meta { font: 15px/1.5 var(--type); }
-.about .index { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 14px; line-height: 1.6; color: var(--rule-ink); }
+.about .index { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 13px; line-height: 1.6; color: var(--rule-ink); }
 .about .index a { display: inline-block; padding: 11px 0; margin: -11px 0; color: var(--ink); text-decoration: underline; text-decoration-color: var(--rule-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .about section { padding: 28px 0 8px; border-bottom: 1px solid var(--rule); }
 .about section:last-child { border-bottom: 0; }
@@ -170,11 +178,11 @@ dialog .close:hover { color: var(--red); }
 .about pre { margin: 0 0 1.2em; padding: 14px 16px; border: 1px solid var(--rule); font: 13px/1.45 var(--type); color: var(--ink); overflow-x: auto; }
 .about dl { display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 0 24px; margin: 0 0 1.2em; }
 .about dt { font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); padding: 8px 0 0; border-top: 1px solid var(--rule); }
-.about dd { margin: 0; padding: 6px 0 8px; border-top: 1px solid var(--rule); }
+.about dd { margin: 0; padding: 8px 0; border-top: 1px solid var(--rule); }
 .about dt:first-of-type, .about dd:first-of-type { border-top: 0; }
 .about figure { margin: 0 0 1.4em; }
 .about figure img, .about .plate { display: block; width: 100%; height: auto; border: 1px solid var(--ink); }
-.about .plate { aspect-ratio: 4 / 3; display: grid; place-items: center; background: var(--tint); font: 13px/1.5 var(--type); color: var(--rule-ink); letter-spacing: .02em; }
+.about .plate { aspect-ratio: 4 / 3; display: grid; place-items: center; padding: 16px; text-align: center; background: var(--tint); font: 13px/1.5 var(--type); color: var(--rule-ink); letter-spacing: .02em; }
 .about figcaption { margin-top: 6px; font: 13px/1.5 var(--type); color: var(--rule-ink); }
 .about .foot a { color: var(--ink); }
 @media (min-width: 1000px) {
@@ -205,7 +213,7 @@ dialog .close:hover { color: var(--red); }
   .multi .totals .feederName { display: inline; font: 600 11px/1.3 var(--print); letter-spacing: .14em; text-transform: uppercase; color: var(--rule-ink); margin-right: 10px; }
   .mgrid { min-width: 900px; grid-template-columns: minmax(120px, 140px) repeat(var(--d, 30), minmax(24px, 1fr)) 48px; }
   .mgrid .sp { white-space: normal; font-size: 14px; line-height: 1.3; }
-  .hgrid { grid-template-columns: minmax(120px, 140px) repeat(24, minmax(24px, 1fr)) 48px; min-width: 760px; }
+  .hgrid { grid-template-columns: minmax(120px, 140px) repeat(var(--h, 24), minmax(26px, 1fr)) 64px 48px; min-width: calc(260px + var(--h, 24) * 28px); }
   .scrollhint { display: block; }
   .month { border-right: 1px solid var(--ink); }   /* the cut edge: the sheet goes on past the screen */
   .ledger { grid-template-columns: 1fr 6ch 8ch 8ch; }

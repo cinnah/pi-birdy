@@ -194,6 +194,9 @@
   .chip[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-fg); border-color: var(--sel-bg); }
 
   .group-note { padding: 10px 0 0; max-width: 62ch; }
+  .row .explain.capnote { color: var(--ink); margin-top: 8px; }
+  input[type=checkbox].switch:disabled { cursor: not-allowed; opacity: 1; border-style: dashed; }
+  input[type=checkbox].switch:disabled::before { background: transparent; color: var(--dim); text-decoration: line-through; }
   .action { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 0 4px; }
   .action .hint { margin: 0; }
   .xcam { position: relative; overflow: hidden; margin: 12px 0 4px; background: #050605; touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; }
@@ -494,6 +497,9 @@
       </ol>
       <p>Optional: put the camera in <b>Tv</b> mode and switch on <b>Shutter speed by light</b>, so birds stay sharp when the light changes.</p>
     </details>
+    {% if status.dslr and status.dslr.can_capture == false %}
+    <div class="msg bad" role="status" style="margin: 14px 0 0">{{ xcam.model or 'This camera' }} cannot be fired over USB: it only lets a computer download its photos. birdy cannot use it as the extra camera.</div>
+    {% endif %}
     <div class="row {{ 'error' if error_field == 'dslr_enabled' else '' }}">
       <label for="dslr_enabled">Use {{ xcam.the }}</label>
       <input class="switch" type="checkbox" id="dslr_enabled" name="dslr_enabled" value="on" {{ 'checked' if v['dslr_enabled'] else '' }}>
@@ -501,8 +507,11 @@
     </div>
     <div class="row {{ 'error' if error_field == 'dslr_auto_shutter' else '' }}">
       <label for="dslr_auto_shutter">Shutter speed by light</label>
-      <input class="switch" type="checkbox" id="dslr_auto_shutter" name="dslr_auto_shutter" value="on" {{ 'checked' if v['dslr_auto_shutter'] else '' }}>
+      {% set shutter_cap = status.dslr.shutter if status.dslr else none %}
+      <input class="switch" type="checkbox" id="dslr_auto_shutter" name="dslr_auto_shutter" value="on" {{ 'checked' if (v['dslr_auto_shutter'] and shutter_cap != 'no') else '' }} {{ 'disabled' if shutter_cap == 'no' else '' }}>
       {{ explain("Before each shot, set the fastest shutter speed the light allows (1/500 in good light down to 1/60 at dusk), from the Pi camera's light reading. The camera must be in Tv mode. Off: the speed set on the camera is used.", "dslr.auto_shutter") }}
+      {% if shutter_cap == 'no' %}<p class="explain capnote">{{ xcam.The }} does not offer its shutter speed over USB, so this is off. It uses the speed set on the camera.</p>
+      {% elif shutter_cap == 'mode' %}<p class="explain capnote">Not possible with the camera as it is now: turn its mode dial to Tv (S on some brands), then take a test frame. Until then it uses the speed set on the camera.</p>{% endif %}
     </div>
     <div class="action">
       <button class="btn" type="submit" form="dslr-frame" {{ '' if dslr_available else 'disabled' }}>Take a test frame</button>
