@@ -947,6 +947,39 @@ def test_a_small_bird_is_found_in_a_tile_of_the_dslr_frame(store, live):
     assert c.photo == c.dslr_path
 
 
+class LeafClassifier(StagedClassifier):
+    """An empty frame: a leaf scores just over detector.threshold, whole and in every tile."""
+
+    def locate(self, img):
+        self.located.append(img.shape[:2])
+        return Detection("bird", 0.21, (0.5, 0.5, 0.05, 0.1))
+
+
+def test_a_weak_find_in_an_empty_dslr_frame_does_not_replace_the_pi_photo(store, live):
+    # capture 6077, 2026-11-27: the bird had left, a leaf scored 0.21 and the empty frame became the main photo
+    clf = LeafClassifier()
+    c = run_one(store, live, clf, FakeDslr(), fresh())
+    assert len(clf.located) == 3                      # the tiles were still searched
+    assert c.dslr_box is None and c.photo == c.path and c.dslr_path is not None
+    assert clf.named == [(48, 64)]                    # the species comes from the Pi crop
+
+
+class FaintWholeClassifier(StagedClassifier):
+    """A real small bird: weak in the whole region (below the frame's bar), clear in a tile."""
+
+    def locate(self, img):
+        self.located.append(img.shape[:2])
+        return Detection("bird", 0.3 if len(self.located) == 1 else 0.7, (0.5, 0.5, 0.25, 0.25))
+
+
+def test_a_weak_whole_region_find_is_confirmed_in_the_tiles(store, live):
+    clf = FaintWholeClassifier()
+    c = run_one(store, live, clf, FakeDslr(), fresh())
+    assert len(clf.located) == 3
+    assert c.dslr_box == pytest.approx((0.5 * 0.8, 0.5, 0.25 * 0.8, 0.25))    # the first tile's box
+    assert c.photo == c.dslr_path
+
+
 def test_tiles_are_not_searched_when_the_whole_region_has_the_bird(store, live):
     clf = StagedClassifier()
     run_one(store, live, clf, FakeDslr(), fresh())

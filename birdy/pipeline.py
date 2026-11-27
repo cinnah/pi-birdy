@@ -37,6 +37,11 @@ log = logging.getLogger(__name__)
 BACKLOG_PER_SWEEP = 50
 TICK_INTERVAL = 5.0     # seconds between visit close/alert checks
 FRESH_SECONDS = 10.0   # the DSLR only fires for a Pi photo this recent: never for the backlog or after a restart
+# A bird in the extra camera's frame needs at least this detector score (or detector.threshold
+# when that is higher). Measured 2026-11-27 on the 31 stored frames: the 11 empty ones score at most
+# 0.21 (a leaf, which at 0.2 replaced capture 6077's Pi photo with an empty frame), the 20 with a
+# bird at least 0.61 in their best tile; a real bird can score as low as 0.26 in the whole region.
+DSLR_BIRD_MIN = 0.4
 
 
 @dataclass(frozen=True)
@@ -199,13 +204,14 @@ class Pipeline:
         The whole region first; when that finds nothing, overlapping tiles of it (a small bird
         vanishes when a large region is squeezed into the detector's 320 px), best tile wins."""
         clf = self._classifier
+        bar = max(threshold, DSLR_BIRD_MIN)   # stricter than the Pi crop's: an empty frame must not replace the Pi photo
         det = clf.locate(region_crop(frame, region))
-        if det is not None and det.score >= threshold:
+        if det is not None and det.score >= bar:
             return det.score, box_in_frame(det.box, region)
         best, best_box = 0.0, None
         for tile in search_tiles(frame.shape, region):
             det = clf.locate(region_crop(frame, tile))
-            if det is not None and det.score >= threshold and det.score > best:
+            if det is not None and det.score >= bar and det.score > best:
                 best, best_box = det.score, box_in_frame(det.box, tile)
         return best, best_box
 

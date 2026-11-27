@@ -203,3 +203,10 @@ region first and, when that finds nothing at `detector.threshold`, overlapping s
 13 stored frames: 12 tiles take 2.1 s (only when the whole-region pass fails), the ten empty
 frames score at most 0.15, the missed frame 0.69. A capture's main photo is still fixed at first
 classification, so frames from before this change are not promoted.
+
+Since 2026-11-27 a bird in the DSLR frame needs a score of at least `DSLR_BIRD_MIN = 0.4`
+(`max(detector.threshold, 0.4)`), in the whole region and in the tiles alike: capture 6077's frame
+was empty (the bird had left in the ~1.1 s between the motion trigger and the shutter), a leaf
+scored 0.21 and the empty frame became the main photo. On the 31 frames stored that day the 11
+empty ones score at most 0.21 and the 20 with a bird at least 0.61 in their best tile; four real
+birds score only 0.26-0.39 in the whole region, so those frames now go through the tiles too.
