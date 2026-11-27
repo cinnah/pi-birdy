@@ -46,7 +46,16 @@ The page has no password: anyone on your home network can open it. Do not expose
 cd ~/pi-birdy && git pull && deploy/install.sh && sudo systemctl restart birdy
 ```
 
+Your photos and settings are kept. When an update brings a newer species model, the script
+downloads it (about 310 MB) and birdy renames the older photos with it over the next hour or so.
+
 ## For developers
 
 `CLAUDE.md` describes the architecture, the commands and the conventions; `docs/superpowers/specs/`
 holds the designs. Tests run on any machine: `pip install -e ".[dev]" && pytest`.
+
+## Licence
+
+MIT (`LICENSE`). The models are other people's work under their own licences (MobileNetV2 and
+EfficientDet-Lite0: Apache 2.0; BioCLIP 2: MIT), listed in `models/LICENSE`. Species names and
+the local species lists come from [iNaturalist](https://www.inaturalist.org).

@@ -134,7 +134,7 @@ cooldown_minutes = 30      # live-tunable, >= 0
 - Web: Alerts group renders with the species hint; read-only block says "set"/"not set" and never contains the token string; `POST /settings/test-alert` → 200 banner on success, 502 with description on `TelegramError`, 503 when the notifier is None.
 - Pipeline: live `process` with a species → `consider` called with the right args; backfill never calls it; a `consider` exception is logged and does not mark the row error.
 - CLI: `telegram-chat-id` with a fake `getUpdates` response prints ids; none → exit 1.
-- Pi: deploy; token + chat id already known (chat id 1115872433); enable; test button; show the phone a hoopoe → photo alert.
+- Pi: deploy; token + chat id already known (chat id 123456789); enable; test button; show the phone a hoopoe → photo alert.
 
 ## Implementation notes (as merged)
 

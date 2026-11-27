@@ -14,7 +14,12 @@ classifier sums their probabilities to get P(bird).
 `deploy/build-species-model.sh` (BioCLIP 2, imageomics/bioclip-2, MIT; the image tower
 exported to ONNX and dynamically quantised to int8, ~300 MB; name embeddings for every
 active iNaturalist bird species, ~20 MB, prompt `a photo of {latin} ({common}).`).
-They are gitignored (GitHub size limit) and reach the Pi through `deploy/deploy.sh`.
+They are gitignored (GitHub size limit) and reach the developer's Pi through `deploy/deploy.sh`;
+everyone else's `deploy/install.sh` downloads them from the GitHub release named in
+`SPECIES_RELEASE` (line 1 = the release, then the two files' sha256) and downloads again when a
+file on disk differs. Publishing a new model: `deploy/build-species-model.sh` (rewrites
+`SPECIES_RELEASE` as `models-N+1`), test it with `deploy/deploy.sh`, `deploy/release-models.sh`
+(uploads the release), then commit and push `SPECIES_RELEASE`.
 The bank's `model` field is `bioclip-2/int8/<sha256 prefix of the onnx>`; the service
 refuses a mismatched pair, so rebuild both together. Species are scored zero-shot
 against the site's local list (`data/species/local.json`, see CLAUDE.md), only for

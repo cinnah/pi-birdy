@@ -1154,13 +1154,13 @@ def cmd_telegram_chat_id(config: Config, token_override: str | None) -> int:
 
 - [ ] **Step 1: Docs**. `CLAUDE.md`: architecture bullet for `notify.py` (policy/queue/worker, what triggers, cooldown, never from backfill, token never logged or rendered); the Commands block gains `birdy telegram-chat-id`; a "Bot setup" mini-section (BotFather → token into the Pi's `birdy.toml` → message the bot → `telegram-chat-id` → `enabled = true` → restart → "Send test alert"). Gotcha: `telegram.bot_token` is written back by every settings-page save (so it survives), but must never appear in git/docs/logs. Commit: `git add CLAUDE.md && git commit -m "Docs: Telegram alerts"`.
 
-- [ ] **Step 2: Deploy + enable** (from the Mac; the token and chat id are known to the session — the chat id is `1115872433`; the token is NOT in the repo and is written only to the Pi's `birdy.toml`):
+- [ ] **Step 2: Deploy + enable** (from the Mac; the token and chat id are known to the session — the chat id is `123456789`; the token is NOT in the repo and is written only to the Pi's `birdy.toml`):
 ```bash
 deploy/deploy.sh
 ssh yassine@birdy.local 'cd ~/pi-birdy && .venv/bin/python - <<EOF
 import tomllib, tomli_w, pathlib
 p = pathlib.Path("birdy.toml"); d = tomllib.load(p.open("rb"))
-d.setdefault("telegram", {}).update(enabled=True, bot_token="<TOKEN>", chat_id="1115872433", watchlist=["Eurasian Hoopoe", "Eurasian Blue Tit"])
+d.setdefault("telegram", {}).update(enabled=True, bot_token="<TOKEN>", chat_id="123456789", watchlist=["Eurasian Hoopoe", "Eurasian Blue Tit"])
 p.write_text(tomli_w.dumps(d))
 EOF
 sudo -n systemctl restart birdy'

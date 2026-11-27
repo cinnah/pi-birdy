@@ -237,8 +237,8 @@ def test_telegram_token_hidden_from_repr(tmp_path):
 
 
 def test_telegram_chat_id_accepts_int(tmp_path):
-    cfg = load_config(write(tmp_path, MINIMAL + "\n[telegram]\nchat_id = 1115872433\n"))
-    assert cfg.telegram.chat_id == "1115872433"
+    cfg = load_config(write(tmp_path, MINIMAL + "\n[telegram]\nchat_id = 123456789\n"))
+    assert cfg.telegram.chat_id == "123456789"
 
 
 def test_telegram_base_url_trailing_slash_stripped(tmp_path):
